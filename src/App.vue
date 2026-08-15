@@ -1,5 +1,5 @@
 <script setup>
-// 全局布局壳：导航栏 + 页面内容；键盘监听呼出隐藏的站长登录框
+// 全局布局壳：导航栏 + 页面内容；键盘监听呼出隐藏的登录框
 import { onMounted, onUnmounted, ref } from 'vue'
 import NavBar from './components/NavBar.vue'
 import LoginModal from './components/LoginModal.vue'

@@ -1,6 +1,6 @@
 # 🗓️ AniHub —— Anime · Blog · Wiki
 
-全栈多页面网站：**Anime**（当前档期放送时间表，精确到分钟）+ **Blog**（追番笔记）+ **Wiki**（动漫知识库）。站长账号登录后即可写作，Markdown 编辑，深浅主题按时间自动切换。
+全栈多页面网站：**Anime**（当前档期放送时间表，精确到分钟）+ **Blog**（追番笔记）+ **Wiki**（动漫知识库）。登录后即可写作，Markdown 编辑，深浅主题按时间自动切换。
 
 数据来源为 [AniList](https://anilist.co) 公开 GraphQL API，无需注册或 API Key。
 
@@ -22,7 +22,7 @@
 
 ### 📝 博客（`/blog`）与 📚 Wiki（`/wiki`）
 
-- 站长账号登录后即可发布、编辑、删除文章；未登录只读（个人站，不开放注册）
+- 登录后即可发布、编辑、删除文章；未登录只读（个人站，不开放注册）
 - Markdown 写作（标题、加粗、链接、代码块等），实时预览
 - 标题自动生成中文 URL 别名（slug），冲突自动加 `-2`
 - 支持按关键词搜索标题 / 摘要 / 正文 / 标签，分页浏览
@@ -32,7 +32,7 @@
 ### 🏠 主页（`/`）
 
 - 站名 + 三张导航卡片，点击跳转到日历 / 博客 / Wiki
-- **隐藏登录入口**：界面不显示任何登录按钮，在页面任意位置依次敲击键盘「login」四个字母弹出站长登录框（Esc 或点击遮罩关闭）；已登录显示欢迎语与退出按钮
+- **隐藏登录入口**：界面不显示任何登录按钮，在页面任意位置依次敲击键盘「login」四个字母弹出登录框（Esc 或点击遮罩关闭）；已登录显示欢迎语与退出按钮
 
 ## 环境要求
 
@@ -54,9 +54,9 @@ npm run dev
 
 打开终端 B 显示的地址（默认 <http://localhost:5173>）。开发模式下 Vite 会把 `/api` 请求代理到后端（见 `vite.config.js`）。
 
-首次启动后端会自动创建 `server/anihub.db`（SQLite）并建表，同时按 `server/.env` 中的配置自动创建站长账号（不存在则新建，已存在则同步为当前密码）。
+首次启动后端会自动创建 `server/anihub.db`（SQLite）并建表，同时按 `server/.env` 中的配置自动创建站点账号（不存在则新建，已存在则同步为当前密码）。
 
-**站长账号**（个人站，不开放注册）：编辑 `server/.env` 设置 `ADMIN_USERNAME` / `ADMIN_PASSWORD`，改完重启即生效；未设置时默认 `admin` / `anihub-dev-password`（生产环境务必修改）。
+**站点账号**（个人站，不开放注册）：编辑 `server/.env` 设置 `ADMIN_USERNAME` / `ADMIN_PASSWORD`，改完重启即生效；未设置时默认 `admin` / `anihub-dev-password`（生产环境务必修改）。
 
 ## 生产部署（单端口）
 
@@ -70,7 +70,7 @@ npm start
 
 访问 <http://localhost:3001> 即可，全部功能同一端口。
 
-> 生产环境建议设置环境变量 `JWT_SECRET`（登录令牌签名密钥）与站长密码 `ADMIN_PASSWORD`；不设置则用默认开发值。
+> 生产环境建议设置环境变量 `JWT_SECRET`（登录令牌签名密钥）与登录密码 `ADMIN_PASSWORD`；不设置则用默认开发值。
 
 ## 项目结构
 
@@ -114,7 +114,7 @@ npm start
     │   ├── WikiListView.vue      # /wiki       Wiki 列表
     │   ├── WikiPostView.vue      # /wiki/:slug Wiki 详情
     │   ├── EditView.vue          # 新建/编辑（博客与 Wiki 共用）
-    │   └── LoginView.vue         # 站长登录
+    │   └── LoginView.vue         # 登录
     └── components/
         ├── NavBar.vue            # 全站导航栏（含登录态）
         ├── MarkdownView.vue      # Markdown 渲染（marked + DOMPurify）

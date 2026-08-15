@@ -1,5 +1,5 @@
 <script setup>
-// 站长登录弹窗：由键盘输入 "login" 呼出（见 App.vue），登录成功后关闭
+// 登录弹窗：由键盘输入 "login" 呼出（见 App.vue），登录成功后关闭
 import { nextTick, onMounted, ref } from 'vue'
 import { api } from '../api/http'
 import { useAuth } from '../composables/useAuth'
@@ -39,7 +39,7 @@ async function onSubmit() {
 <template>
   <div class="login-overlay" @click.self="emit('close')">
     <form class="login-card" @submit.prevent="onSubmit">
-      <h1 class="login-title">站长登录</h1>
+      <h1 class="login-title">登录</h1>
       <p v-if="error" class="login-error">{{ error }}</p>
       <label class="field">
         <span>用户名</span>
