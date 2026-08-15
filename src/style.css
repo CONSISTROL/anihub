@@ -2,8 +2,9 @@
 :root,
 :root[data-theme='light'] {
   --bg: #f2f4f9;
-  --panel: #ffffff;
-  --panel-2: #e9ecf3;
+  --panel: rgb(255 255 255 / 0.78); /* 半透明面板：让背景壁纸透出来 */
+  --panel-2: rgb(233 236 243 / 0.72);
+  --overlay-panel: #ffffff; /* 弹窗等需要实底保证可读的层 */
   --border: #d5dae6;
   --text: #1b2030;
   --muted: #6a7284;
@@ -15,8 +16,9 @@
 /* 深色主题 */
 :root[data-theme='dark'] {
   --bg: #0e1015;
-  --panel: #171a22;
-  --panel-2: #1d212c;
+  --panel: rgb(23 26 34 / 0.72);
+  --panel-2: rgb(29 33 44 / 0.66);
+  --overlay-panel: #171a22;
   --border: #262b38;
   --text: #e8eaf0;
   --muted: #8b93a7;

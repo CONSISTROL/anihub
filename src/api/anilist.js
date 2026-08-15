@@ -5,7 +5,7 @@ const ENDPOINT = 'https://graphql.anilist.co'
 
 const PAGE_DELAY = 200 // 分页请求间隔（毫秒），避免连发触发限流
 const CACHE_TTL = 12 * 3600 * 1000 // 缓存有效期：12 小时
-const CACHE_PREFIX = 'anime-calendar:'
+const CACHE_PREFIX = 'anime-calendar:v2:' // v2: 新增 bannerImage / extraLarge 字段
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -55,7 +55,8 @@ async function graphql(query, variables) {
 const ANIME_FIELDS = `
   id
   title { romaji native english }
-  coverImage { medium large }
+  bannerImage
+  coverImage { medium large extraLarge }
   description
   episodes
   averageScore

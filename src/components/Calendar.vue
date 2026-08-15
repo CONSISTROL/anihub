@@ -217,7 +217,7 @@ onUnmounted(() => window.removeEventListener('scroll', hideTooltip))
 }
 
 .day-empty {
-  background: var(--bg);
+  background: color-mix(in srgb, var(--panel) 55%, transparent);
   cursor: default;
 }
 

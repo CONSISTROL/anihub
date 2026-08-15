@@ -127,7 +127,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   width: min(680px, 100%);
   max-height: min(82vh, 760px);
   overflow-y: auto;
-  background: var(--panel);
+  background: var(--overlay-panel); /* 弹窗实底，保证长文可读 */
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 22px;

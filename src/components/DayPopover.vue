@@ -78,7 +78,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   max-height: min(78vh, 640px);
   display: flex;
   flex-direction: column;
-  background: var(--panel);
+  background: var(--overlay-panel); /* 弹层实底，保证列表可读 */
   border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow: 0 24px 64px rgb(0 0 0 / 0.5);
