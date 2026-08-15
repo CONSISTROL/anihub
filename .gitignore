@@ -32,3 +32,8 @@ pnpm-debug.log*
 
 # 本地数据
 *.cache
+
+# SQLite 数据库（含 WAL/SHM 附属文件）
+server/*.db
+server/*.db-wal
+server/*.db-shm
