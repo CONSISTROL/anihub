@@ -1,4 +1,19 @@
-:root {
+/* 浅色主题（默认） */
+:root,
+:root[data-theme='light'] {
+  --bg: #f2f4f9;
+  --panel: #ffffff;
+  --panel-2: #e9ecf3;
+  --border: #d5dae6;
+  --text: #1b2030;
+  --muted: #6a7284;
+  --accent: #4a6cf7;
+  --accent-hover: #3d5ee8;
+  color-scheme: light;
+}
+
+/* 深色主题 */
+:root[data-theme='dark'] {
   --bg: #0e1015;
   --panel: #171a22;
   --panel-2: #1d212c;

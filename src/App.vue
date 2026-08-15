@@ -5,6 +5,8 @@ import WeekView from './components/WeekView.vue'
 import ListView from './components/ListView.vue'
 import SeasonSwitcher from './components/SeasonSwitcher.vue'
 import LanguageSelector from './components/LanguageSelector.vue'
+import ThemeSelector from './components/ThemeSelector.vue'
+import BackgroundWall from './components/BackgroundWall.vue'
 import AnimeDetail from './components/AnimeDetail.vue'
 import { useSeason } from './composables/useSeason'
 import { titleFor } from './utils/titles'
@@ -72,6 +74,7 @@ const selectedEpisodes = computed(() =>
 
 <template>
   <div class="app">
+    <BackgroundWall :media-map="mediaMap" />
     <header class="header">
       <h1 class="logo">🗓️ 动漫日历</h1>
       <div class="header-actions">
@@ -84,6 +87,7 @@ const selectedEpisodes = computed(() =>
           @next="goSeason(1)"
         />
         <LanguageSelector />
+        <ThemeSelector />
       </div>
     </header>
 

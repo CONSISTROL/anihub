@@ -4,6 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%97%93%EF%B8%8F%3C/text%3E%3C/svg%3E" />
+    <script>
+      // 尽早设置主题，避免首屏闪烁（与 src/composables/useTheme.js 同规则）
+      ;(function () {
+        var t = localStorage.getItem('anime-calendar.theme') || 'auto'
+        var h = new Date().getHours()
+        var r = t === 'auto' ? (h >= 6 && h < 18 ? 'light' : 'dark') : t
+        document.documentElement.dataset.theme = r
+      })()
+    </script>
     <title>动漫日历</title>
   </head>
   <body>
