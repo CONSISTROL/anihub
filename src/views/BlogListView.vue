@@ -5,7 +5,7 @@ import PostList from '../components/PostList.vue'
 
 <template>
   <div class="page">
-    <h1 class="page-title">📝 博客</h1>
+    <h1 class="page-title">📝 Blog</h1>
     <PostList category="blog" />
   </div>
 </template>

@@ -77,7 +77,7 @@ const selectedEpisodes = computed(() =>
   <div class="app">
     <AnimeBackground :media-map="mediaMap" />
     <header class="header">
-      <h1 class="logo">🗓️ 动漫日历</h1>
+      <h1 class="logo">🗓️ Anime</h1>
       <div class="header-actions">
         <SeasonSwitcher
           :year="year"

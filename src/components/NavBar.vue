@@ -8,8 +8,8 @@ const { isLoggedIn, user, clearSession } = useAuth()
   <nav class="navbar">
     <router-link to="/" class="brand">AniHub</router-link>
     <div class="links">
-      <router-link to="/calendar">动漫日历</router-link>
-      <router-link to="/blog">博客</router-link>
+      <router-link to="/anime">Anime</router-link>
+      <router-link to="/blog">Blog</router-link>
       <router-link to="/wiki">Wiki</router-link>
     </div>
     <div class="user-area">

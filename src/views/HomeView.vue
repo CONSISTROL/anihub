@@ -6,15 +6,15 @@ const { isLoggedIn, user } = useAuth()
 
 const SECTIONS = [
   {
-    to: '/calendar',
+    to: '/anime',
     icon: '🗓️',
-    title: '动漫日历',
+    title: 'Anime',
     desc: '当前档期新番放送时间表，精确到分钟。周历 / 月历 / 列表三种视图，支持中文标题与深浅主题。',
   },
   {
     to: '/blog',
     icon: '📝',
-    title: '博客',
+    title: 'Blog',
     desc: '记录追番心得、推荐与杂谈。注册即可发布文章，支持 Markdown 排版。',
   },
   {

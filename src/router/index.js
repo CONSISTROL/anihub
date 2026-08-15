@@ -16,7 +16,7 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', name: 'home', component: HomeView },
-    { path: '/calendar', name: 'calendar', component: CalendarView },
+    { path: '/anime', name: 'anime', component: CalendarView },
     { path: '/blog', name: 'blog', component: BlogListView },
     { path: '/blog/new', name: 'blog-new', component: EditView, props: { category: 'blog' }, meta: { auth: true } },
     { path: '/blog/:slug', name: 'blog-post', component: BlogPostView, props: true },

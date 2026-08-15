@@ -1,12 +1,12 @@
-# 🗓️ AniHub —— 动漫日历 · 博客 · Wiki
+# 🗓️ AniHub —— Anime · Blog · Wiki
 
-全栈多页面网站：**动漫日历**（当前档期放送时间表，精确到分钟）+ **博客**（追番笔记）+ **Wiki**（动漫知识库）。支持注册登录、Markdown 编辑、多用户发布，深浅主题按时间自动切换。
+全栈多页面网站：**Anime**（当前档期放送时间表，精确到分钟）+ **Blog**（追番笔记）+ **Wiki**（动漫知识库）。支持注册登录、Markdown 编辑、多用户发布，深浅主题按时间自动切换。
 
 数据来源为 [AniList](https://anilist.co) 公开 GraphQL API，无需注册或 API Key。
 
 ## 功能
 
-### 🗓️ 动漫日历（`/calendar`）
+### 🗓️ Anime（`/anime`）
 
 - **周历视图（默认）**：一次显示一周，7 个等宽大格子，当天所有放送**全部直接显示**（海报 + 标题 + 第 N 话 + 精确时间），不折叠不省略；今天高亮，可前后翻周（范围限制在当前档期覆盖的周内）
 - **月历视图**：整月总览，不同番剧用不同颜色区分，所有条目同样完整显示，带小封面
@@ -106,7 +106,7 @@ npm start
     │   └── zhDescriptions.js     # 中文简介映射表
     ├── views/
     │   ├── HomeView.vue          # /           导航卡片主页
-    │   ├── CalendarView.vue      # /calendar   动漫日历
+    │   ├── CalendarView.vue      # /anime      Anime 日历
     │   ├── BlogListView.vue      # /blog       博客列表
     │   ├── BlogPostView.vue      # /blog/:slug 博客详情
     │   ├── WikiListView.vue      # /wiki       Wiki 列表
