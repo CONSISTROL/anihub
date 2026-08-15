@@ -13,6 +13,7 @@ const username = ref('')
 const password = ref('')
 const error = ref('')
 const busy = ref(false)
+const showPassword = ref(false)
 
 async function onSubmit() {
   error.value = ''
@@ -44,7 +45,22 @@ async function onSubmit() {
       </label>
       <label class="field">
         <span>密码</span>
-        <input v-model="password" type="password" required autocomplete="current-password" />
+        <div class="pwd-wrap">
+          <input
+            v-model="password"
+            :type="showPassword ? 'text' : 'password'"
+            required
+            autocomplete="current-password"
+          />
+          <button
+            type="button"
+            class="pwd-toggle"
+            :title="showPassword ? '隐藏密码' : '显示密码'"
+            @click="showPassword = !showPassword"
+          >
+            {{ showPassword ? '🙈' : '👁️' }}
+          </button>
+        </div>
       </label>
       <button class="btn btn-primary btn-block" :disabled="busy">
         {{ busy ? '登录中…' : '登录' }}
@@ -107,6 +123,34 @@ async function onSubmit() {
 
 .field input:focus {
   border-color: var(--accent);
+}
+
+/* 密码明文切换：眼睛按钮固定在输入框右侧 */
+.pwd-wrap {
+  position: relative;
+}
+
+.pwd-wrap input {
+  width: 100%;
+  padding-right: 38px;
+}
+
+.pwd-toggle {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  opacity: 0.55;
+}
+
+.pwd-toggle:hover {
+  opacity: 1;
 }
 
 .btn-block {
