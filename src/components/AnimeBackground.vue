@@ -5,7 +5,7 @@ const props = defineProps({ mediaMap: { type: Map, required: true } })
 
 // 本地壁纸候选：放进 public/ 的图在这里登记即可，每次进入随机选一张。
 // 用绑定字符串引用，避免 Vite 构建时把 public 资源当模块解析
-const LOCAL_WALLPAPERS = ['/bg1.webp', '/bg2.png']
+const LOCAL_WALLPAPERS = ['/bg1.jpg', '/bg2.jpg']
 const localFailed = ref(false)
 const localIdx = ref(Math.floor(Math.random() * LOCAL_WALLPAPERS.length))
 
