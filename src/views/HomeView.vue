@@ -1,29 +1,40 @@
 <script setup>
-// 网站主页：功能导航卡片
+// 网站主页：功能导航卡片（游客只看到允许访问的卡片）
+import { computed } from 'vue'
 import { useAuth } from '../composables/useAuth'
+import { useSettings } from '../composables/useSettings'
 
 const { isLoggedIn, user } = useAuth()
+const settings = useSettings()
+if (!isLoggedIn.value) settings.load()
 
 const SECTIONS = [
   {
     to: '/anime',
+    page: 'anime',
     icon: '🗓️',
     title: 'Anime',
     desc: '当前档期新番放送时间表，精确到分钟。周历 / 月历 / 列表三种视图，支持中文标题与深浅主题。',
   },
   {
     to: '/blog',
+    page: 'blog',
     icon: '📝',
     title: 'Blog',
-    desc: '记录追番心得、推荐与杂谈。注册即可发布文章，支持 Markdown 排版。',
+    desc: '记录追番心得、推荐与杂谈。登录后即可发布文章，支持 Markdown 排版。',
   },
   {
     to: '/wiki',
+    page: 'wiki',
     icon: '📚',
     title: 'Wiki',
-    desc: '共同维护的动漫知识库：动画作品、术语、API 指南……人人可编辑。',
+    desc: '共同维护的动漫知识库：动画作品、术语、API 指南……登录后可编辑。',
   },
 ]
+
+const visibleSections = computed(() =>
+  isLoggedIn.value ? SECTIONS : SECTIONS.filter((s) => settings.isGuestVisible(s.page))
+)
 </script>
 
 <template>
@@ -37,7 +48,7 @@ const SECTIONS = [
     </section>
 
     <section class="cards">
-      <router-link v-for="s in SECTIONS" :key="s.to" :to="s.to" class="card">
+      <router-link v-for="s in visibleSections" :key="s.to" :to="s.to" class="card">
         <span class="card-icon">{{ s.icon }}</span>
         <h2 class="card-title">{{ s.title }}</h2>
         <p class="card-desc">{{ s.desc }}</p>

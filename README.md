@@ -31,8 +31,12 @@
 
 ### 🏠 主页（`/`）
 
-- 站名 + 三张导航卡片，点击跳转到日历 / 博客 / Wiki
-- **隐藏登录入口**：界面不显示任何登录按钮，在页面任意位置依次敲击键盘「login」四个字母弹出登录框（Esc 或点击遮罩关闭）；已登录显示欢迎语与退出按钮
+- 站名 + 三张导航卡片，点击跳转到日历 / 博客 / Wiki（卡片按游客可见设置自动隐藏）
+
+### ⚙️ 设置（`/settings`，登录后）
+
+- **页面访问权限**：勾选哪些页面允许游客（未登录）查看；未勾选的页面游客直接访问会被送回主页，导航栏与主页卡片同步隐藏，登录后不受限制、全部恢复
+- **隐藏登录入口**：界面不显示任何登录按钮，在页面任意位置依次敲击键盘「login」四个字母弹出登录框（Esc 或点击遮罩关闭）；已登录右上角显示固定欢迎语 **Ciallo ～(∠・ω< )⌒★!** 以及 设置 / 退出 按钮
 
 ## 环境要求
 
@@ -84,6 +88,7 @@ npm start
 │   ├── config.js                 # PORT / JWT_SECRET（读环境变量）
 │   ├── routes/auth.js            # 登录 / 获取当前用户
 │   ├── routes/posts.js           # 文章 CRUD（列表/详情/新建/编辑/删除，作者校验）
+│   ├── routes/settings.js        # 站点设置（游客可见页面）
 │   ├── middleware/auth.js        # JWT 鉴权：authRequired / optionalAuth
 │   └── lib/                      # slugify（保留中文）、validate
 └── src/
@@ -94,12 +99,14 @@ npm start
     ├── api/
     │   ├── http.js               # fetch 封装（/api 前缀、Bearer、401 自动登出）
     │   ├── posts.js              # 文章接口
+    │   ├── settings.js           # 设置接口
     │   └── anilist.js            # AniList GraphQL 封装与缓存
     ├── composables/
     │   ├── useAuth.js            # 登录状态（token + 用户，localStorage 持久化）
     │   ├── useSeason.js          # 档期状态：加载数据、切档、翻月
     │   ├── useLanguage.js        # 显示语言状态（默认中文，持久化）
-    │   └── useTheme.js           # 主题状态：浅色/深色/按时间自动
+    │   ├── useTheme.js           # 主题状态：浅色/深色/按时间自动
+    │   └── useSettings.js        # 站点设置状态（游客可见页面，全局单例）
     ├── utils/
     │   ├── date.js               # 档期映射、日历网格、时间格式化
     │   └── titles.js             # 按语言解析标题（titleFor）
@@ -114,7 +121,8 @@ npm start
     │   ├── WikiListView.vue      # /wiki       Wiki 列表
     │   ├── WikiPostView.vue      # /wiki/:slug Wiki 详情
     │   ├── EditView.vue          # 新建/编辑（博客与 Wiki 共用）
-    │   └── LoginView.vue         # 登录
+    │   ├── LoginView.vue         # 登录
+    │   └── SettingsView.vue      # /settings 设置（页面访问权限）
     └── components/
         ├── NavBar.vue            # 全站导航栏（含登录态）
         ├── MarkdownView.vue      # Markdown 渲染（marked + DOMPurify）

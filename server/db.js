@@ -31,6 +31,11 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_posts_cat_created ON posts(category, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_posts_author ON posts(author_id);
+
+  CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
 `)
 
 // 个人站：启动时确保站长账号存在，密码以 .env 为准（改动后重启即生效）

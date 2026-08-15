@@ -5,12 +5,14 @@ import fs from 'node:fs'
 import { PORT } from './config.js'
 import authRouter from './routes/auth.js'
 import postsRouter from './routes/posts.js'
+import settingsRouter from './routes/settings.js'
 
 const app = express()
 app.use(express.json({ limit: '2mb' }))
 
 app.use('/api/auth', authRouter)
 app.use('/api/posts', postsRouter)
+app.use('/api/settings', settingsRouter)
 
 // /api 下未匹配的路径返回 JSON 404，不能落到 SPA fallback
 app.use('/api', (req, res) =>

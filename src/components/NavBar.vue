@@ -1,20 +1,36 @@
 <script setup>
+import { computed } from 'vue'
 import { useAuth } from '../composables/useAuth'
+import { useSettings } from '../composables/useSettings'
 
 const { isLoggedIn, user, clearSession } = useAuth()
+const settings = useSettings()
+settings.load() // 预加载游客可见页面（单例，守卫/主页共用）
+
+const ALL_LINKS = [
+  { to: '/anime', label: 'Anime', page: 'anime' },
+  { to: '/blog', label: 'Blog', page: 'blog' },
+  { to: '/wiki', label: 'Wiki', page: 'wiki' },
+]
+
+// 未登录时只显示允许游客访问的页面链接
+const links = computed(() =>
+  isLoggedIn.value ? ALL_LINKS : ALL_LINKS.filter((l) => settings.isGuestVisible(l.page))
+)
+
+const WELCOME = 'Ciallo ～(∠・ω< )⌒★!'
 </script>
 
 <template>
   <nav class="navbar">
     <router-link to="/" class="brand">AniHub</router-link>
     <div class="links">
-      <router-link to="/anime">Anime</router-link>
-      <router-link to="/blog">Blog</router-link>
-      <router-link to="/wiki">Wiki</router-link>
+      <router-link v-for="l in links" :key="l.to" :to="l.to">{{ l.label }}</router-link>
     </div>
     <div class="user-area">
       <template v-if="isLoggedIn">
-        <span class="username">{{ user?.username }}</span>
+        <span class="username">{{ WELCOME }}</span>
+        <router-link to="/settings" class="btn btn-sm">设置</router-link>
         <button class="btn btn-sm" @click="clearSession">退出</button>
       </template>
     </div>
