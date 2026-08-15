@@ -2,6 +2,8 @@
 import { computed, onMounted, onUnmounted } from 'vue'
 import { fmtDate, fmtTime } from '../utils/date'
 import { titleFor } from '../utils/titles'
+import { lang } from '../composables/useLanguage'
+import { ZH_DESCRIPTIONS } from '../data/zhDescriptions'
 
 const props = defineProps({
   media: { type: Object, default: null },
@@ -32,6 +34,11 @@ const displayTitle = computed(() => titleFor(props.media) || '未知标题')
 const studio = computed(() => props.media?.studios?.nodes?.[0]?.name)
 
 const description = computed(() => {
+  // 语言为中文时优先显示本地维护的中文简介，未收录则回退 AniList 原文
+  if (lang.value === 'zh') {
+    const zh = ZH_DESCRIPTIONS[props.media?.id]
+    if (zh) return zh
+  }
   const raw = props.media?.description
   if (!raw) return ''
   // AniList 简介是 HTML，去掉标签后保留换行
