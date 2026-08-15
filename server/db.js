@@ -1,6 +1,8 @@
 // SQLite 连接与建表（node:sqlite，Node ≥ 23.4 内置，无需外部依赖）
 import { DatabaseSync } from 'node:sqlite'
 import path from 'node:path'
+import bcrypt from 'bcryptjs'
+import { ADMIN_USERNAME, ADMIN_PASSWORD } from './config.js'
 
 const db = new DatabaseSync(path.join(import.meta.dirname, 'anihub.db'))
 
@@ -30,5 +32,16 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_posts_cat_created ON posts(category, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_posts_author ON posts(author_id);
 `)
+
+// 个人站：启动时确保站长账号存在，密码以 .env 为准（改动后重启即生效）
+const adminHash = bcrypt.hashSync(ADMIN_PASSWORD, 10)
+const admin = db
+  .prepare('SELECT id FROM users WHERE username = ? COLLATE NOCASE')
+  .get(ADMIN_USERNAME)
+if (admin) {
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(adminHash, admin.id)
+} else {
+  db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)').run(ADMIN_USERNAME, adminHash)
+}
 
 export default db

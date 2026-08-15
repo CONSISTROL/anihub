@@ -1,6 +1,6 @@
 # 🗓️ AniHub —— Anime · Blog · Wiki
 
-全栈多页面网站：**Anime**（当前档期放送时间表，精确到分钟）+ **Blog**（追番笔记）+ **Wiki**（动漫知识库）。支持注册登录、Markdown 编辑、多用户发布，深浅主题按时间自动切换。
+全栈多页面网站：**Anime**（当前档期放送时间表，精确到分钟）+ **Blog**（追番笔记）+ **Wiki**（动漫知识库）。站长账号登录后即可写作，Markdown 编辑，深浅主题按时间自动切换。
 
 数据来源为 [AniList](https://anilist.co) 公开 GraphQL API，无需注册或 API Key。
 
@@ -22,7 +22,7 @@
 
 ### 📝 博客（`/blog`）与 📚 Wiki（`/wiki`）
 
-- 注册 / 登录后即可发布、编辑、删除自己的文章；未登录只读
+- 站长账号登录后即可发布、编辑、删除文章；未登录只读（个人站，不开放注册）
 - Markdown 写作（标题、加粗、链接、代码块等），实时预览
 - 标题自动生成中文 URL 别名（slug），冲突自动加 `-2`
 - 支持按关键词搜索标题 / 摘要 / 正文 / 标签，分页浏览
@@ -32,7 +32,7 @@
 ### 🏠 主页（`/`）
 
 - 站名 + 三张导航卡片，点击跳转到日历 / 博客 / Wiki
-- 未登录显示注册/登录按钮，已登录显示欢迎语
+- **隐藏登录入口**：界面不显示任何登录按钮，未登录时点击站点 logo「AniHub」进入登录页；已登录显示欢迎语与退出按钮
 
 ## 环境要求
 
@@ -54,7 +54,9 @@ npm run dev
 
 打开终端 B 显示的地址（默认 <http://localhost:5173>）。开发模式下 Vite 会把 `/api` 请求代理到后端（见 `vite.config.js`）。
 
-首次启动后端会自动创建 `server/anihub.db`（SQLite）并建表。
+首次启动后端会自动创建 `server/anihub.db`（SQLite）并建表，同时按 `server/.env` 中的配置自动创建站长账号（不存在则新建，已存在则同步为当前密码）。
+
+**站长账号**（个人站，不开放注册）：编辑 `server/.env` 设置 `ADMIN_USERNAME` / `ADMIN_PASSWORD`，改完重启即生效；未设置时默认 `admin` / `anihub-dev-password`（生产环境务必修改）。
 
 ## 生产部署（单端口）
 
@@ -68,7 +70,7 @@ npm start
 
 访问 <http://localhost:3001> 即可，全部功能同一端口。
 
-> 生产环境建议设置环境变量 `JWT_SECRET`（登录令牌签名密钥）；不设置则用默认开发密钥。
+> 生产环境建议设置环境变量 `JWT_SECRET`（登录令牌签名密钥）与站长密码 `ADMIN_PASSWORD`；不设置则用默认开发值。
 
 ## 项目结构
 
@@ -80,7 +82,7 @@ npm start
 │   ├── index.js                  # 装配：JSON → API 路由 → 静态托管 dist/ → SPA fallback
 │   ├── db.js                     # node:sqlite 连接 + users/posts 建表（WAL）
 │   ├── config.js                 # PORT / JWT_SECRET（读环境变量）
-│   ├── routes/auth.js            # 注册 / 登录 / 获取当前用户
+│   ├── routes/auth.js            # 登录 / 获取当前用户
 │   ├── routes/posts.js           # 文章 CRUD（列表/详情/新建/编辑/删除，作者校验）
 │   ├── middleware/auth.js        # JWT 鉴权：authRequired / optionalAuth
 │   └── lib/                      # slugify（保留中文）、validate
@@ -112,8 +114,7 @@ npm start
     │   ├── WikiListView.vue      # /wiki       Wiki 列表
     │   ├── WikiPostView.vue      # /wiki/:slug Wiki 详情
     │   ├── EditView.vue          # 新建/编辑（博客与 Wiki 共用）
-    │   ├── LoginView.vue         # 登录
-    │   └── RegisterView.vue      # 注册
+    │   └── LoginView.vue         # 站长登录
     └── components/
         ├── NavBar.vue            # 全站导航栏（含登录态）
         ├── MarkdownView.vue      # Markdown 渲染（marked + DOMPurify）

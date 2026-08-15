@@ -1,20 +1,4 @@
-// 输入校验：返回错误消息或 null（用户名 3-20 字符；密码 6-72 字节，bcrypt 上限）
-export const USERNAME_RE = /^[\p{Letter}\p{Number}_-]{3,20}$/u
-
-export function validateUsername(username) {
-  if (typeof username !== 'string' || !USERNAME_RE.test(username))
-    return '用户名需为 3-20 个字母、数字、下划线或连字符'
-  return null
-}
-
-export function validatePassword(password) {
-  if (typeof password !== 'string' || password.length < 6)
-    return '密码至少 6 个字符'
-  if (Buffer.byteLength(password, 'utf8') > 72)
-    return '密码过长（最多 72 字节）'
-  return null
-}
-
+// 输入校验：返回错误消息或 null（个人站无注册，站长账号密码由 .env 管理，无需该校验）
 export function validateCategory(category) {
   if (!['blog', 'wiki'].includes(category)) return 'category 需为 blog 或 wiki'
   return null

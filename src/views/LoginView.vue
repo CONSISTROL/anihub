@@ -49,9 +49,7 @@ async function onSubmit() {
       <button class="btn btn-primary btn-block" :disabled="busy">
         {{ busy ? '登录中…' : '登录' }}
       </button>
-      <p class="auth-switch">
-        还没有账号？<router-link to="/register">去注册</router-link>
-      </p>
+      <p class="auth-switch">仅站长账号可登录（未开放注册）</p>
     </form>
   </div>
 </template>

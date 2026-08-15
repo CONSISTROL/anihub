@@ -1,10 +1,9 @@
-// 认证路由：注册 / 登录 / 当前用户
+// 认证路由：登录 / 当前用户（个人站，注册已移除，账号由 db.js 自动创建）
 import { Router } from 'express'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import db from '../db.js'
 import { JWT_SECRET, JWT_EXPIRES_IN } from '../config.js'
-import { validateUsername, validatePassword } from '../lib/validate.js'
 import { authRequired } from '../middleware/auth.js'
 
 const router = Router()
@@ -18,25 +17,6 @@ function signToken(user) {
     expiresIn: JWT_EXPIRES_IN,
   })
 }
-
-router.post('/register', async (req, res) => {
-  const { username, password } = req.body || {}
-  const err = validateUsername(username) || validatePassword(password)
-  if (err) {
-    return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: err } })
-  }
-  const exists = db.prepare('SELECT id FROM users WHERE username = ?').get(username)
-  if (exists) {
-    return res.status(409).json({ error: { code: 'CONFLICT', message: '用户名已被占用' } })
-  }
-  const hash = bcrypt.hashSync(password, 10)
-  const r = db
-    .prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)')
-    .run(username, hash)
-  const row = db.prepare('SELECT * FROM users WHERE id = ?').get(Number(r.lastInsertRowid))
-  const user = publicUser(row)
-  res.status(201).json({ token: signToken(user), user })
-})
 
 router.post('/login', (req, res) => {
   const { username, password } = req.body || {}

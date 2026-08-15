@@ -1,12 +1,19 @@
 <script setup>
+import { useRouter } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
 
+const router = useRouter()
 const { isLoggedIn, user, clearSession } = useAuth()
+
+// 隐藏登录入口：未登录时点击站点 logo 进入登录页
+function onBrandClick() {
+  if (!isLoggedIn.value) router.push('/login')
+}
 </script>
 
 <template>
   <nav class="navbar">
-    <router-link to="/" class="brand">AniHub</router-link>
+    <router-link to="/" class="brand" @click.prevent="onBrandClick">AniHub</router-link>
     <div class="links">
       <router-link to="/anime">Anime</router-link>
       <router-link to="/blog">Blog</router-link>
@@ -16,10 +23,6 @@ const { isLoggedIn, user, clearSession } = useAuth()
       <template v-if="isLoggedIn">
         <span class="username">{{ user?.username }}</span>
         <button class="btn btn-sm" @click="clearSession">退出</button>
-      </template>
-      <template v-else>
-        <router-link to="/login" class="btn btn-sm">登录</router-link>
-        <router-link to="/register" class="btn btn-sm btn-primary">注册</router-link>
       </template>
     </div>
   </nav>

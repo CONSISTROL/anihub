@@ -34,10 +34,6 @@ const SECTIONS = [
       <p class="welcome" v-if="isLoggedIn">
         欢迎回来，{{ user?.username }} 👋
       </p>
-      <div class="hero-actions" v-else>
-        <router-link to="/register" class="btn btn-primary">注册</router-link>
-        <router-link to="/login" class="btn">登录</router-link>
-      </div>
     </section>
 
     <section class="cards">
@@ -88,13 +84,6 @@ const SECTIONS = [
   margin: 14px 0 0;
   font-size: 14px;
   color: var(--muted);
-}
-
-.hero-actions {
-  margin-top: 18px;
-  display: flex;
-  justify-content: center;
-  gap: 10px;
 }
 
 .cards {

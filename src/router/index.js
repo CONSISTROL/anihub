@@ -10,7 +10,6 @@ import WikiListView from '../views/WikiListView.vue'
 import WikiPostView from '../views/WikiPostView.vue'
 import EditView from '../views/EditView.vue'
 import LoginView from '../views/LoginView.vue'
-import RegisterView from '../views/RegisterView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -26,7 +25,6 @@ const router = createRouter({
     { path: '/wiki/:slug', name: 'wiki-post', component: WikiPostView, props: true },
     { path: '/wiki/:slug/edit', name: 'wiki-edit', component: EditView, props: { category: 'wiki' }, meta: { auth: true } },
     { path: '/login', name: 'login', component: LoginView },
-    { path: '/register', name: 'register', component: RegisterView },
     // 兜底：未知路径回主页
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
