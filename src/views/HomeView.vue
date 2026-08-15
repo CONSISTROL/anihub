@@ -4,7 +4,7 @@ import { computed } from 'vue'
 import { useAuth } from '../composables/useAuth'
 import { useSettings } from '../composables/useSettings'
 
-const { isLoggedIn, user } = useAuth()
+const { isLoggedIn } = useAuth()
 const settings = useSettings()
 if (!isLoggedIn.value) settings.load()
 
@@ -42,9 +42,6 @@ const visibleSections = computed(() =>
     <section class="hero">
       <h1 class="site-name">AniHub</h1>
       <p class="slogan">番剧时间表 · 追番笔记 · 动漫知识库</p>
-      <p class="welcome" v-if="isLoggedIn">
-        欢迎回来，{{ user?.username }} 👋
-      </p>
     </section>
 
     <section class="cards">
@@ -55,11 +52,6 @@ const visibleSections = computed(() =>
         <span class="card-go">进入 →</span>
       </router-link>
     </section>
-
-    <footer class="home-footer">
-      数据来源：<a href="https://anilist.co" target="_blank" rel="noreferrer">AniList</a>
-      · 时间为本地时区显示
-    </footer>
   </div>
 </template>
 
@@ -88,12 +80,6 @@ const visibleSections = computed(() =>
 .slogan {
   margin: 10px 0 0;
   font-size: 16px;
-  color: var(--muted);
-}
-
-.welcome {
-  margin: 14px 0 0;
-  font-size: 14px;
   color: var(--muted);
 }
 
@@ -144,17 +130,5 @@ const visibleSections = computed(() =>
   font-size: 13px;
   color: var(--accent);
   font-weight: 600;
-}
-
-.home-footer {
-  margin-top: 40px;
-  text-align: center;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.home-footer a {
-  color: var(--accent);
-  text-decoration: none;
 }
 </style>
