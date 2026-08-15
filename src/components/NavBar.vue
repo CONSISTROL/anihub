@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useAuth } from '../composables/useAuth'
 import { useSettings } from '../composables/useSettings'
+import ThemeSelector from './ThemeSelector.vue'
 
 const { isLoggedIn, user, clearSession } = useAuth()
 const settings = useSettings()
@@ -34,6 +35,7 @@ const WELCOME = 'Ciallo ～(∠・ω< )⌒★!'
         <button class="btn btn-sm" @click="clearSession">退出</button>
       </template>
     </div>
+    <ThemeSelector />
   </nav>
 </template>
 

@@ -6,7 +6,6 @@ import WeekView from '../components/WeekView.vue'
 import ListView from '../components/ListView.vue'
 import SeasonSwitcher from '../components/SeasonSwitcher.vue'
 import LanguageSelector from '../components/LanguageSelector.vue'
-import ThemeSelector from '../components/ThemeSelector.vue'
 import AnimeBackground from '../components/AnimeBackground.vue'
 import AnimeDetail from '../components/AnimeDetail.vue'
 import { useSeason } from '../composables/useSeason'
@@ -88,7 +87,6 @@ const selectedEpisodes = computed(() =>
           @next="goSeason(1)"
         />
         <LanguageSelector />
-        <ThemeSelector />
       </div>
     </header>
 
