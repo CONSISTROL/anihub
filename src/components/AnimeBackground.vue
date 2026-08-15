@@ -1,19 +1,39 @@
 <script setup>
-import { computed, ref } from 'vue'
+// Anime 页背景：从服务端壁纸目录列表随机选一张展示。
+// 图片放在 public/wallpapers/（或 WALLPAPER_DIR 指向的目录）即可，
+// 无需登记；单张加载失败自动换下一张，全部失败回退到 AniList 横幅图
+import { computed, onMounted, ref } from 'vue'
+import { api } from '../api/http'
 
 const props = defineProps({ mediaMap: { type: Map, required: true } })
 
-// 本地壁纸候选：放进 public/ 的图在这里登记即可，每次进入随机选一张。
-// 用绑定字符串引用，避免 Vite 构建时把 public 资源当模块解析
-const LOCAL_WALLPAPERS = ['/bg1.jpg', '/bg2.jpg']
-const localFailed = ref(false)
-const localIdx = ref(Math.floor(Math.random() * LOCAL_WALLPAPERS.length))
+const images = ref([]) // 壁纸 URL 列表（服务端实时扫描目录）
+const currentIdx = ref(-1)
+const allFailed = ref(false)
+const failedIdxs = new Set() // 已加载失败的序号，避免反复试同一张
 
-// 当前本地图加载失败：换下一张，全部失败后回退到 AniList 横幅图
-function nextLocal() {
-  localIdx.value += 1
-  if (localIdx.value >= LOCAL_WALLPAPERS.length) localFailed.value = true
+function pickNext() {
+  const candidates = images.value.map((_, i) => i).filter((i) => !failedIdxs.has(i))
+  if (!candidates.length) {
+    allFailed.value = true
+    return
+  }
+  currentIdx.value = candidates[Math.floor(Math.random() * candidates.length)]
 }
+
+function onImgError() {
+  if (currentIdx.value >= 0) failedIdxs.add(currentIdx.value)
+  pickNext()
+}
+
+onMounted(async () => {
+  try {
+    images.value = (await api('/wallpapers')).images || []
+  } catch {
+    // 接口不可用视为空列表，走 AniList 回退
+  }
+  pickNext()
+})
 
 // 封面 URL 里 AniList 可能只给 medium/large 桶，这里强制换成 extra_large 原图桶
 function hdCover(m) {
@@ -31,19 +51,15 @@ const fallbackSrc = computed(() => {
   }
   return ''
 })
-
-const src = computed(() =>
-  localFailed.value ? fallbackSrc.value : LOCAL_WALLPAPERS[localIdx.value]
-)
 </script>
 
 <template>
   <div class="bg-anime" aria-hidden="true">
     <img
-      v-if="!localFailed"
-      :src="src"
+      v-if="!allFailed && images[currentIdx]"
+      :src="images[currentIdx]"
       alt=""
-      @error="nextLocal"
+      @error="onImgError"
     />
     <img
       v-else-if="fallbackSrc"

@@ -14,7 +14,7 @@
 - **档期切换**：上一档 / 下一档 / 一键回到当前档期（如 2026 夏季 → 2026 春季），回到当前档期时自动跳到本周
 - **语言选择**：动画名支持 中文（默认）/ 日本語 / English / 罗马音 四种显示；语言为中文时详情简介也显示中文，选择会记住（localStorage）
 - **主题切换**：浅色 / 深色 / 自动（按时间，6:00–18:00 浅色、其余深色），右上角切换，选择会记住
-- **二次元背景**：浅透明二次元美少女图垫底（每次进入随机选一张 `public/` 下的壁纸，默认内置 bg1/bg2，可在 [AnimeBackground.vue](src/components/AnimeBackground.vue) 的 `LOCAL_WALLPAPERS` 数组里登记更多；无本地图时自动回退到档期动画的横版高清横幅图约 1900px）
+- **二次元背景**：浅透明二次元美少女图垫底，**自动扫描壁纸目录随机展示**——把任意数量的图片放进 `public/wallpapers/` 即可（PNG / JPG / WebP / GIF），每次进入随机选一张、加载失败自动换下一张，新增图片无需任何登记；也可用环境变量 `WALLPAPER_DIR` 指向其他目录（绝对路径）。无可用图片时自动回退到档期动画的横版高清横幅图（约 1900px）
 - **动漫详情**：点击任意条目弹出详情——封面、多语言标题、连载状态、类型、集数、评分、制作公司、简介，以及按日期分组的完整放送时间表
 - **悬浮提示**：鼠标悬停日历标签显示完整标题 + **大封面预览**（72×102）+ 精确时间
 - **当日弹层**：月历视图点击日期格弹出当天完整放送列表（大封面 + 完整标题）
@@ -92,6 +92,7 @@ npm start
 │   ├── routes/posts.js           # 文章 CRUD（列表/详情/新建/编辑/删除，作者校验）
 │   ├── routes/settings.js        # 站点设置（游客可见页面）
 │   ├── routes/upload.js          # 图片上传（PNG/JPG/WebP/GIF → server/uploads/）
+│   ├── routes/wallpapers.js      # 壁纸目录扫描（GET /api/wallpapers → 图片 URL 列表）
 │   ├── uploads/                  # 上传的图片（gitignore，运行时生成）
 │   ├── middleware/auth.js        # JWT 鉴权：authRequired / optionalAuth
 │   └── lib/                      # slugify（保留中文）、validate
