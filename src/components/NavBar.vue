@@ -1,19 +1,12 @@
 <script setup>
-import { useRouter } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
 
-const router = useRouter()
 const { isLoggedIn, user, clearSession } = useAuth()
-
-// 隐藏登录入口：未登录时点击站点 logo 进入登录页
-function onBrandClick() {
-  if (!isLoggedIn.value) router.push('/login')
-}
 </script>
 
 <template>
   <nav class="navbar">
-    <router-link to="/" class="brand" @click.prevent="onBrandClick">AniHub</router-link>
+    <router-link to="/" class="brand">AniHub</router-link>
     <div class="links">
       <router-link to="/anime">Anime</router-link>
       <router-link to="/blog">Blog</router-link>

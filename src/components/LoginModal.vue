@@ -1,12 +1,10 @@
 <script setup>
-// 登录页：成功后按 redirect 参数跳回
+// 站长登录弹窗：由键盘输入 "login" 呼出（见 App.vue），登录成功后关闭
 import { ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api/http'
 import { useAuth } from '../composables/useAuth'
 
-const route = useRoute()
-const router = useRouter()
+const emit = defineEmits(['close'])
 const { setSession } = useAuth()
 
 const username = ref('')
@@ -24,7 +22,7 @@ async function onSubmit() {
       auth: false,
     })
     setSession(data.token, data.user)
-    router.replace(route.query.redirect || '/')
+    emit('close')
   } catch (e) {
     error.value = e.message
   } finally {
@@ -34,10 +32,10 @@ async function onSubmit() {
 </script>
 
 <template>
-  <div class="auth-page">
-    <form class="auth-card" @submit.prevent="onSubmit">
-      <h1 class="auth-title">登录 AniHub</h1>
-      <p v-if="error" class="auth-error">{{ error }}</p>
+  <div class="login-overlay" @click.self="emit('close')">
+    <form class="login-card" @submit.prevent="onSubmit">
+      <h1 class="login-title">站长登录</h1>
+      <p v-if="error" class="login-error">{{ error }}</p>
       <label class="field">
         <span>用户名</span>
         <input v-model.trim="username" required autocomplete="username" />
@@ -54,30 +52,35 @@ async function onSubmit() {
 </template>
 
 <style scoped>
-.auth-page {
+.login-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
   display: flex;
+  align-items: center;
   justify-content: center;
-  padding: 60px 20px;
+  background: rgb(0 0 0 / 0.45);
 }
 
-.auth-card {
-  width: min(380px, 100%);
+.login-card {
+  width: min(360px, calc(100vw - 40px));
   display: flex;
   flex-direction: column;
   gap: 14px;
   padding: 28px;
-  background: var(--panel);
+  background: var(--overlay-panel);
   border: 1px solid var(--border);
   border-radius: 14px;
+  box-shadow: 0 20px 60px rgb(0 0 0 / 0.3);
 }
 
-.auth-title {
+.login-title {
   margin: 0 0 4px;
   font-size: 20px;
   text-align: center;
 }
 
-.auth-error {
+.login-error {
   margin: 0;
   padding: 8px 12px;
   font-size: 13px;
@@ -114,5 +117,4 @@ async function onSubmit() {
   padding: 10px;
   font-size: 14px;
 }
-
 </style>
