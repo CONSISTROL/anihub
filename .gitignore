@@ -37,3 +37,6 @@ pnpm-debug.log*
 server/*.db
 server/*.db-wal
 server/*.db-shm
+
+# 上传的图片
+server/uploads/

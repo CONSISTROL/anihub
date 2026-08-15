@@ -6,6 +6,7 @@ import { PORT } from './config.js'
 import authRouter from './routes/auth.js'
 import postsRouter from './routes/posts.js'
 import settingsRouter from './routes/settings.js'
+import uploadRouter from './routes/upload.js'
 
 const app = express()
 app.use(express.json({ limit: '2mb' }))
@@ -13,6 +14,11 @@ app.use(express.json({ limit: '2mb' }))
 app.use('/api/auth', authRouter)
 app.use('/api/posts', postsRouter)
 app.use('/api/settings', settingsRouter)
+app.use('/api/upload', uploadRouter)
+
+// 上传的图片静态托管（dev 模式由 vite 代理 /uploads 到本服务）
+const uploads = path.join(import.meta.dirname, 'uploads')
+app.use('/uploads', express.static(uploads))
 
 // /api 下未匹配的路径返回 JSON 404，不能落到 SPA fallback
 app.use('/api', (req, res) =>

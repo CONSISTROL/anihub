@@ -24,6 +24,8 @@
 
 - 登录后即可发布、编辑、删除文章；未登录只读（个人站，不开放注册）
 - Markdown 写作（标题、加粗、链接、代码块等），实时预览
+- **插图**：编辑正文时可点击「🖼️ 插入图片」上传本地图片（PNG / JPG / WebP / GIF，≤ 8MB），自动以 Markdown 图片语法插入光标处，图片存于 `server/uploads/`
+- **游客隐藏**：编辑页可勾选「对游客隐藏这篇文章」，隐藏后游客在列表与详情均看不到（详情按不存在处理），登录后随时改回；列表与详情会显示「仅登录可见」标识
 - 标题自动生成中文 URL 别名（slug），冲突自动加 `-2`
 - 支持按关键词搜索标题 / 摘要 / 正文 / 标签，分页浏览
 - 正文经 DOMPurify 消毒渲染，防 XSS
@@ -89,6 +91,8 @@ npm start
 │   ├── routes/auth.js            # 登录 / 获取当前用户
 │   ├── routes/posts.js           # 文章 CRUD（列表/详情/新建/编辑/删除，作者校验）
 │   ├── routes/settings.js        # 站点设置（游客可见页面）
+│   ├── routes/upload.js          # 图片上传（PNG/JPG/WebP/GIF → server/uploads/）
+│   ├── uploads/                  # 上传的图片（gitignore，运行时生成）
 │   ├── middleware/auth.js        # JWT 鉴权：authRequired / optionalAuth
 │   └── lib/                      # slugify（保留中文）、validate
 └── src/

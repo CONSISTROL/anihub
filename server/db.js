@@ -24,6 +24,7 @@ db.exec(`
     summary     TEXT NOT NULL DEFAULT '',
     content_md  TEXT NOT NULL DEFAULT '',
     tags        TEXT NOT NULL DEFAULT '[]',
+    hidden      INTEGER NOT NULL DEFAULT 0,           -- 1 = 对游客隐藏
     author_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
@@ -37,6 +38,12 @@ db.exec(`
     value TEXT NOT NULL
   );
 `)
+
+// 兼容旧库：posts 表新增 hidden 列（CREATE TABLE IF NOT EXISTS 不会补列）
+const postCols = db.prepare('PRAGMA table_info(posts)').all()
+if (!postCols.some((c) => c.name === 'hidden')) {
+  db.exec('ALTER TABLE posts ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0')
+}
 
 // 个人站：启动时确保站长账号存在，密码以 .env 为准（改动后重启即生效）
 const adminHash = bcrypt.hashSync(ADMIN_PASSWORD, 10)

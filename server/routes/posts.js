@@ -9,7 +9,7 @@ const router = Router()
 
 const POST_FIELDS = `
   p.id, p.category, p.title, p.slug, p.summary, p.content_md,
-  p.tags, p.author_id, p.created_at, p.updated_at,
+  p.tags, p.hidden, p.author_id, p.created_at, p.updated_at,
   u.username AS author_name
 `
 
@@ -26,11 +26,20 @@ function toPost(row) {
     summary: row.summary,
     contentMd: row.content_md,
     tags: parseTags(row.tags),
+    hidden: !!row.hidden,
     authorId: row.author_id,
     authorName: row.author_name,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
+}
+
+// hidden 字段归一化：布尔/0/1 均可；null/undefined 表示未提供，非法值返回 undefined
+function parseHidden(v) {
+  if (v === undefined || v === null) return null
+  if (v === true || v === 1 || v === '1' || v === 'true') return 1
+  if (v === false || v === 0 || v === '0' || v === 'false') return 0
+  return undefined
 }
 
 // slug 唯一化：已存在则追加 -2、-3…
@@ -53,6 +62,10 @@ router.get('/', optionalAuth, (req, res) => {
 
   const where = []
   const params = []
+  // 游客只看未隐藏的文章
+  if (!req.user) {
+    where.push('p.hidden = 0')
+  }
   if (category) {
     where.push('p.category = ?')
     params.push(category)
@@ -82,38 +95,45 @@ router.get('/', optionalAuth, (req, res) => {
 })
 
 // 详情：按 id 或 slug 查（带 canEdit 供前端显示编辑按钮）
+// 游客访问隐藏文章与不存在同等对待（404，不暴露存在性）
+function detail(row, req, res) {
+  if (!row || (row.hidden && !req.user)) {
+    return res.status(404).json({ error: { code: 'NOT_FOUND', message: '文章不存在' } })
+  }
+  const uid = req.user ? Number(req.user.sub) : null
+  res.json({ ...toPost(row), canEdit: uid === row.author_id })
+}
+
 router.get('/slug/:slug', optionalAuth, (req, res) => {
   const row = db
     .prepare(`SELECT ${POST_FIELDS} FROM posts p JOIN users u ON u.id = p.author_id WHERE p.slug = ?`)
     .get(req.params.slug)
-  if (!row) return res.status(404).json({ error: { code: 'NOT_FOUND', message: '文章不存在' } })
-  const uid = req.user ? Number(req.user.sub) : null
-  res.json({ ...toPost(row), canEdit: uid === row.author_id })
+  detail(row, req, res)
 })
 
 router.get('/:id', optionalAuth, (req, res) => {
   const row = db
     .prepare(`SELECT ${POST_FIELDS} FROM posts p JOIN users u ON u.id = p.author_id WHERE p.id = ?`)
     .get(Number(req.params.id))
-  if (!row) return res.status(404).json({ error: { code: 'NOT_FOUND', message: '文章不存在' } })
-  const uid = req.user ? Number(req.user.sub) : null
-  res.json({ ...toPost(row), canEdit: uid === row.author_id })
+  detail(row, req, res)
 })
 
 // 新建（需登录）
 router.post('/', authRequired, (req, res) => {
-  const { category = 'blog', title, slug, summary = '', content_md = '', tags = [] } = req.body || {}
+  const { category = 'blog', title, slug, summary = '', content_md = '', tags = [], hidden = 0 } = req.body || {}
+  const hiddenV = parseHidden(hidden)
   const err =
     validateCategory(category) ||
     validatePostInput({ title, summary, content_md, tags }) ||
-    (slug != null && typeof slug !== 'string' ? 'slug 需为字符串' : null)
+    (slug != null && typeof slug !== 'string' ? 'slug 需为字符串' : null) ||
+    (hiddenV === undefined ? 'hidden 需为布尔值' : null)
   if (err) {
     return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: err } })
   }
   const finalSlug = uniqueSlug(slug?.trim() ? slugify(slug) : slugify(title))
   const r = db
-    .prepare('INSERT INTO posts (category, title, slug, summary, content_md, tags, author_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(category, title.trim(), finalSlug, summary, content_md, JSON.stringify(tags), Number(req.user.sub))
+    .prepare('INSERT INTO posts (category, title, slug, summary, content_md, tags, hidden, author_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(category, title.trim(), finalSlug, summary, content_md, JSON.stringify(tags), hiddenV, Number(req.user.sub))
   const row = db
     .prepare(`SELECT ${POST_FIELDS} FROM posts p JOIN users u ON u.id = p.author_id WHERE p.id = ?`)
     .get(Number(r.lastInsertRowid))
@@ -129,6 +149,10 @@ router.put('/:id', authRequired, (req, res) => {
     return res.status(403).json({ error: { code: 'FORBIDDEN', message: '只能编辑自己的文章' } })
   }
   const body = req.body || {}
+  const hiddenV = parseHidden(body.hidden)
+  if (hiddenV === undefined) {
+    return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'hidden 需为布尔值' } })
+  }
   const next = {
     category: body.category ?? row.category,
     title: body.title ?? row.title,
@@ -136,6 +160,7 @@ router.put('/:id', authRequired, (req, res) => {
     content_md: body.content_md ?? row.content_md,
     tags: body.tags ?? parseTags(row.tags),
     slug: body.slug ?? row.slug,
+    hidden: hiddenV ?? row.hidden,
   }
   const err =
     validateCategory(next.category) ||
@@ -147,8 +172,8 @@ router.put('/:id', authRequired, (req, res) => {
   // slug 变化时保证唯一（排除自身）
   const finalSlug = next.slug === row.slug ? row.slug : uniqueSlug(slugify(next.slug), id)
   db.prepare(
-    'UPDATE posts SET category = ?, title = ?, slug = ?, summary = ?, content_md = ?, tags = ?, updated_at = datetime(\'now\') WHERE id = ?'
-  ).run(next.category, next.title.trim(), finalSlug, next.summary, next.content_md, JSON.stringify(next.tags), id)
+    'UPDATE posts SET category = ?, title = ?, slug = ?, summary = ?, content_md = ?, tags = ?, hidden = ?, updated_at = datetime(\'now\') WHERE id = ?'
+  ).run(next.category, next.title.trim(), finalSlug, next.summary, next.content_md, JSON.stringify(next.tags), next.hidden, id)
   const updated = db
     .prepare(`SELECT ${POST_FIELDS} FROM posts p JOIN users u ON u.id = p.author_id WHERE p.id = ?`)
     .get(id)

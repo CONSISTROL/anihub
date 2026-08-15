@@ -81,6 +81,7 @@ function fmtDate(s) {
           <div class="post-meta">
             <span class="post-author">{{ p.authorName }}</span>
             <span class="post-date">{{ fmtDate(p.createdAt) }}</span>
+            <span v-if="p.hidden" class="post-hidden">仅登录可见</span>
             <span v-for="t in p.tags" :key="t" class="post-tag">#{{ t }}</span>
           </div>
         </div>
@@ -195,6 +196,14 @@ function fmtDate(s) {
 
 .post-tag {
   color: var(--accent);
+}
+
+.post-hidden {
+  color: #ffb35c;
+  border: 1px solid color-mix(in srgb, #ffb35c 50%, transparent);
+  border-radius: 4px;
+  padding: 0 6px;
+  font-size: 11px;
 }
 
 .post-go {

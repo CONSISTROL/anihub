@@ -67,6 +67,7 @@ function fmtDateTime(s) {
           <span>作者：{{ post.authorName }}</span>
           <span>发布于 {{ fmtDateTime(post.createdAt) }}</span>
           <span v-if="post.updatedAt !== post.createdAt">更新于 {{ fmtDateTime(post.updatedAt) }}</span>
+          <span v-if="post.hidden" class="post-hidden">仅登录可见</span>
           <span v-for="t in post.tags" :key="t" class="post-tag">#{{ t }}</span>
         </div>
       </header>
@@ -132,6 +133,14 @@ function fmtDateTime(s) {
 
 .post-tag {
   color: var(--accent);
+}
+
+.post-hidden {
+  color: #ffb35c;
+  border: 1px solid color-mix(in srgb, #ffb35c 50%, transparent);
+  border-radius: 4px;
+  padding: 0 6px;
+  font-size: 11px;
 }
 
 .post-actions {

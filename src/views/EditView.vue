@@ -2,7 +2,7 @@
 // 新建/编辑文章（博客与 Wiki 共用，category 由路由 props 传入）
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { createPost, getPostBySlug, updatePost } from '../api/posts'
+import { createPost, getPostBySlug, updatePost, uploadImage } from '../api/posts'
 import { useAuth } from '../composables/useAuth'
 import MarkdownView from '../components/MarkdownView.vue'
 
@@ -21,8 +21,11 @@ const isEdit = computed(() => !!slug.value)
 const loading = ref(!!slug.value) // 编辑模式需要拉取原内容
 const saving = ref(false)
 const error = ref('')
+const uploading = ref(false)
 
-const form = ref({ title: '', slug: '', summary: '', content_md: '', tags: '' })
+const form = ref({ title: '', slug: '', summary: '', content_md: '', tags: '', hidden: false })
+const fileInput = ref(null)
+const mdInput = ref(null)
 
 async function loadExisting() {
   if (!slug.value) return
@@ -39,6 +42,7 @@ async function loadExisting() {
       summary: post.summary,
       content_md: post.contentMd,
       tags: post.tags.join('，'),
+      hidden: post.hidden,
     }
   } catch (e) {
     error.value = e.message
@@ -56,6 +60,29 @@ function parseTags() {
     .filter(Boolean)
 }
 
+// 选择图片 → 上传 → 在光标位置插入 Markdown 图片语法
+async function onPickImage(e) {
+  const file = e.target.files?.[0]
+  e.target.value = '' // 允许重复选择同一文件
+  if (!file) return
+  uploading.value = true
+  error.value = ''
+  try {
+    const { url } = await uploadImage(file)
+    const md = `![图片](${url})`
+    const ta = mdInput.value
+    const start = ta.selectionStart ?? form.value.content_md.length
+    const end = ta.selectionEnd ?? start
+    form.value.content_md = form.value.content_md.slice(0, start) + md + form.value.content_md.slice(end)
+    ta.focus()
+    ta.setSelectionRange(start + md.length, start + md.length)
+  } catch (err) {
+    error.value = err.message
+  } finally {
+    uploading.value = false
+  }
+}
+
 async function onSubmit() {
   error.value = ''
   saving.value = true
@@ -65,6 +92,7 @@ async function onSubmit() {
     summary: form.value.summary.trim(),
     content_md: form.value.content_md,
     tags: parseTags(),
+    hidden: form.value.hidden,
   }
   if (form.value.slug.trim() && form.value.slug.trim() !== form.value.title.trim()) {
     body.slug = form.value.slug.trim()
@@ -105,10 +133,20 @@ async function onSubmit() {
         <span>标签（用逗号或空格分隔）</span>
         <input v-model.trim="form.tags" placeholder="例如：2026夏, 推荐, 攻略" />
       </label>
-      <label class="field">
-        <span>正文（Markdown）*</span>
-        <textarea v-model="form.content_md" rows="14" required class="md-input"></textarea>
+      <label class="opt-hidden">
+        <input type="checkbox" v-model="form.hidden" />
+        <span>对游客隐藏这篇文章（游客不可见，登录后可随时改回）</span>
       </label>
+      <div class="field">
+        <div class="md-bar">
+          <span>正文（Markdown）*</span>
+          <button type="button" class="btn btn-sm" :disabled="uploading" @click="fileInput.click()">
+            {{ uploading ? '上传中…' : '🖼️ 插入图片' }}
+          </button>
+          <input ref="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" class="file-input" @change="onPickImage" />
+        </div>
+        <textarea ref="mdInput" v-model="form.content_md" rows="14" required class="md-input"></textarea>
+      </div>
 
       <div class="preview">
         <span class="preview-label">预览</span>
@@ -185,6 +223,30 @@ async function onSubmit() {
 
 .md-input {
   line-height: 1.6;
+}
+
+/* 正文工具栏：插入图片按钮 */
+.md-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.file-input {
+  display: none;
+}
+
+.opt-hidden {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.opt-hidden input {
+  accent-color: var(--accent);
 }
 
 .preview {
