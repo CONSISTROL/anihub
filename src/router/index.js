@@ -41,11 +41,11 @@ router.beforeEach(async (to) => {
   if (to.meta.auth && !auth.isLoggedIn.value) {
     return { name: 'login', query: { redirect: to.fullPath } }
   }
-  // 游客访问被禁用的页面：回主页（不提示，页面上也不暴露该限制）
+  // 游客 / 内部人员访问页面时按可见性拦截（管理员不受限）；不提示，页面上也不暴露该限制
   if (!auth.isLoggedIn.value && GUEST_PAGES[to.name]) {
     const settings = useSettings()
     await settings.load()
-    if (!settings.isGuestVisible(to.name)) return { name: 'home' }
+    if (!settings.canAccess(to.name, auth.isInsider.value)) return { name: 'home' }
   }
 })
 

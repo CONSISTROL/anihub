@@ -12,10 +12,10 @@
 - **月历视图**：整月总览，不同番剧用不同颜色区分，所有条目同样完整显示，带小封面
 - **列表视图**：按日期分组展示当月全部放送（海报 + 完整标题 + 时间 + 星期）
 - **档期切换**：上一档 / 下一档 / 一键回到当前档期（如 2026 夏季 → 2026 春季），回到当前档期时自动跳到本周
-- **语言选择**：动画名支持 中文（默认）/ 日本語 / English / 罗马音 四种显示；语言为中文时详情简介也显示中文，选择会记住（localStorage）
+- **语言选择**：动画名支持 中文（默认）/ 日本語 / English / 罗马音 四种显示；语言为中文时详情简介也显示中文（类型标签同步中文化），选择会记住（localStorage）
 - **主题切换**：浅色 / 深色 / 自动（按时间，6:00–18:00 浅色、其余深色），右上角切换，选择会记住
 - **二次元背景**：浅透明二次元美少女图垫底，**自动扫描壁纸目录随机展示**——把任意数量的图片放进 `public/wallpapers/` 即可（PNG / JPG / WebP / GIF），每次进入随机选一张、加载失败自动换下一张，新增图片无需任何登记；也可用环境变量 `WALLPAPER_DIR` 指向其他目录（绝对路径）。无可用图片时自动回退到档期动画的横版高清横幅图（约 1900px）
-- **动漫详情**：点击任意条目弹出详情——封面、多语言标题、连载状态、类型、集数、评分、制作公司、简介，以及按日期分组的完整放送时间表
+- **动漫详情**：点击任意条目弹出详情——封面、多语言标题（中文模式下只显示中文标题，不显示英日副标题）、连载状态、类型（中文模式译为中文）、集数、评分、制作公司、中文简介（未收录时回退英文），以及按日期分组的完整放送时间表
 - **悬浮提示**：鼠标悬停日历标签显示完整标题 + **大封面预览**（72×102）+ 精确时间
 - **当日弹层**：月历视图点击日期格弹出当天完整放送列表（大封面 + 完整标题）
 - **数据缓存**：档期数据缓存 12 小时（localStorage），重复打开/切换档期不再请求 API，秒开
@@ -25,7 +25,7 @@
 - 登录后即可发布、编辑、删除文章；未登录只读（个人站，不开放注册）
 - Markdown 写作（标题、加粗、链接、代码块等），实时预览
 - **插图**：编辑正文时可点击「🖼️ 插入图片」上传本地图片（PNG / JPG / WebP / GIF，≤ 8MB），自动以 Markdown 图片语法插入光标处，图片存于 `server/uploads/`
-- **游客隐藏**：编辑页可勾选「对游客隐藏这篇文章」，隐藏后游客在列表与详情均看不到（详情按不存在处理），登录后随时改回；列表与详情会显示「仅登录可见」标识
+- **游客隐藏（三档可见性）**：编辑页可为每篇文章选择 公开（游客可见）/ 仅内部人员（游客不可见，内部人员可读）/ 仅管理员（私有）三档；权限不足时列表不出现、详情按不存在处理（404），有权限时列表与详情会显示「仅内部可见」「仅管理员可见」标识
 - 标题自动生成中文 URL 别名（slug），冲突自动加 `-2`
 - 支持按关键词搜索标题 / 摘要 / 正文 / 标签，分页浏览
 - 正文经 DOMPurify 消毒渲染，防 XSS
@@ -37,7 +37,8 @@
 
 ### ⚙️ 设置（`/settings`，登录后）
 
-- **页面访问权限**：勾选哪些页面允许游客（未登录）查看；未勾选的页面游客直接访问会被送回主页，导航栏与主页卡片同步隐藏，登录后不受限制、全部恢复
+- **页面访问权限**：按身份（游客 < 内部人员 < 管理员）配置可见页面。勾选哪些页面允许游客查看；未勾选的页面游客直接访问会被送回主页，导航栏与主页卡片同步隐藏。另可单独授权「内部人员可见页面」（游客不可见但内部人员可看），管理员不受限、全部可见
+- **内部人员身份**：只读的中间身份。在页面任意位置依次敲击键盘「inside」即获取（口令见 `server/.env` 的 `INSIDER_KEYWORD`，默认 `inside`），导航栏出现「🔑 内部模式」徽标，可点 ✕ 退出；内部人员能看到游客看不到的页面与文章，但不能编辑、不能进设置页
 - **隐藏登录入口**：界面不显示任何登录按钮，在页面任意位置依次敲击键盘「login」四个字母弹出登录框（Esc 或点击遮罩关闭）；已登录右上角显示固定欢迎语 **Ciallo ～(∠・ω< )⌒★!** 以及 设置 / 退出 按钮
 
 ## 环境要求
@@ -64,6 +65,8 @@ npm run dev
 
 **站点账号**（个人站，不开放注册）：编辑 `server/.env` 设置 `ADMIN_USERNAME` / `ADMIN_PASSWORD`，改完重启即生效；未设置时默认 `admin` / `anihub-dev-password`（生产环境务必修改）。
 
+**内部人员口令**：`server/.env` 的 `INSIDER_KEYWORD`（默认 `inside`）为键盘热键口令，改完重启生效；若修改，需同步更新 `src/App.vue` 顶部的 `KEY_SEQ_INSIDE` 常量，保持一致。
+
 ## 生产部署（单端口）
 
 ```bash
@@ -86,15 +89,15 @@ npm start
 ├── vite.config.js                # dev proxy: /api → :3001
 ├── server/                       # Node + Express + SQLite 后端
 │   ├── index.js                  # 装配：JSON → API 路由 → 静态托管 dist/ → SPA fallback
-│   ├── db.js                     # node:sqlite 连接 + users/posts 建表（WAL）
-│   ├── config.js                 # PORT / JWT_SECRET（读环境变量）
-│   ├── routes/auth.js            # 登录 / 获取当前用户
-│   ├── routes/posts.js           # 文章 CRUD（列表/详情/新建/编辑/删除，作者校验）
-│   ├── routes/settings.js        # 站点设置（游客可见页面）
+│   ├── db.js                     # node:sqlite 连接 + users/posts 建表（WAL，含 visibility 迁移）
+│   ├── config.js                 # PORT / JWT_SECRET / INSIDER_KEYWORD（读环境变量）
+│   ├── routes/auth.js            # 登录 / 内部人员口令 / 获取当前用户
+│   ├── routes/posts.js           # 文章 CRUD（列表/详情/新建/编辑/删除，作者校验，三档可见性）
+│   ├── routes/settings.js        # 站点设置（游客 / 内部人员可见页面）
 │   ├── routes/upload.js          # 图片上传（PNG/JPG/WebP/GIF → server/uploads/）
 │   ├── routes/wallpapers.js      # 壁纸目录扫描（GET /api/wallpapers → 图片 URL 列表）
 │   ├── uploads/                  # 上传的图片（gitignore，运行时生成）
-│   ├── middleware/auth.js        # JWT 鉴权：authRequired / optionalAuth
+│   ├── middleware/auth.js        # JWT 鉴权：authRequired（仅管理员）/ optionalAuth（游客/内部/管理员）
 │   └── lib/                      # slugify（保留中文）、validate
 └── src/
     ├── main.js                   # 应用入口（挂载 router）
@@ -107,11 +110,11 @@ npm start
     │   ├── settings.js           # 设置接口
     │   └── anilist.js            # AniList GraphQL 封装与缓存
     ├── composables/
-    │   ├── useAuth.js            # 登录状态（token + 用户，localStorage 持久化）
+    │   ├── useAuth.js            # 登录状态（管理员 token + 内部人员 token，localStorage 持久化）
     │   ├── useSeason.js          # 档期状态：加载数据、切档、翻月
     │   ├── useLanguage.js        # 显示语言状态（默认中文，持久化）
     │   ├── useTheme.js           # 主题状态：浅色/深色/按时间自动
-    │   └── useSettings.js        # 站点设置状态（游客可见页面，全局单例）
+    │   └── useSettings.js        # 站点设置状态（游客/内部人员可见页面，全局单例）
     ├── utils/
     │   ├── date.js               # 档期映射、日历网格、时间格式化
     │   └── titles.js             # 按语言解析标题（titleFor）
@@ -154,7 +157,7 @@ npm start
 
 ## 已知说明
 
-- **中文标题与中文简介为人工维护的映射表**（AniList 不提供中文标题/简介字段）：标题见 [src/data/zhTitles.js](src/data/zhTitles.js)、简介见 [src/data/zhDescriptions.js](src/data/zhDescriptions.js)，均覆盖 2026 夏季档大部分条目；语言为中文时点开详情会优先显示中文简介，未收录的动画回退显示罗马音标题与英文简介。新增条目时在文件中按 `AniList id: '内容'` 追加即可（id 可在动画详情弹窗的 AniList 链接中查到）
+- **中文标题与中文简介为人工维护的映射表**（AniList 不提供中文标题/简介字段）：标题见 [src/data/zhTitles.js](src/data/zhTitles.js)、简介见 [src/data/zhDescriptions.js](src/data/zhDescriptions.js)、类型标签中文翻译见 [src/data/zhGenres.js](src/data/zhGenres.js)，均完整覆盖 2026 夏季档全部正常向作品（成人向除外）；语言为中文时点开详情会优先显示中文简介，未收录的动画回退显示罗马音标题与英文简介。新增条目时在文件中按 `AniList id: '内容'` 追加即可（id 可在动画详情弹窗的 AniList 链接中查到）
 - 档期内已完结 / 未开播 / 缺排期的动画不出现在日历上，会列在日历下方
 - 日历数据来自浏览器直连 AniList（外网需可达）；AniList 官方故障时日历会显示错误提示，其余页面不受影响
 - 后端使用 Node 内置 `node:sqlite`（Node 24+ 稳定，20/22 为实验特性）；若 Node 版本过低请升级

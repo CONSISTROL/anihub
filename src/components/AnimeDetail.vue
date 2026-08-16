@@ -4,6 +4,7 @@ import { fmtDate, fmtTime } from '../utils/date'
 import { titleFor } from '../utils/titles'
 import { lang } from '../composables/useLanguage'
 import { ZH_DESCRIPTIONS } from '../data/zhDescriptions'
+import { ZH_GENRES } from '../data/zhGenres'
 
 const props = defineProps({
   media: { type: Object, default: null },
@@ -32,6 +33,11 @@ const FORMAT_LABELS = {
 const displayTitle = computed(() => titleFor(props.media) || '未知标题')
 
 const studio = computed(() => props.media?.studios?.nodes?.[0]?.name)
+
+// 类型标签：中文模式下翻译为中文，其他语言保持 AniList 原文
+function genreLabel(g) {
+  return lang.value === 'zh' ? ZH_GENRES[g] || g : g
+}
 
 const description = computed(() => {
   // 语言为中文时优先显示本地维护的中文简介，未收录则回退 AniList 原文
@@ -81,8 +87,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             <img v-if="media.coverImage?.large" :src="media.coverImage.large" class="cover" alt="封面" />
             <div class="info">
               <h2 class="title">{{ displayTitle }}</h2>
-              <div v-if="media.title?.native && media.title.native !== displayTitle" class="native">{{ media.title.native }}</div>
-              <div v-if="media.title?.english && media.title.english !== displayTitle" class="english">{{ media.title.english }}</div>
+              <!-- 中文模式下不显示英日副标题行，保持界面纯中文 -->
+              <div v-if="lang !== 'zh' && media.title?.native && media.title.native !== displayTitle" class="native">{{ media.title.native }}</div>
+              <div v-if="lang !== 'zh' && media.title?.english && media.title.english !== displayTitle" class="english">{{ media.title.english }}</div>
 
               <div class="meta">
                 <span v-if="media.status" class="tag">{{ STATUS_LABELS[media.status] || media.status }}</span>
@@ -90,7 +97,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                 <span v-if="media.episodes" class="tag">全 {{ media.episodes }} 话</span>
                 <span v-if="media.averageScore" class="tag score">★ {{ media.averageScore }}</span>
                 <span v-if="studio" class="tag">{{ studio }}</span>
-                <span v-for="g in media.genres" :key="g" class="tag genre">{{ g }}</span>
+                <span v-for="g in media.genres" :key="g" class="tag genre">{{ genreLabel(g) }}</span>
               </div>
 
               <div v-if="description" class="desc">{{ description }}</div>

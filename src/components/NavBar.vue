@@ -4,9 +4,9 @@ import { useAuth } from '../composables/useAuth'
 import { useSettings } from '../composables/useSettings'
 import ThemeSelector from './ThemeSelector.vue'
 
-const { isLoggedIn, user, clearSession } = useAuth()
+const { isLoggedIn, isInsider, user, clearSession, exitInsider } = useAuth()
 const settings = useSettings()
-settings.load() // 预加载游客可见页面（单例，守卫/主页共用）
+settings.load() // 预加载可见页面（单例，守卫/主页共用）
 
 const ALL_LINKS = [
   { to: '/anime', label: 'Anime', page: 'anime' },
@@ -14,10 +14,11 @@ const ALL_LINKS = [
   { to: '/wiki', label: 'Wiki', page: 'wiki' },
 ]
 
-// 未登录时只显示允许游客访问的页面链接
-const links = computed(() =>
-  isLoggedIn.value ? ALL_LINKS : ALL_LINKS.filter((l) => settings.isGuestVisible(l.page))
-)
+// 未登录时按身份显示可见的页面链接：游客只看游客可见，内部人员多看内部可见
+const links = computed(() => {
+  if (isLoggedIn.value) return ALL_LINKS
+  return ALL_LINKS.filter((l) => settings.canAccess(l.page, isInsider.value))
+})
 
 const WELCOME = 'Ciallo ～(∠・ω< )⌒★!'
 </script>
@@ -29,6 +30,11 @@ const WELCOME = 'Ciallo ～(∠・ω< )⌒★!'
       <router-link v-for="l in links" :key="l.to" :to="l.to">{{ l.label }}</router-link>
     </div>
     <div class="user-area">
+      <span v-if="isInsider && !isLoggedIn" class="insider-chip" title="内部人员模式（只读）">
+        <img src="/insider.webp" class="insider-avatar" alt="" />
+        <span class="insider-label">内部潜入中 ～(∠・ω< )⌒★</span>
+        <button class="chip-x" aria-label="退出内部模式" @click="exitInsider">✕</button>
+      </span>
       <template v-if="isLoggedIn">
         <span class="username">{{ WELCOME }}</span>
         <router-link to="/settings" class="btn btn-sm">设置</router-link>
@@ -94,6 +100,44 @@ const WELCOME = 'Ciallo ～(∠・ω< )⌒★!'
 .username {
   font-size: 13px;
   color: var(--muted);
+}
+
+.insider-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: #ffd166;
+  border: 1px solid color-mix(in srgb, #ffd166 45%, transparent);
+  background: color-mix(in srgb, #ffd166 10%, transparent);
+  border-radius: 999px;
+  padding: 3px 8px 3px 4px;
+}
+
+.insider-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1.5px solid color-mix(in srgb, #ffd166 65%, transparent);
+}
+
+.insider-label {
+  white-space: nowrap;
+}
+
+.chip-x {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0 2px;
+  opacity: 0.7;
+}
+
+.chip-x:hover {
+  opacity: 1;
 }
 
 .btn-sm {

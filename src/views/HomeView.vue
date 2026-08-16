@@ -4,7 +4,7 @@ import { computed } from 'vue'
 import { useAuth } from '../composables/useAuth'
 import { useSettings } from '../composables/useSettings'
 
-const { isLoggedIn } = useAuth()
+const { isLoggedIn, isInsider } = useAuth()
 const settings = useSettings()
 if (!isLoggedIn.value) settings.load()
 
@@ -33,7 +33,7 @@ const SECTIONS = [
 ]
 
 const visibleSections = computed(() =>
-  isLoggedIn.value ? SECTIONS : SECTIONS.filter((s) => settings.isGuestVisible(s.page))
+  isLoggedIn.value ? SECTIONS : SECTIONS.filter((s) => settings.canAccess(s.page, isInsider.value))
 )
 </script>
 

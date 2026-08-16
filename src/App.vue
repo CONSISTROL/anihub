@@ -1,14 +1,40 @@
 <script setup>
-// 全局布局壳：导航栏 + 页面内容；键盘监听呼出隐藏的登录框
+// 全局布局壳：导航栏 + 页面内容；键盘监听呼出隐藏的登录框 / 获取内部人员身份
 import { onMounted, onUnmounted, ref } from 'vue'
 import NavBar from './components/NavBar.vue'
 import LoginModal from './components/LoginModal.vue'
+import { api } from './api/http'
+import { useAuth } from './composables/useAuth'
 
 const showLogin = ref(false)
+const insiderBusy = ref(false)
 
 // 隐藏登录入口：键盘依次输入 "login"（大小写均可）弹出登录框
-const KEY_SEQ = 'login'
+const KEY_SEQ_LOGIN = 'login'
+// 内部人员口令：键盘依次输入 "inside" 获取只读的内部身份（关键词与 server/.env 的 INSIDER_KEYWORD 一致）
+const KEY_SEQ_INSIDE = 'inside'
+const keyBufLen = Math.max(KEY_SEQ_LOGIN.length, KEY_SEQ_INSIDE.length)
 let keyBuf = ''
+
+async function enterInside() {
+  if (insiderBusy.value) return
+  const auth = useAuth()
+  if (auth.isLoggedIn.value || auth.isInsider.value) return // 管理员已全权限，内部身份已生效
+  insiderBusy.value = true
+  try {
+    const data = await api('/auth/insider', {
+      method: 'POST',
+      body: { keyword: KEY_SEQ_INSIDE },
+      auth: false,
+    })
+    auth.enterInsider(data.token)
+  } catch {
+    /* 口令错误等：静默，不打扰访客 */
+  } finally {
+    insiderBusy.value = false
+  }
+}
+
 function onKeydown(e) {
   if (e.isComposing) return // 中文输入法组词中
   // Esc 关闭弹窗：优先判断，避免输入框聚焦时（弹窗打开即聚焦用户名）关闭失效
@@ -19,11 +45,15 @@ function onKeydown(e) {
   const t = e.target
   if (t?.matches?.('input, textarea, select, [contenteditable]')) return // 输入框内打字不触发
   if (e.key.length !== 1) return // 只处理普通字符键
-  keyBuf = (keyBuf + e.key.toLowerCase()).slice(-KEY_SEQ.length)
-  if (keyBuf === KEY_SEQ) {
+  keyBuf = (keyBuf + e.key.toLowerCase()).slice(-keyBufLen)
+  if (keyBuf === KEY_SEQ_LOGIN) {
     keyBuf = ''
     e.preventDefault() // 拦下最后那个字母的默认动作，避免被键入到刚聚焦的用户名输入框
     showLogin.value = true
+  } else if (keyBuf === KEY_SEQ_INSIDE) {
+    keyBuf = ''
+    e.preventDefault()
+    enterInside()
   }
 }
 

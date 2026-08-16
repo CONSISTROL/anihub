@@ -23,7 +23,7 @@ const saving = ref(false)
 const error = ref('')
 const uploading = ref(false)
 
-const form = ref({ title: '', slug: '', summary: '', content_md: '', tags: '', hidden: false })
+const form = ref({ title: '', slug: '', summary: '', content_md: '', tags: '', visibility: 'public' })
 const fileInput = ref(null)
 const mdInput = ref(null)
 
@@ -42,7 +42,7 @@ async function loadExisting() {
       summary: post.summary,
       content_md: post.contentMd,
       tags: post.tags.join('，'),
-      hidden: post.hidden,
+      visibility: post.visibility || 'public',
     }
   } catch (e) {
     error.value = e.message
@@ -92,7 +92,7 @@ async function onSubmit() {
     summary: form.value.summary.trim(),
     content_md: form.value.content_md,
     tags: parseTags(),
-    hidden: form.value.hidden,
+    visibility: form.value.visibility,
   }
   if (form.value.slug.trim() && form.value.slug.trim() !== form.value.title.trim()) {
     body.slug = form.value.slug.trim()
@@ -133,10 +133,21 @@ async function onSubmit() {
         <span>标签（用逗号或空格分隔）</span>
         <input v-model.trim="form.tags" placeholder="例如：2026夏, 推荐, 攻略" />
       </label>
-      <label class="opt-hidden">
-        <input type="checkbox" v-model="form.hidden" />
-        <span>对游客隐藏这篇文章（游客不可见，登录后可随时改回）</span>
-      </label>
+      <fieldset class="vis-group">
+        <legend>可见性</legend>
+        <label class="vis-opt">
+          <input type="radio" value="public" v-model="form.visibility" />
+          <span>公开（游客可见）</span>
+        </label>
+        <label class="vis-opt">
+          <input type="radio" value="insider" v-model="form.visibility" />
+          <span>仅内部人员（游客不可见，内部人员可读）</span>
+        </label>
+        <label class="vis-opt">
+          <input type="radio" value="private" v-model="form.visibility" />
+          <span>仅管理员（私有）</span>
+        </label>
+      </fieldset>
       <div class="field">
         <div class="md-bar">
           <span>正文（Markdown）*</span>
@@ -236,16 +247,30 @@ async function onSubmit() {
   display: none;
 }
 
-.opt-hidden {
+.vis-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.vis-group legend {
+  padding: 0 6px;
+  font-size: 13px;
+}
+
+.vis-opt {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
-  color: var(--muted);
   cursor: pointer;
 }
 
-.opt-hidden input {
+.vis-opt input {
   accent-color: var(--accent);
 }
 

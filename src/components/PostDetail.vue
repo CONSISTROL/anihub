@@ -53,6 +53,8 @@ function fmtDateTime(s) {
   const p = (n) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
+
+const VIS_LABEL = { insider: '仅内部可见', private: '仅管理员可见' }
 </script>
 
 <template>
@@ -67,7 +69,7 @@ function fmtDateTime(s) {
           <span>作者：{{ post.authorName }}</span>
           <span>发布于 {{ fmtDateTime(post.createdAt) }}</span>
           <span v-if="post.updatedAt !== post.createdAt">更新于 {{ fmtDateTime(post.updatedAt) }}</span>
-          <span v-if="post.hidden" class="post-hidden">仅登录可见</span>
+          <span v-if="post.visibility !== 'public'" class="post-hidden">{{ VIS_LABEL[post.visibility] || post.visibility }}</span>
           <span v-for="t in post.tags" :key="t" class="post-tag">#{{ t }}</span>
         </div>
       </header>

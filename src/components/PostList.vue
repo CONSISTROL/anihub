@@ -50,6 +50,8 @@ function fmtDate(s) {
   const d = new Date(s + 'Z')
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
+
+const VIS_LABEL = { insider: '仅内部可见', private: '仅管理员可见' }
 </script>
 
 <template>
@@ -81,7 +83,7 @@ function fmtDate(s) {
           <div class="post-meta">
             <span class="post-author">{{ p.authorName }}</span>
             <span class="post-date">{{ fmtDate(p.createdAt) }}</span>
-            <span v-if="p.hidden" class="post-hidden">仅登录可见</span>
+            <span v-if="p.visibility !== 'public'" class="post-hidden">{{ VIS_LABEL[p.visibility] || p.visibility }}</span>
             <span v-for="t in p.tags" :key="t" class="post-tag">#{{ t }}</span>
           </div>
         </div>

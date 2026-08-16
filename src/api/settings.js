@@ -1,7 +1,5 @@
-// 站点设置接口
+// 站点设置接口：游客可见页面 + 内部人员可见页面
 import { api } from './http'
 
-/** 哪些页面对游客可见 */
-export const getGuestPages = () => api('/settings').then((d) => d.guestPages)
-export const updateGuestPages = (guestPages) =>
-  api('/settings', { method: 'PUT', body: { guestPages } }).then((d) => d.guestPages)
+export const getSettings = () => api('/settings')
+export const updateSettings = (body) => api('/settings', { method: 'PUT', body })

@@ -10,6 +10,9 @@ export const JWT_EXPIRES_IN = '7d'
 export const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin'
 export const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'anihub-dev-password'
 
+// 内部人员口令：在页面敲击键盘输入该关键词即可获得"内部人员"身份（介于游客与管理员之间）
+export const INSIDER_KEYWORD = process.env.INSIDER_KEYWORD || 'inside'
+
 // Anime 页背景壁纸目录：放任意数量的图片即可随机展示；
 // 默认 public/wallpapers，可用 WALLPAPER_DIR 指向其他目录（绝对路径）
 export const WALLPAPER_DIR =
