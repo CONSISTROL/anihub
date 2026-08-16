@@ -99,9 +99,9 @@ npm start
 快速上手（服务器上执行）：
 
 ```bash
-# 方式一：脚本自动部署（代码需能 git clone 到服务器）
+# 方式一：脚本自动部署（从仓库拉取代码）
 sudo DOMAIN=anime.example.com CERT_EMAIL=you@example.com \
-  REPO_URL=https://github.com/you/anime-calendar.git \
+  REPO_URL=https://github.com/CONSISTROL/anihub.git \
   ADMIN_USERNAME=admin ADMIN_PASSWORD=你的密码 \
   bash deploy/setup.sh
 
