@@ -38,13 +38,34 @@ body {
 }
 
 body {
-  background: var(--bg);
+  background-color: var(--bg);
+  /* Anime 页壁纸：--wallpaper-url 由 index.html 内联脚本 / AnimeBackground.vue 设置，
+     叠加同色半透明遮罩（等效原来的低透明度 img）；其余页面无壁纸时仅显示纯色背景 */
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--bg) 85%, transparent),
+      color-mix(in srgb, var(--bg) 85%, transparent)
+    ),
+    var(--wallpaper-url, none);
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
   color: var(--text);
   font-family:
     'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui,
     -apple-system, sans-serif;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+}
+
+/* 浅色主题：壁纸更淡（对应原来的 0.09 透明度） */
+:root[data-theme='light'] body {
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--bg) 91%, transparent),
+      color-mix(in srgb, var(--bg) 91%, transparent)
+    ),
+    var(--wallpaper-url, none);
 }
 
 .btn {

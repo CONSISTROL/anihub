@@ -11,6 +11,14 @@
         var h = new Date().getHours()
         var r = t === 'auto' ? (h >= 6 && h < 18 ? 'light' : 'dark') : t
         document.documentElement.dataset.theme = r
+        // Anime 页：在首帧前恢复上次的壁纸（与 AnimeBackground.vue 的缓存键一致），
+        // 避免刷新时先显示纯色背景再闪出壁纸
+        if (location.pathname.indexOf('/anime') === 0) {
+          var w = localStorage.getItem('anime-calendar.wallpaper')
+          if (w) {
+            document.documentElement.style.setProperty('--wallpaper-url', 'url("' + w.replace(/"/g, '\\"') + '")')
+          }
+        }
       })()
     </script>
     <title>AniHub · Anime · Blog · Wiki</title>
