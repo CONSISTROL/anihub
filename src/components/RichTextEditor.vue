@@ -67,7 +67,10 @@ const active = computed(() => {
 })
 
 const chain = () => editor.value?.chain().focus()
-const run = (fn) => fn(chain())
+const run = (fn) => {
+  const c = chain()
+  if (c) fn(c)?.run() // 注意：链式命令必须以 .run() 结束才会真正执行
+}
 
 function toggleHeading(level) {
   run((c) => c.toggleHeading({ level }))
@@ -114,26 +117,26 @@ async function onPickImage(e) {
 <template>
   <div class="richtext">
     <div class="rt-toolbar">
-      <button class="rt-btn" title="撤销" :disabled="!editor?.can().undo()" @click="run((c) => c.undo())">↩</button>
-      <button class="rt-btn" title="重做" :disabled="!editor?.can().redo()" @click="run((c) => c.redo())">↪</button>
+      <button type="button" class="rt-btn" title="撤销" :disabled="!editor?.can().undo()" @click="run((c) => c.undo())">↩</button>
+      <button type="button" class="rt-btn" title="重做" :disabled="!editor?.can().redo()" @click="run((c) => c.redo())">↪</button>
       <span class="rt-sep" />
-      <button class="rt-btn" :class="{ on: active.bold }" title="加粗" @click="run((c) => c.toggleBold())"><b>B</b></button>
-      <button class="rt-btn" :class="{ on: active.italic }" title="斜体" @click="run((c) => c.toggleItalic())"><i>I</i></button>
-      <button class="rt-btn" :class="{ on: active.underline }" title="下划线" @click="run((c) => c.toggleUnderline())"><u>U</u></button>
-      <button class="rt-btn" :class="{ on: active.strike }" title="删除线" @click="run((c) => c.toggleStrike())"><s>S</s></button>
+      <button type="button" class="rt-btn" :class="{ on: active.bold }" title="加粗" @click="run((c) => c.toggleBold())"><b>B</b></button>
+      <button type="button" class="rt-btn" :class="{ on: active.italic }" title="斜体" @click="run((c) => c.toggleItalic())"><i>I</i></button>
+      <button type="button" class="rt-btn" :class="{ on: active.underline }" title="下划线" @click="run((c) => c.toggleUnderline())"><u>U</u></button>
+      <button type="button" class="rt-btn" :class="{ on: active.strike }" title="删除线" @click="run((c) => c.toggleStrike())"><s>S</s></button>
       <span class="rt-sep" />
-      <button class="rt-btn" :class="{ on: active.h1 }" title="一级标题" @click="toggleHeading(1)">H1</button>
-      <button class="rt-btn" :class="{ on: active.h2 }" title="二级标题" @click="toggleHeading(2)">H2</button>
-      <button class="rt-btn" :class="{ on: active.h3 }" title="三级标题" @click="toggleHeading(3)">H3</button>
+      <button type="button" class="rt-btn" :class="{ on: active.h1 }" title="一级标题" @click="toggleHeading(1)">H1</button>
+      <button type="button" class="rt-btn" :class="{ on: active.h2 }" title="二级标题" @click="toggleHeading(2)">H2</button>
+      <button type="button" class="rt-btn" :class="{ on: active.h3 }" title="三级标题" @click="toggleHeading(3)">H3</button>
       <span class="rt-sep" />
-      <button class="rt-btn" :class="{ on: active.code }" title="行内代码" @click="run((c) => c.toggleCode())">&lt;/&gt;</button>
-      <button class="rt-btn" :class="{ on: active.codeBlock }" title="代码块" @click="run((c) => c.toggleCodeBlock())">{ }</button>
-      <button class="rt-btn" :class="{ on: active.quote }" title="引用" @click="run((c) => c.toggleBlockquote())">❝</button>
-      <button class="rt-btn" :class="{ on: active.bullet }" title="无序列表" @click="run((c) => c.toggleBulletList())">•</button>
-      <button class="rt-btn" :class="{ on: active.ordered }" title="有序列表" @click="run((c) => c.toggleOrderedList())">1.</button>
+      <button type="button" class="rt-btn" :class="{ on: active.code }" title="行内代码" @click="run((c) => c.toggleCode())">&lt;/&gt;</button>
+      <button type="button" class="rt-btn" :class="{ on: active.codeBlock }" title="代码块" @click="run((c) => c.toggleCodeBlock())">{ }</button>
+      <button type="button" class="rt-btn" :class="{ on: active.quote }" title="引用" @click="run((c) => c.toggleBlockquote())">❝</button>
+      <button type="button" class="rt-btn" :class="{ on: active.bullet }" title="无序列表" @click="run((c) => c.toggleBulletList())">•</button>
+      <button type="button" class="rt-btn" :class="{ on: active.ordered }" title="有序列表" @click="run((c) => c.toggleOrderedList())">1.</button>
       <span class="rt-sep" />
-      <button class="rt-btn" :class="{ on: active.link }" title="链接" @click="onLink">🔗</button>
-      <button class="rt-btn" title="插入图片" :disabled="uploading" @click="fileInput.click()">
+      <button type="button" class="rt-btn" :class="{ on: active.link }" title="链接" @click="onLink">🔗</button>
+      <button type="button" class="rt-btn" title="插入图片" :disabled="uploading" @click="fileInput.click()">
         {{ uploading ? '…' : '🖼️' }}
       </button>
       <input ref="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" class="rt-file" @change="onPickImage" />
@@ -146,6 +149,7 @@ async function onPickImage(e) {
         <button
           v-for="c in COLORS"
           :key="c"
+          type="button"
           class="rt-swatch"
           :style="{ background: c }"
           :title="c"
@@ -153,7 +157,7 @@ async function onPickImage(e) {
         />
         <input type="color" class="rt-picker" title="自定义颜色" @input="onColor($event.target.value)" />
       </span>
-      <button class="rt-btn" title="清除格式" @click="run((c) => c.clearNodes().unsetAllMarks())">✕</button>
+      <button type="button" class="rt-btn" title="清除格式" @click="run((c) => c.clearNodes().unsetAllMarks())">✕</button>
     </div>
 
     <p v-if="errMsg" class="rt-error">{{ errMsg }}</p>

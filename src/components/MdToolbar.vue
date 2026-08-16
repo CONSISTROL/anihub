@@ -12,22 +12,22 @@ function fire(type, value) {
 
 <template>
   <div class="md-toolbar">
-    <button class="md-btn" title="加粗" @click="fire('bold')"><b>B</b></button>
-    <button class="md-btn" title="斜体" @click="fire('italic')"><i>I</i></button>
-    <button class="md-btn" title="删除线" @click="fire('strike')"><s>S</s></button>
+    <button type="button" class="md-btn" title="加粗" @click="fire('bold')"><b>B</b></button>
+    <button type="button" class="md-btn" title="斜体" @click="fire('italic')"><i>I</i></button>
+    <button type="button" class="md-btn" title="删除线" @click="fire('strike')"><s>S</s></button>
     <span class="md-sep" />
-    <button class="md-btn" title="一级标题" @click="fire('h1')">H1</button>
-    <button class="md-btn" title="二级标题" @click="fire('h2')">H2</button>
-    <button class="md-btn" title="三级标题" @click="fire('h3')">H3</button>
+    <button type="button" class="md-btn" title="一级标题" @click="fire('h1')">H1</button>
+    <button type="button" class="md-btn" title="二级标题" @click="fire('h2')">H2</button>
+    <button type="button" class="md-btn" title="三级标题" @click="fire('h3')">H3</button>
     <span class="md-sep" />
-    <button class="md-btn" title="行内代码" @click="fire('code')">&lt;/&gt;</button>
-    <button class="md-btn" title="代码块" @click="fire('code-block')">{ }</button>
-    <button class="md-btn" title="引用" @click="fire('quote')">❝</button>
-    <button class="md-btn" title="无序列表" @click="fire('ul')">•</button>
-    <button class="md-btn" title="有序列表" @click="fire('ol')">1.</button>
+    <button type="button" class="md-btn" title="行内代码" @click="fire('code')">&lt;/&gt;</button>
+    <button type="button" class="md-btn" title="代码块" @click="fire('code-block')">{ }</button>
+    <button type="button" class="md-btn" title="引用" @click="fire('quote')">❝</button>
+    <button type="button" class="md-btn" title="无序列表" @click="fire('ul')">•</button>
+    <button type="button" class="md-btn" title="有序列表" @click="fire('ol')">1.</button>
     <span class="md-sep" />
-    <button class="md-btn" title="链接" @click="fire('link')">🔗</button>
-    <button class="md-btn" title="插入图片" @click="fire('image')">🖼️</button>
+    <button type="button" class="md-btn" title="链接" @click="fire('link')">🔗</button>
+    <button type="button" class="md-btn" title="插入图片" @click="fire('image')">🖼️</button>
     <span class="md-sep" />
     <select class="md-select" title="字号" @change="fire('font-size', $event.target.value)">
       <option value="">字号</option>
@@ -37,6 +37,7 @@ function fire(type, value) {
       <button
         v-for="c in COLORS"
         :key="c"
+        type="button"
         class="md-swatch"
         :style="{ background: c }"
         :title="c"
