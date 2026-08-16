@@ -1,0 +1,342 @@
+<script setup>
+// 所见即所得编辑器（TipTap v3）：工具栏支持 加粗/斜体/下划线/删除线/标题/行内代码/代码块/
+// 引用/列表/链接/图片/字号/颜色/撤销重做，作用于选中的文本
+import { useEditor, EditorContent } from '@tiptap/vue-3'
+import StarterKit from '@tiptap/starter-kit'
+import { TextStyle, Color, FontSize } from '@tiptap/extension-text-style'
+import Link from '@tiptap/extension-link'
+import Image from '@tiptap/extension-image'
+import Underline from '@tiptap/extension-underline'
+import { computed, ref, watch } from 'vue'
+
+const props = defineProps({
+  modelValue: { type: String, default: '' }, // HTML 内容（v-model）
+  imageUpload: { type: Function, default: null }, // async (file) => { url }
+})
+const emit = defineEmits(['update:modelValue'])
+
+const editor = useEditor({
+  content: props.modelValue || '',
+  extensions: [
+    StarterKit,
+    TextStyle,
+    Color,
+    FontSize,
+    Underline,
+    Link.configure({ openOnClick: false, autolink: true }),
+    Image,
+  ],
+  onUpdate: ({ editor: e }) => emit('update:modelValue', e.getHTML()),
+})
+
+// 外部（如模式切换）改动内容时同步进编辑器，避免覆盖当前编辑
+watch(
+  () => props.modelValue,
+  (val) => {
+    const e = editor.value
+    if (!e || val === e.getHTML()) return
+    e.commands.setContent(val || '', { emitUpdate: false })
+  }
+)
+
+const FONT_SIZES = [12, 14, 16, 18, 20, 24, 32]
+const COLORS = ['#e74c3c', '#e67e22', '#f1c40f', '#2ecc71', '#1abc9c', '#3498db', '#9b59b6', '#ec4899', '#64748b', '#111827']
+const fileInput = ref(null)
+const uploading = ref(false)
+const errMsg = ref('')
+
+// 按钮高亮状态（响应式跟随光标）
+const active = computed(() => {
+  const e = editor.value
+  if (!e) return {}
+  return {
+    bold: e.isActive('bold'),
+    italic: e.isActive('italic'),
+    underline: e.isActive('underline'),
+    strike: e.isActive('strike'),
+    code: e.isActive('code'),
+    codeBlock: e.isActive('codeBlock'),
+    quote: e.isActive('blockquote'),
+    bullet: e.isActive('bulletList'),
+    ordered: e.isActive('orderedList'),
+    link: e.isActive('link'),
+    h1: e.isActive('heading', { level: 1 }),
+    h2: e.isActive('heading', { level: 2 }),
+    h3: e.isActive('heading', { level: 3 }),
+  }
+})
+
+const chain = () => editor.value?.chain().focus()
+const run = (fn) => fn(chain())
+
+function toggleHeading(level) {
+  run((c) => c.toggleHeading({ level }))
+}
+
+function onFontSize(e) {
+  const v = e.target.value
+  if (!v) run((c) => c.unsetFontSize())
+  else run((c) => c.setFontSize(`${v}px`))
+}
+
+function onColor(c) {
+  run((ch) => (c ? ch.setColor(c) : ch.unsetColor()))
+}
+
+function onLink() {
+  const e = editor.value
+  if (!e) return
+  if (e.isActive('link')) {
+    e.chain().focus().unsetLink().run()
+    return
+  }
+  const url = window.prompt('链接地址（https://…）')
+  if (url) e.chain().focus().setLink({ href: url }).run()
+}
+
+async function onPickImage(e) {
+  const file = e.target.files?.[0]
+  e.target.value = ''
+  if (!file || !props.imageUpload) return
+  uploading.value = true
+  errMsg.value = ''
+  try {
+    const { url } = await props.imageUpload(file)
+    editor.value?.chain().focus().setImage({ src: url }).run()
+  } catch (err) {
+    errMsg.value = err.message
+  } finally {
+    uploading.value = false
+  }
+}
+</script>
+
+<template>
+  <div class="richtext">
+    <div class="rt-toolbar">
+      <button class="rt-btn" title="撤销" :disabled="!editor?.can().undo()" @click="run((c) => c.undo())">↩</button>
+      <button class="rt-btn" title="重做" :disabled="!editor?.can().redo()" @click="run((c) => c.redo())">↪</button>
+      <span class="rt-sep" />
+      <button class="rt-btn" :class="{ on: active.bold }" title="加粗" @click="run((c) => c.toggleBold())"><b>B</b></button>
+      <button class="rt-btn" :class="{ on: active.italic }" title="斜体" @click="run((c) => c.toggleItalic())"><i>I</i></button>
+      <button class="rt-btn" :class="{ on: active.underline }" title="下划线" @click="run((c) => c.toggleUnderline())"><u>U</u></button>
+      <button class="rt-btn" :class="{ on: active.strike }" title="删除线" @click="run((c) => c.toggleStrike())"><s>S</s></button>
+      <span class="rt-sep" />
+      <button class="rt-btn" :class="{ on: active.h1 }" title="一级标题" @click="toggleHeading(1)">H1</button>
+      <button class="rt-btn" :class="{ on: active.h2 }" title="二级标题" @click="toggleHeading(2)">H2</button>
+      <button class="rt-btn" :class="{ on: active.h3 }" title="三级标题" @click="toggleHeading(3)">H3</button>
+      <span class="rt-sep" />
+      <button class="rt-btn" :class="{ on: active.code }" title="行内代码" @click="run((c) => c.toggleCode())">&lt;/&gt;</button>
+      <button class="rt-btn" :class="{ on: active.codeBlock }" title="代码块" @click="run((c) => c.toggleCodeBlock())">{ }</button>
+      <button class="rt-btn" :class="{ on: active.quote }" title="引用" @click="run((c) => c.toggleBlockquote())">❝</button>
+      <button class="rt-btn" :class="{ on: active.bullet }" title="无序列表" @click="run((c) => c.toggleBulletList())">•</button>
+      <button class="rt-btn" :class="{ on: active.ordered }" title="有序列表" @click="run((c) => c.toggleOrderedList())">1.</button>
+      <span class="rt-sep" />
+      <button class="rt-btn" :class="{ on: active.link }" title="链接" @click="onLink">🔗</button>
+      <button class="rt-btn" title="插入图片" :disabled="uploading" @click="fileInput.click()">
+        {{ uploading ? '…' : '🖼️' }}
+      </button>
+      <input ref="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" class="rt-file" @change="onPickImage" />
+      <span class="rt-sep" />
+      <select class="rt-select" title="字号" @change="onFontSize">
+        <option value="">字号</option>
+        <option v-for="s in FONT_SIZES" :key="s" :value="s">{{ s }}px</option>
+      </select>
+      <span class="rt-colors">
+        <button
+          v-for="c in COLORS"
+          :key="c"
+          class="rt-swatch"
+          :style="{ background: c }"
+          :title="c"
+          @click="onColor(c)"
+        />
+        <input type="color" class="rt-picker" title="自定义颜色" @input="onColor($event.target.value)" />
+      </span>
+      <button class="rt-btn" title="清除格式" @click="run((c) => c.clearNodes().unsetAllMarks())">✕</button>
+    </div>
+
+    <p v-if="errMsg" class="rt-error">{{ errMsg }}</p>
+    <EditorContent :editor="editor" class="rt-content" />
+  </div>
+</template>
+
+<style scoped>
+.richtext {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.rt-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 8px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.rt-btn {
+  min-width: 26px;
+  height: 26px;
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.rt-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--panel);
+}
+
+.rt-btn.on {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.rt-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.rt-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  margin: 0 5px;
+}
+
+.rt-select {
+  height: 26px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0 4px;
+}
+
+.rt-colors {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 2px;
+}
+
+.rt-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid rgb(0 0 0 / 0.25);
+  cursor: pointer;
+  padding: 0;
+}
+
+.rt-picker {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
+
+.rt-file {
+  display: none;
+}
+
+.rt-error {
+  margin: 0;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: #ff9d9d;
+  background: color-mix(in srgb, #ff5c5c 10%, transparent);
+}
+
+.rt-content {
+  min-height: 280px;
+  padding: 12px 14px;
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--text);
+  word-wrap: break-word;
+}
+
+.rt-content :deep(.ProseMirror) {
+  outline: none;
+  min-height: 260px;
+}
+
+.rt-content :deep(h1),
+.rt-content :deep(h2),
+.rt-content :deep(h3) {
+  margin: 1.1em 0 0.5em;
+  line-height: 1.3;
+}
+
+.rt-content :deep(h1) {
+  font-size: 22px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.rt-content :deep(h2) {
+  font-size: 18px;
+}
+
+.rt-content :deep(h3) {
+  font-size: 16px;
+}
+
+.rt-content :deep(p) {
+  margin: 0.6em 0;
+}
+
+.rt-content :deep(a) {
+  color: var(--accent);
+}
+
+.rt-content :deep(code) {
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 0.9em;
+  background: var(--panel-2);
+}
+
+.rt-content :deep(pre) {
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  overflow-x: auto;
+}
+
+.rt-content :deep(pre code) {
+  padding: 0;
+  background: transparent;
+}
+
+.rt-content :deep(blockquote) {
+  margin: 0.7em 0;
+  padding: 2px 14px;
+  border-left: 3px solid var(--accent);
+  color: var(--muted);
+}
+
+.rt-content :deep(ul),
+.rt-content :deep(ol) {
+  padding-left: 1.6em;
+}
+
+.rt-content :deep(img) {
+  max-width: 100%;
+}
+</style>

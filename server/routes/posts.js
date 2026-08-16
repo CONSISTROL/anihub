@@ -1,14 +1,15 @@
-// 文章路由：博客与 Wiki 共用的 CRUD（category 区分）
+// 文章路由：博客与 Wiki 共用的 CRUD（category 区分），支持 md / html 两种正文格式
 import { Router } from 'express'
 import db from '../db.js'
 import { slugify } from '../lib/slugify.js'
-import { validateCategory, validatePostInput } from '../lib/validate.js'
+import { validateCategory, validateFormat, validatePostInput } from '../lib/validate.js'
 import { authRequired, optionalAuth } from '../middleware/auth.js'
 
 const router = Router()
 
 const POST_FIELDS = `
-  p.id, p.category, p.title, p.slug, p.summary, p.content_md,
+  p.id, p.category, p.title, p.slug, p.summary,
+  p.content_md, p.content_html, p.format,
   p.tags, p.visibility, p.author_id, p.created_at, p.updated_at,
   u.username AS author_name
 `
@@ -25,6 +26,8 @@ function toPost(row) {
     slug: row.slug,
     summary: row.summary,
     contentMd: row.content_md,
+    contentHtml: row.content_html,
+    format: row.format || 'md',
     tags: parseTags(row.tags),
     visibility: row.visibility,
     authorId: row.author_id,
@@ -78,8 +81,8 @@ router.get('/', optionalAuth, (req, res) => {
   }
   if (q) {
     const like = `%${q}%`
-    where.push('(instr(lower(p.title), lower(?)) > 0 OR instr(lower(p.summary), lower(?)) > 0 OR instr(lower(p.content_md), lower(?)) > 0 OR instr(lower(p.tags), lower(?)) > 0)')
-    params.push(q, q, q, q)
+    where.push('(instr(lower(p.title), lower(?)) > 0 OR instr(lower(p.summary), lower(?)) > 0 OR instr(lower(p.content_md), lower(?)) > 0 OR instr(lower(p.content_html), lower(?)) > 0 OR instr(lower(p.tags), lower(?)) > 0)')
+    params.push(q, q, q, q, q)
   }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : ''
 
@@ -135,20 +138,45 @@ router.get('/:id', optionalAuth, (req, res) => {
 
 // 新建（需登录）
 router.post('/', authRequired, (req, res) => {
-  const { category = 'blog', title, slug, summary = '', content_md = '', tags = [], visibility = 'public' } = req.body || {}
+  const {
+    category = 'blog',
+    title,
+    slug,
+    summary = '',
+    content_md = '',
+    content_html = '',
+    format = 'md',
+    tags = [],
+    visibility = 'public',
+  } = req.body || {}
   const vis = parseVisibility(visibility)
   const err =
     validateCategory(category) ||
-    validatePostInput({ title, summary, content_md, tags }) ||
+    validateFormat(format) ||
+    validatePostInput({ title, summary, content_md, content_html, tags, format }) ||
     (slug != null && typeof slug !== 'string' ? 'slug 需为字符串' : null) ||
     (vis === undefined ? 'visibility 需为 public/insider/private' : null)
   if (err) {
     return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: err } })
   }
   const finalSlug = uniqueSlug(slug?.trim() ? slugify(slug) : slugify(title))
+  const isHtml = format === 'html'
   const r = db
-    .prepare('INSERT INTO posts (category, title, slug, summary, content_md, tags, visibility, author_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(category, title.trim(), finalSlug, summary, content_md, JSON.stringify(tags), vis, Number(req.user.sub))
+    .prepare(
+      'INSERT INTO posts (category, title, slug, summary, content_md, content_html, format, tags, visibility, author_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    )
+    .run(
+      category,
+      title.trim(),
+      finalSlug,
+      summary,
+      isHtml ? '' : content_md,
+      isHtml ? content_html : '',
+      format,
+      JSON.stringify(tags),
+      vis,
+      Number(req.user.sub)
+    )
   const row = db
     .prepare(`SELECT ${POST_FIELDS} FROM posts p JOIN users u ON u.id = p.author_id WHERE p.id = ?`)
     .get(Number(r.lastInsertRowid))
@@ -168,11 +196,18 @@ router.put('/:id', authRequired, (req, res) => {
   if (vis === undefined) {
     return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'visibility 需为 public/insider/private' } })
   }
+  const format = body.format ?? row.format
+  if (validateFormat(format)) {
+    return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'format 需为 md 或 html' } })
+  }
+  const isHtml = format === 'html'
   const next = {
     category: body.category ?? row.category,
     title: body.title ?? row.title,
     summary: body.summary ?? row.summary,
-    content_md: body.content_md ?? row.content_md,
+    content_md: isHtml ? row.content_md : (body.content_md ?? row.content_md),
+    content_html: isHtml ? (body.content_html ?? row.content_html) : row.content_html,
+    format,
     tags: body.tags ?? parseTags(row.tags),
     slug: body.slug ?? row.slug,
     visibility: vis ?? row.visibility,
@@ -187,8 +222,19 @@ router.put('/:id', authRequired, (req, res) => {
   // slug 变化时保证唯一（排除自身）
   const finalSlug = next.slug === row.slug ? row.slug : uniqueSlug(slugify(next.slug), id)
   db.prepare(
-    'UPDATE posts SET category = ?, title = ?, slug = ?, summary = ?, content_md = ?, tags = ?, visibility = ?, updated_at = datetime(\'now\') WHERE id = ?'
-  ).run(next.category, next.title.trim(), finalSlug, next.summary, next.content_md, JSON.stringify(next.tags), next.visibility, id)
+    "UPDATE posts SET category = ?, title = ?, slug = ?, summary = ?, content_md = ?, content_html = ?, format = ?, tags = ?, visibility = ?, updated_at = datetime('now') WHERE id = ?"
+  ).run(
+    next.category,
+    next.title.trim(),
+    finalSlug,
+    next.summary,
+    next.content_md,
+    next.content_html,
+    next.format,
+    JSON.stringify(next.tags),
+    next.visibility,
+    id
+  )
   const updated = db
     .prepare(`SELECT ${POST_FIELDS} FROM posts p JOIN users u ON u.id = p.author_id WHERE p.id = ?`)
     .get(id)

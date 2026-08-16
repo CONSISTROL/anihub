@@ -10,4 +10,22 @@ export default defineConfig({
       '/uploads': 'http://localhost:3001',
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // 分包：富文本编辑器（TipTap/ProseMirror）与 Markdown 渲染各自独立成块，主包更小、缓存更优
+        manualChunks(id) {
+          if (id.includes('node_modules/@tiptap') || id.includes('node_modules/prosemirror')) return 'editor'
+          if (
+            id.includes('node_modules/marked') ||
+            id.includes('node_modules/dompurify') ||
+            id.includes('node_modules/turndown') ||
+            id.includes('node_modules/domino')
+          ) {
+            return 'markdown'
+          }
+        },
+      },
+    },
+  },
 })

@@ -23,6 +23,8 @@ db.exec(`
     slug        TEXT NOT NULL UNIQUE,
     summary     TEXT NOT NULL DEFAULT '',
     content_md  TEXT NOT NULL DEFAULT '',
+    content_html TEXT NOT NULL DEFAULT '',            -- 富文本（所见即所得模式）正文
+    format      TEXT NOT NULL DEFAULT 'md' CHECK (format IN ('md', 'html')),
     tags        TEXT NOT NULL DEFAULT '[]',
     hidden      INTEGER NOT NULL DEFAULT 0,           -- 旧字段：1 = 对游客隐藏（迁移到 visibility）
     visibility  TEXT NOT NULL DEFAULT 'public' CHECK (visibility IN ('public', 'insider', 'private')),
@@ -40,15 +42,22 @@ db.exec(`
   );
 `)
 
-// 兼容旧库：posts 表新增 hidden / visibility 列（CREATE TABLE IF NOT EXISTS 不会补列）
+// 兼容旧库：posts 表新增 hidden / visibility / content_html / format 列（CREATE TABLE IF NOT EXISTS 不会补列）
 const postCols = db.prepare('PRAGMA table_info(posts)').all()
-if (!postCols.some((c) => c.name === 'hidden')) {
+const hasCol = (n) => postCols.some((c) => c.name === n)
+if (!hasCol('hidden')) {
   db.exec('ALTER TABLE posts ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0')
 }
-if (!postCols.some((c) => c.name === 'visibility')) {
+if (!hasCol('visibility')) {
   db.exec("ALTER TABLE posts ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public'")
   // 旧数据迁移：之前"对游客隐藏"的文章归入"仅内部人员可见"（游客仍看不到，语义不变）
   db.exec("UPDATE posts SET visibility = 'insider' WHERE hidden = 1")
+}
+if (!hasCol('content_html')) {
+  db.exec("ALTER TABLE posts ADD COLUMN content_html TEXT NOT NULL DEFAULT ''")
+}
+if (!hasCol('format')) {
+  db.exec("ALTER TABLE posts ADD COLUMN format TEXT NOT NULL DEFAULT 'md'")
 }
 
 // 个人站：启动时确保站长账号存在，密码以 .env 为准（改动后重启即生效）

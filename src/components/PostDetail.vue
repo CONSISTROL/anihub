@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { getPostBySlug, deletePost } from '../api/posts'
 import { useAuth } from '../composables/useAuth'
 import MarkdownView from './MarkdownView.vue'
+import RichTextView from './RichTextView.vue'
 
 const props = defineProps({
   category: { type: String, required: true },
@@ -74,7 +75,8 @@ const VIS_LABEL = { insider: '仅内部可见', private: '仅管理员可见' }
         </div>
       </header>
 
-      <MarkdownView v-if="post.contentMd" :source="post.contentMd" />
+      <MarkdownView v-if="post.format !== 'html' && post.contentMd" :source="post.contentMd" />
+      <RichTextView v-else-if="post.format === 'html' && post.contentHtml" :source="post.contentHtml" />
       <p v-else class="detail-hint">（暂无内容）</p>
 
       <footer v-if="canEdit" class="post-actions">

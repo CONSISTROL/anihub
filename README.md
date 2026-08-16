@@ -23,8 +23,9 @@
 ### 📝 博客（`/blog`）与 📚 Wiki（`/wiki`）
 
 - 登录后即可发布、编辑、删除文章；未登录只读（个人站，不开放注册）
-- Markdown 写作（标题、加粗、链接、代码块等），实时预览
-- **插图**：编辑正文时可点击「🖼️ 插入图片」上传本地图片（PNG / JPG / WebP / GIF，≤ 8MB），自动以 Markdown 图片语法插入光标处，图片存于 `server/uploads/`
+- **双模式编辑**：编辑页可切换 Markdown（工具栏 + 源码 + 实时预览）与 所见即所得（TipTap）两种模式，模式选择会记住；两种模式相互转换（Markdown 中的字号/颜色等行内 HTML 样式在富文本↔Markdown 切换中可保留）
+- **编辑工具栏**：Markdown 与富文本模式均提供工具栏，支持对选中文本设置 加粗/斜体/下划线/删除线/标题/行内代码/代码块/引用/列表/链接/字号/颜色 等样式，并可一键清除格式
+- **插图**：编辑正文时可上传本地图片（PNG / JPG / WebP / GIF，≤ 8MB），Markdown 模式自动插入图片语法、富文本模式直接插入图片，图片存于 `server/uploads/`
 - **游客隐藏（三档可见性）**：编辑页可为每篇文章选择 公开（游客可见）/ 仅内部人员（游客不可见，内部人员可读）/ 仅管理员（私有）三档；权限不足时列表不出现、详情按不存在处理（404），有权限时列表与详情会显示「仅内部可见」「仅管理员可见」标识
 - 标题自动生成中文 URL 别名（slug），冲突自动加 `-2`
 - 支持按关键词搜索标题 / 摘要 / 正文 / 标签，分页浏览
@@ -89,10 +90,10 @@ npm start
 ├── vite.config.js                # dev proxy: /api → :3001
 ├── server/                       # Node + Express + SQLite 后端
 │   ├── index.js                  # 装配：JSON → API 路由 → 静态托管 dist/ → SPA fallback
-│   ├── db.js                     # node:sqlite 连接 + users/posts 建表（WAL，含 visibility 迁移）
+│   ├── db.js                     # node:sqlite 连接 + users/posts 建表（WAL，含 visibility / content_html / format 迁移）
 │   ├── config.js                 # PORT / JWT_SECRET / INSIDER_KEYWORD（读环境变量）
 │   ├── routes/auth.js            # 登录 / 内部人员口令 / 获取当前用户
-│   ├── routes/posts.js           # 文章 CRUD（列表/详情/新建/编辑/删除，作者校验，三档可见性）
+│   ├── routes/posts.js           # 文章 CRUD（列表/详情/新建/编辑/删除，作者校验，md/html 双格式，三档可见性）
 │   ├── routes/settings.js        # 站点设置（游客 / 内部人员可见页面）
 │   ├── routes/upload.js          # 图片上传（PNG/JPG/WebP/GIF → server/uploads/）
 │   ├── routes/wallpapers.js      # 壁纸目录扫描（GET /api/wallpapers → 图片 URL 列表）
@@ -128,14 +129,17 @@ npm start
     │   ├── BlogPostView.vue      # /blog/:slug 博客详情
     │   ├── WikiListView.vue      # /wiki       Wiki 列表
     │   ├── WikiPostView.vue      # /wiki/:slug Wiki 详情
-    │   ├── EditView.vue          # 新建/编辑（博客与 Wiki 共用）
+    │   ├── EditView.vue          # 新建/编辑（博客与 Wiki 共用，Markdown/富文本双模式）
     │   ├── LoginView.vue         # 登录
     │   └── SettingsView.vue      # /settings 设置（页面访问权限）
     └── components/
-        ├── NavBar.vue            # 全站导航栏（含登录态）
+        ├── NavBar.vue            # 全站导航栏（含登录态与内部模式徽标）
         ├── MarkdownView.vue      # Markdown 渲染（marked + DOMPurify）
+        ├── RichTextView.vue      # 富文本 HTML 渲染（DOMPurify）
+        ├── RichTextEditor.vue    # 所见即所得编辑器（TipTap，含样式工具栏）
+        ├── MdToolbar.vue         # Markdown 模式编辑工具栏
         ├── PostList.vue          # 文章列表（搜索/分页，博客/Wiki 共用）
-        ├── PostDetail.vue        # 文章详情（作者操作）
+        ├── PostDetail.vue        # 文章详情（作者操作，按格式渲染）
         ├── WeekView.vue          # 周历视图（默认，大格子全部显示）
         ├── Calendar.vue          # 月历视图（含悬浮提示、当日弹层）
         ├── DayPopover.vue        # 当日放送列表弹层
