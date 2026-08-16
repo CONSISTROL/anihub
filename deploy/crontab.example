@@ -1,0 +1,3 @@
+# AniHub 定时备份（由 setup.sh 自动写入 /etc/cron.d/anihub-backup）
+# 每天 03:00 执行，日志见 /var/log/anihub-backup.log
+0 3 * * * root /usr/local/bin/anihub-backup >> /var/log/anihub-backup.log 2>&1

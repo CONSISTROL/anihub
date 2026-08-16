@@ -82,12 +82,48 @@ npm start
 
 > 生产环境建议设置环境变量 `JWT_SECRET`（登录令牌签名密钥）与登录密码 `ADMIN_PASSWORD`；不设置则用默认开发值。
 
+### 云端部署（推荐：轻量云服务器 / VPS）
+
+本项目使用 Node 内置 `node:sqlite` 与本地磁盘（SQLite 数据库 + 上传图片），**必须运行在带持久磁盘的常驻服务器上**（轻量服务器 / VPS / 容器平台均可；纯静态托管与 Serverless 不适合，函数环境的文件系统不持久）。
+
+`deploy/` 目录已备好全套部署文件，适用于 Ubuntu 22.04 / 24.04 的国内轻量服务器（阿里云 / 腾讯云轻量应用服务器，2C2G 即可）：
+
+| 文件 | 作用 |
+|---|---|
+| `deploy/setup.sh` | 一键部署：装 Node 24 → 拉代码 → 构建 → 生成 `.env`（随机密钥）→ systemd 守护 → Nginx + HTTPS → 定时备份 |
+| `deploy/anihub.service` | systemd 服务单元（开机自启、崩溃自动重启、最小权限加固） |
+| `deploy/anihub.nginx.conf` | Nginx 反向代理 + Let's Encrypt HTTPS |
+| `deploy/backup.sh` | 数据备份（SQLite + 上传图片，保留最近 14 份，每日 03:00） |
+| `deploy/crontab.example` | 定时备份任务示例 |
+
+快速上手（服务器上执行）：
+
+```bash
+# 方式一：脚本自动部署（代码需能 git clone 到服务器）
+sudo DOMAIN=anime.example.com CERT_EMAIL=you@example.com \
+  REPO_URL=https://github.com/you/anime-calendar.git \
+  ADMIN_USERNAME=admin ADMIN_PASSWORD=你的密码 \
+  bash deploy/setup.sh
+
+# 方式二：代码已上传到服务器（如 scp 到 /opt/anihub）后执行
+sudo DOMAIN=anime.example.com CERT_EMAIL=you@example.com bash /opt/anihub/deploy/setup.sh
+```
+
+部署完成后访问 `https://你的域名`，页面敲键盘 `login` 输入管理员账号登录。日常更新代码：
+
+```bash
+cd /opt/anihub && git pull && npm ci && npm run build && sudo systemctl restart anihub
+```
+
+**安全提醒**：首次部署请务必在 `server/.env` 中设置强随机 `JWT_SECRET`（部署脚本已自动生成）、修改 `ADMIN_PASSWORD`；如需修改内部人员口令 `INSIDER_KEYWORD`，同步改 `src/App.vue` 顶部的 `KEY_SEQ_INSIDE` 后重新构建。
+
 ## 项目结构
 
 ```
 ├── index.html                    # 入口页面
 ├── package.json
-├── vite.config.js                # dev proxy: /api → :3001
+├── vite.config.js                # dev proxy: /api → :3001；生产分包（editor/markdown）
+├── deploy/                       # 云端部署（轻量服务器）：setup.sh / systemd / nginx / 备份
 ├── server/                       # Node + Express + SQLite 后端
 │   ├── index.js                  # 装配：JSON → API 路由 → 静态托管 dist/ → SPA fallback
 │   ├── db.js                     # node:sqlite 连接 + users/posts 建表（WAL，含 visibility / content_html / format 迁移）

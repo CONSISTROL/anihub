@@ -1,0 +1,26 @@
+# AniHub systemd 服务单元（由 deploy/setup.sh 安装，占位符会被替换）
+# 安装位置: /etc/systemd/system/anihub.service
+[Unit]
+Description=AniHub (Anime Calendar / Blog / Wiki)
+After=network.target
+
+[Service]
+Type=simple
+User=__APP_USER__
+Group=__APP_USER__
+WorkingDirectory=__APP_DIR__
+# 与 npm start 一致的启动命令（server/.env 由部署脚本生成）
+ExecStart=/usr/bin/node --env-file-if-exists=server/.env --disable-warning=ExperimentalWarning server/index.js
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=production
+
+# 安全加固：只允许写应用数据目录（SQLite + 上传图片）
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=__APP_DIR__/server
+
+[Install]
+WantedBy=multi-user.target
