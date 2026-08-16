@@ -52,7 +52,12 @@ id -u "$APP_USER" >/dev/null 2>&1 || useradd --system --create-home --shell /usr
 echo "==> [4/8] 准备应用代码 $APP_DIR"
 if [[ ! -f "$APP_DIR/package.json" ]]; then
   if [[ -n "$REPO_URL" ]]; then
-    git clone "$REPO_URL" "$APP_DIR"
+    # GitHub 国内不稳定，clone 加超时，失败即中止并提示
+    timeout 90 git clone "$REPO_URL" "$APP_DIR" || {
+      echo "错误：git clone 超时/失败（GitHub 网络问题）。" >&2
+      echo "      可改用：把代码直接上传到 $APP_DIR，或设置 REPO_URL 指向 Gitee 镜像。" >&2
+      exit 1
+    }
   else
     mkdir -p "$APP_DIR"
     echo "错误：$APP_DIR 里没有代码。" >&2
@@ -64,7 +69,12 @@ if [[ ! -f "$APP_DIR/package.json" ]]; then
 fi
 cd "$APP_DIR"
 git config --global --add safe.directory "$APP_DIR" || true
-git pull --ff-only 2>/dev/null || true
+# 拉取更新：加超时防止卡死；失败不阻断（继续用已有代码构建）
+if timeout 30 git pull --ff-only 2>&1 | tail -3; then
+  :
+else
+  echo "    git pull 超时/失败（GitHub 网络问题），继续使用本地已有代码"
+fi
 npm ci
 npm run build
 
