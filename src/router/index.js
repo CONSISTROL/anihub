@@ -12,6 +12,10 @@ import WikiPostView from '../views/WikiPostView.vue'
 import EditView from '../views/EditView.vue'
 import LoginView from '../views/LoginView.vue'
 import SettingsView from '../views/SettingsView.vue'
+import ToolsView from '../views/ToolsView.vue'
+import JsonToolView from '../views/JsonToolView.vue'
+import QrToolView from '../views/QrToolView.vue'
+import SearchView from '../views/SearchView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -28,13 +32,24 @@ const router = createRouter({
     { path: '/wiki/:slug/edit', name: 'wiki-edit', component: EditView, props: { category: 'wiki' }, meta: { auth: true } },
     { path: '/login', name: 'login', component: LoginView },
     { path: '/settings', name: 'settings', component: SettingsView, meta: { auth: true } },
+    { path: '/tools', name: 'tools', component: ToolsView },
+    { path: '/tools/json', name: 'tools-json', component: JsonToolView },
+    { path: '/tools/qr', name: 'tools-qr', component: QrToolView },
+    { path: '/search', name: 'search', component: SearchView },
     // 兜底：未知路径回主页
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })
 
-// 可配置游客可见性的页面（与 server/routes/settings.js 的 ALL_PAGES 保持一致）
-const GUEST_PAGES = { anime: true, blog: true, wiki: true }
+// 可配置游客可见性的页面：路由名 → 设置中的页面 key（二级页面归属同一页面，与 server/routes/settings.js 的 ALL_PAGES 保持一致）
+const GUEST_PAGES = {
+  anime: 'anime',
+  blog: 'blog',
+  wiki: 'wiki',
+  tools: 'tools',
+  'tools-json': 'tools',
+  'tools-qr': 'tools',
+}
 
 router.beforeEach(async (to) => {
   const auth = useAuth()
@@ -42,10 +57,11 @@ router.beforeEach(async (to) => {
     return { name: 'login', query: { redirect: to.fullPath } }
   }
   // 游客 / 内部人员访问页面时按可见性拦截（管理员不受限）；不提示，页面上也不暴露该限制
-  if (!auth.isLoggedIn.value && GUEST_PAGES[to.name]) {
+  const page = GUEST_PAGES[to.name]
+  if (!auth.isLoggedIn.value && page) {
     const settings = useSettings()
     await settings.load()
-    if (!settings.canAccess(to.name, auth.isInsider.value)) return { name: 'home' }
+    if (!settings.canAccess(page, auth.isInsider.value)) return { name: 'home' }
   }
 })
 

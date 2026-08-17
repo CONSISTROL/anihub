@@ -1,5 +1,6 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
 import { useSettings } from '../composables/useSettings'
 import ThemeSelector from './ThemeSelector.vue'
@@ -8,10 +9,22 @@ const { isLoggedIn, isInsider, user, clearSession, exitInsider } = useAuth()
 const settings = useSettings()
 settings.load() // 预加载可见页面（单例，守卫/主页共用）
 
+const router = useRouter()
+
+// 站内搜索：回车跳转到搜索页
+const navQ = ref('')
+function onNavSearch() {
+  const kw = navQ.value.trim()
+  if (!kw) return
+  router.push({ name: 'search', query: { q: kw } })
+  navQ.value = ''
+}
+
 const ALL_LINKS = [
   { to: '/anime', label: 'Anime', page: 'anime' },
   { to: '/blog', label: 'Blog', page: 'blog' },
   { to: '/wiki', label: 'Wiki', page: 'wiki' },
+  { to: '/tools', label: 'Tools', page: 'tools' },
 ]
 
 // 未登录时按身份显示可见的页面链接：游客只看游客可见，内部人员多看内部可见
@@ -29,10 +42,13 @@ const WELCOME = 'Ciallo ～(∠・ω< )⌒★!'
     <div class="links">
       <router-link v-for="l in links" :key="l.to" :to="l.to">{{ l.label }}</router-link>
     </div>
+    <form class="nav-search" @submit.prevent="onNavSearch">
+      <input v-model.trim="navQ" placeholder="站内搜索…" title="站内搜索（回车）" />
+    </form>
     <div class="user-area">
       <span v-if="isInsider && !isLoggedIn" class="insider-chip" title="内部人员模式（只读）">
         <img src="/insider.webp" class="insider-avatar" alt="" />
-        <span class="insider-label">内部潜入中 ～(∠・ω< )⌒★</span>
+        <span class="insider-label">⋆｡ﾟ☁︎｡⋆｡ ﾟ☾ ﾟ｡⋆</span>
         <button class="chip-x" aria-label="退出内部模式" @click="exitInsider">✕</button>
       </span>
       <template v-if="isLoggedIn">
@@ -88,6 +104,23 @@ const WELCOME = 'Ciallo ～(∠・ω< )⌒★!'
 .links a.router-link-active {
   color: var(--accent);
   font-weight: 600;
+}
+
+.nav-search input {
+  width: 140px;
+  padding: 5px 12px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  outline: none;
+  transition: width 0.15s, border-color 0.15s;
+}
+
+.nav-search input:focus {
+  width: 180px;
+  border-color: var(--accent);
 }
 
 .user-area {

@@ -10,7 +10,7 @@ const router = Router()
 const POST_FIELDS = `
   p.id, p.category, p.title, p.slug, p.summary,
   p.content_md, p.content_html, p.format,
-  p.tags, p.visibility, p.author_id, p.created_at, p.updated_at,
+  p.tags, p.visibility, p.pinned, p.author_id, p.created_at, p.updated_at,
   u.username AS author_name
 `
 
@@ -30,6 +30,7 @@ function toPost(row) {
     format: row.format || 'md',
     tags: parseTags(row.tags),
     visibility: row.visibility,
+    pinned: !!row.pinned,
     authorId: row.author_id,
     authorName: row.author_name,
     createdAt: row.created_at,
@@ -88,7 +89,7 @@ router.get('/', optionalAuth, (req, res) => {
 
   const total = db.prepare(`SELECT count(*) AS n FROM posts p ${whereSql}`).get(...params).n
   const rows = db
-    .prepare(`SELECT ${POST_FIELDS} FROM posts p JOIN users u ON u.id = p.author_id ${whereSql} ORDER BY p.created_at DESC LIMIT ? OFFSET ?`)
+    .prepare(`SELECT ${POST_FIELDS} FROM posts p JOIN users u ON u.id = p.author_id ${whereSql} ORDER BY p.pinned DESC, p.created_at DESC LIMIT ? OFFSET ?`)
     .all(...params, pageSize, (page - 1) * pageSize)
 
   const uid = req.user ? Number(req.user.sub) : null
@@ -101,6 +102,24 @@ router.get('/', optionalAuth, (req, res) => {
     page,
     pageSize,
   })
+})
+
+// 公告：置顶的博客文章（全局唯一），按当前身份过滤可见性；无公告时 404
+// 注意：必须定义在 /:id 之前，否则会被当作 id 匹配
+router.get('/announcement', optionalAuth, (req, res) => {
+  const vis = visibilityClause(req.user)
+  const row = db
+    .prepare(
+      `SELECT ${POST_FIELDS} FROM posts p JOIN users u ON u.id = p.author_id
+       WHERE p.pinned = 1 AND p.category = 'blog' ${vis ? `AND ${vis}` : ''}
+       ORDER BY p.updated_at DESC LIMIT 1`
+    )
+    .get()
+  if (!row) {
+    return res.status(404).json({ error: { code: 'NOT_FOUND', message: '暂无公告' } })
+  }
+  // 公告只需标题/摘要，不返回正文
+  res.json(toPost({ ...row, content_md: '', content_html: '' }))
 })
 
 // 详情：按 id 或 slug 查（带 canEdit 供前端显示编辑按钮）
@@ -235,6 +254,36 @@ router.put('/:id', authRequired, (req, res) => {
     next.visibility,
     id
   )
+  const updated = db
+    .prepare(`SELECT ${POST_FIELDS} FROM posts p JOIN users u ON u.id = p.author_id WHERE p.id = ?`)
+    .get(id)
+  res.json(toPost(updated))
+})
+
+// 置顶 / 取消置顶（仅作者；仅博客文章，全局唯一置顶 → 该篇即主页公告）
+router.post('/:id/pin', authRequired, (req, res) => {
+  const id = Number(req.params.id)
+  const row = db.prepare('SELECT * FROM posts WHERE id = ?').get(id)
+  if (!row) return res.status(404).json({ error: { code: 'NOT_FOUND', message: '文章不存在' } })
+  if (row.author_id !== Number(req.user.sub)) {
+    return res.status(403).json({ error: { code: 'FORBIDDEN', message: '只能操作自己的文章' } })
+  }
+  if (row.category !== 'blog') {
+    return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: '只有博客文章可以置顶为公告' } })
+  }
+  const pinned = !!(req.body && req.body.pinned)
+  db.exec('BEGIN')
+  try {
+    if (pinned) {
+      // 全局唯一：置顶这篇时取消其他所有置顶
+      db.prepare('UPDATE posts SET pinned = 0 WHERE pinned = 1').run()
+    }
+    db.prepare('UPDATE posts SET pinned = ? WHERE id = ?').run(pinned ? 1 : 0, id)
+    db.exec('COMMIT')
+  } catch (e) {
+    db.exec('ROLLBACK')
+    throw e
+  }
   const updated = db
     .prepare(`SELECT ${POST_FIELDS} FROM posts p JOIN users u ON u.id = p.author_id WHERE p.id = ?`)
     .get(id)

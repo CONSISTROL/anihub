@@ -1,12 +1,23 @@
 <script setup>
-// 网站主页：功能导航卡片（游客只看到允许访问的卡片）
-import { computed } from 'vue'
+// 网站主页：公告 + 功能导航卡片（游客只看到允许访问的卡片）
+import { computed, onMounted, ref } from 'vue'
 import { useAuth } from '../composables/useAuth'
 import { useSettings } from '../composables/useSettings'
+import { getAnnouncement } from '../api/posts'
 
 const { isLoggedIn, isInsider } = useAuth()
 const settings = useSettings()
 if (!isLoggedIn.value) settings.load()
+
+// 主页公告 = 置顶的博客文章（无公告时接口 404，静默隐藏）
+const announcement = ref(null)
+onMounted(async () => {
+  try {
+    announcement.value = await getAnnouncement()
+  } catch {
+    announcement.value = null
+  }
+})
 
 const SECTIONS = [
   {
@@ -30,6 +41,13 @@ const SECTIONS = [
     title: 'Wiki',
     desc: '共同维护的动漫知识库：动画作品、术语、API 指南……登录后可编辑。',
   },
+  {
+    to: '/tools',
+    page: 'tools',
+    icon: '🧰',
+    title: 'Tools',
+    desc: '实用小工具：JSON 格式化、二维码解析成链接。',
+  },
 ]
 
 const visibleSections = computed(() =>
@@ -41,7 +59,14 @@ const visibleSections = computed(() =>
   <div class="home">
     <section class="hero">
       <h1 class="site-name">AniHub</h1>
-      <p class="slogan">番剧时间表 · 追番笔记 · 动漫知识库</p>
+    </section>
+
+    <section v-if="announcement" class="announcement">
+      <span class="ann-label">📢 公告</span>
+      <router-link :to="`/${announcement.category}/${announcement.slug}`" class="ann-body">
+        <span class="ann-title">{{ announcement.title }}</span>
+        <span v-if="announcement.summary" class="ann-summary">{{ announcement.summary }}</span>
+      </router-link>
     </section>
 
     <section class="cards">
@@ -64,7 +89,7 @@ const visibleSections = computed(() =>
 
 .hero {
   text-align: center;
-  padding: 48px 0 36px;
+  padding: 48px 0 20px;
 }
 
 .site-name {
@@ -77,10 +102,49 @@ const visibleSections = computed(() =>
   color: transparent;
 }
 
-.slogan {
-  margin: 10px 0 0;
-  font-size: 16px;
+.announcement {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  margin-top: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: 12px;
+}
+
+.ann-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.ann-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  text-decoration: none;
+  color: var(--text);
+}
+
+.ann-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ann-title:hover {
+  color: var(--accent);
+}
+
+.ann-summary {
+  font-size: 12px;
   color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .cards {

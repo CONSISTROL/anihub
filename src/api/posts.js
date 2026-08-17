@@ -31,6 +31,16 @@ export function deletePost(id) {
   return api(`/posts/${id}`, { method: 'DELETE' })
 }
 
+// 置顶 / 取消置顶（仅博客，全局唯一置顶 → 该篇即主页公告）
+export function pinPost(id, pinned) {
+  return api(`/posts/${id}/pin`, { method: 'POST', body: { pinned } })
+}
+
+// 主页公告：返回置顶的博客文章摘要（无公告时 404）
+export function getAnnouncement() {
+  return api('/posts/announcement')
+}
+
 // 图片上传：原始二进制请求体，返回 { url }
 export async function uploadImage(file) {
   const headers = {}

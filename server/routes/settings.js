@@ -6,7 +6,7 @@ import { authRequired } from '../middleware/auth.js'
 
 const router = Router()
 
-const ALL_PAGES = ['anime', 'blog', 'wiki'] // 主页始终可见，不在此列
+const ALL_PAGES = ['anime', 'blog', 'wiki', 'tools'] // 主页始终可见，不在此列
 const GUEST_KEY = 'guest_pages'
 const INSIDER_KEY = 'insider_pages'
 
@@ -49,7 +49,7 @@ router.put('/', authRequired, (req, res) => {
   ) {
     return res
       .status(400)
-      .json({ error: { code: 'VALIDATION_ERROR', message: 'guestPages / insiderPages 需为 anime/blog/wiki 的子集' } })
+      .json({ error: { code: 'VALIDATION_ERROR', message: 'guestPages / insiderPages 需为 anime/blog/wiki/tools 的子集' } })
   }
   const guests = [...new Set(guestPages)]
   // 内部人员额外可见的页面：剔除已对游客可见的（游客可见自动包含在内部可见内）

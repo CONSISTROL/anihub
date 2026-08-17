@@ -26,6 +26,15 @@ const editor = useEditor({
     Link.configure({ openOnClick: false, autolink: true }),
     Image,
   ],
+  editorProps: {
+    // 剪贴板粘贴图片（Ctrl+V 复制来的图片 / 截图）→ 上传并插入
+    handlePaste(_view, event) {
+      const file = imageFileFromClipboard(event)
+      if (!file) return false
+      insertImageFile(file)
+      return true
+    },
+  },
   onUpdate: ({ editor: e }) => emit('update:modelValue', e.getHTML()),
 })
 
@@ -97,10 +106,20 @@ function onLink() {
   if (url) e.chain().focus().setLink({ href: url }).run()
 }
 
-async function onPickImage(e) {
-  const file = e.target.files?.[0]
-  e.target.value = ''
-  if (!file || !props.imageUpload) return
+function imageFileFromClipboard(e) {
+  const items = e.clipboardData?.items
+  if (!items) return null
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      const file = item.getAsFile()
+      if (file) return file
+    }
+  }
+  return null
+}
+
+async function insertImageFile(file) {
+  if (!props.imageUpload) return
   uploading.value = true
   errMsg.value = ''
   try {
@@ -111,6 +130,12 @@ async function onPickImage(e) {
   } finally {
     uploading.value = false
   }
+}
+
+function onPickImage(e) {
+  const file = e.target.files?.[0]
+  e.target.value = ''
+  if (file) insertImageFile(file)
 }
 </script>
 
@@ -136,7 +161,7 @@ async function onPickImage(e) {
       <button type="button" class="rt-btn" :class="{ on: active.ordered }" title="有序列表" @click="run((c) => c.toggleOrderedList())">1.</button>
       <span class="rt-sep" />
       <button type="button" class="rt-btn" :class="{ on: active.link }" title="链接" @click="onLink">🔗</button>
-      <button type="button" class="rt-btn" title="插入图片" :disabled="uploading" @click="fileInput.click()">
+      <button type="button" class="rt-btn" title="插入图片（或直接 Ctrl+V 粘贴图片）" :disabled="uploading" @click="fileInput.click()">
         {{ uploading ? '…' : '🖼️' }}
       </button>
       <input ref="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" class="rt-file" @change="onPickImage" />

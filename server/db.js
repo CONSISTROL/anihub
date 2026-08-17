@@ -42,7 +42,7 @@ db.exec(`
   );
 `)
 
-// 兼容旧库：posts 表新增 hidden / visibility / content_html / format 列（CREATE TABLE IF NOT EXISTS 不会补列）
+// 兼容旧库：posts 表新增 hidden / visibility / content_html / format / pinned 列（CREATE TABLE IF NOT EXISTS 不会补列）
 const postCols = db.prepare('PRAGMA table_info(posts)').all()
 const hasCol = (n) => postCols.some((c) => c.name === n)
 if (!hasCol('hidden')) {
@@ -58,6 +58,9 @@ if (!hasCol('content_html')) {
 }
 if (!hasCol('format')) {
   db.exec("ALTER TABLE posts ADD COLUMN format TEXT NOT NULL DEFAULT 'md'")
+}
+if (!hasCol('pinned')) {
+  db.exec('ALTER TABLE posts ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0') // 置顶公告（仅 blog 使用，全局唯一）
 }
 
 // 个人站：启动时确保站长账号存在，密码以 .env 为准（改动后重启即生效）

@@ -187,10 +187,28 @@ function parseTags() {
 }
 
 // 选择图片 → 上传 → 插入（Markdown 模式在光标处插入图片语法；富文本模式由 RichTextEditor 自行处理）
-async function onPickImage(e) {
+function onPickImage(e) {
   const file = e.target.files?.[0]
   e.target.value = '' // 允许重复选择同一文件
-  if (!file) return
+  if (file) insertMdImage(file)
+}
+
+// 粘贴剪贴板中的图片（Ctrl+C 复制的图片 / 截图）→ 上传并插入；普通文本粘贴不受影响
+function onPasteImage(e) {
+  const items = e.clipboardData?.items
+  if (!items) return
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      const file = item.getAsFile()
+      if (!file) return
+      e.preventDefault() // 拦下默认粘贴，避免图片被当文本贴进去
+      insertMdImage(file)
+      return
+    }
+  }
+}
+
+async function insertMdImage(file) {
   uploading.value = true
   error.value = ''
   try {
@@ -282,7 +300,8 @@ async function onSubmit() {
           rows="14"
           required
           class="md-input"
-          placeholder="支持 Markdown 与行内 HTML（如 <span style=&quot;color:red&quot;>文字</span>）…"
+          placeholder="支持 Markdown 与行内 HTML（如 <span style=&quot;color:red&quot;>文字</span>）…；Ctrl+V 可直接粘贴剪贴板里的图片"
+          @paste="onPasteImage"
         ></textarea>
         <div class="preview">
           <span class="preview-label">预览</span>
