@@ -17,6 +17,7 @@ import JsonToolView from '../views/JsonToolView.vue'
 import QrToolView from '../views/QrToolView.vue'
 import CropToolView from '../views/CropToolView.vue'
 import SearchView from '../views/SearchView.vue'
+import HttpErrorView from '../views/HttpErrorView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -38,8 +39,9 @@ const router = createRouter({
     { path: '/tools/qr', name: 'tools-qr', component: QrToolView },
     { path: '/tools/crop', name: 'tools-crop', component: CropToolView },
     { path: '/search', name: 'search', component: SearchView },
-    // 兜底：未知路径回主页
-    { path: '/:pathMatch(.*)*', redirect: '/' },
+    { path: '/error/:code', name: 'error', component: HttpErrorView },
+    // 兜底：未知路径显示 404 错误码页（不再静默回主页）
+    { path: '/:pathMatch(.*)*', component: HttpErrorView, props: { code: 404 } },
   ],
 })
 
@@ -56,8 +58,9 @@ const GUEST_PAGES = {
 
 router.beforeEach(async (to) => {
   const auth = useAuth()
+  // 需登录的页面（设置/编辑页等）：游客与内部人员访问时展示 401 错误码页（替代原登录跳转）
   if (to.meta.auth && !auth.isLoggedIn.value) {
-    return { name: 'login', query: { redirect: to.fullPath } }
+    return { name: 'error', params: { code: 401 } }
   }
   // 游客 / 内部人员访问页面时按可见性拦截（管理员不受限）；不提示，页面上也不暴露该限制
   const page = GUEST_PAGES[to.name]
