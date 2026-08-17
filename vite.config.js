@@ -9,6 +9,12 @@ export default defineConfig({
       '/api': 'http://localhost:3001',
       '/uploads': 'http://localhost:3001',
     },
+    watch: {
+      // Windows 下文件监听偶发失效（编辑器原子写入不触发事件，导致 HMR 与重新编译
+      // 拿到旧版本），改用轮询确保源码改动总能被检测到
+      usePolling: true,
+      interval: 300,
+    },
   },
   build: {
     rollupOptions: {

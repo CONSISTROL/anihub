@@ -1,13 +1,27 @@
 <script setup>
 // 全局布局壳：导航栏 + 页面内容；键盘监听呼出隐藏的登录框 / 获取内部人员身份
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import NavBar from './components/NavBar.vue'
 import LoginModal from './components/LoginModal.vue'
+import InsiderBackground from './components/InsiderBackground.vue'
+import BackToTop from './components/BackToTop.vue'
+import Mascot from './components/Mascot.vue'
 import { api } from './api/http'
 import { useAuth } from './composables/useAuth'
+import { useSettings } from './composables/useSettings'
 
+const { isLoggedIn, isInsider } = useAuth()
+const settings = useSettings()
+if (!isLoggedIn.value) settings.load() // 加载可见性设置（桌宠权限依赖）
 const showLogin = ref(false)
 const insiderBusy = ref(false)
+
+// 桌宠可见性：登录（管理员）恒可见；游客/内部人员需管理员在设置中开放 pet 权限
+const petVisible = computed(() => {
+  if (isLoggedIn.value) return true
+  if (!settings.guestPages.value) return false // 设置未加载完成：默认不显示
+  return settings.canAccess('pet', isInsider.value)
+})
 
 // 隐藏登录入口：键盘依次输入 "login"（大小写均可）弹出登录框
 const KEY_SEQ_LOGIN = 'login'
@@ -66,6 +80,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     <NavBar />
     <router-view />
     <LoginModal v-if="showLogin" @close="showLogin = false" />
+    <!-- 内部人员模式：全站页面显示壁纸背景（与 Anime 页共用同一套壁纸逻辑） -->
+    <InsiderBackground v-if="isInsider" />
+    <!-- 一键回到顶部 -->
+    <BackToTop />
+    <!-- 桌宠（可见性由设置页 pet 权限控制，默认仅登录可见） -->
+    <Mascot v-if="petVisible" />
   </div>
 </template>
 

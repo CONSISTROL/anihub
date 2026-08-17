@@ -44,16 +44,19 @@
 
 - **JSON 格式化**（`/tools/json`）：粘贴标准 JSON 一键格式化（缩进美化）或压缩为单行，出错提示定位，结果可一键复制；也能识别**类 JSON 文本**并转换为 JSON——支持 `key = value`、`0x` 十六进制、嵌套 `{}` 的结构体转储（如 DPDK mbuf 调试输出）、`//`、`/* */`、`#` 注释、行尾逗号、匿名块成员提升、裸值数组块（如 `dynfield1 = { 0x0, 0x0 }`），标量值保留原样字符串避免进制/精度丢失
 - **二维码解析**（`/tools/qr`）：点击选择 / 拖拽 / Ctrl+V 粘贴二维码图片，自动解析出其中的链接或文本；结果是链接时可一键打开或复制（纯前端解析，图片不会上传）
+- **图片裁切**（`/tools/crop`）：上传版图（多格图 / 精灵图），拖动网格线（竖线/横线可**加减**：＋ － 按钮、拖线调整、悬停 ✕ 删除）划分格子，一键裁切成一张张小图；等分预设支持 2×2~5×5 与**自定义列×行**、透明底 PNG 输出、单张下载或打包 zip（纯前端处理，图片不会上传）
 
 ### 🏠 主页（`/`）
 
 - 顶部显示**公告**：置顶的博客文章会展示在主页（标题 + 摘要，点击进入正文）；未设置置顶时公告自动隐藏
 - 站名 + 导航卡片，点击跳转到日历 / 博客 / Wiki / 工具箱（卡片按游客可见设置自动隐藏）
+- **回到顶部**：任意页面滚动超过一屏后，右下角出现圆形「回到顶部」按钮，点击平滑回到页首
+- **桌宠（大肥鱼）**：网页左下角的动画小宠物（素材参考 [dsh-dafeiyu](https://github.com/QCYTSN/dsh-dafeiyu)），会眨眼/张望/思考/扫地、偶尔沿底部走动，点击触发摸头/戳/尾巴互动，按住可拖动；**默认对内部人员可见、游客不可见**，是否对游客 / 内部人员显示由 设置 → 页面访问权限 中的「桌宠」控制
 
 ### ⚙️ 设置（`/settings`，登录后）
 
 - **页面访问权限**：按身份（游客 < 内部人员 < 管理员）配置可见页面。勾选哪些页面允许游客查看；未勾选的页面游客直接访问会被送回主页，导航栏与主页卡片同步隐藏。另可单独授权「内部人员可见页面」（游客不可见但内部人员可看），管理员不受限、全部可见
-- **内部人员身份**：只读的中间身份。在页面任意位置依次敲击键盘「inside」即获取（口令见 `server/.env` 的 `INSIDER_KEYWORD`，默认 `inside`），导航栏出现「🔑 内部模式」徽标，可点 ✕ 退出；内部人员能看到游客看不到的页面与文章，但不能编辑、不能进设置页
+- **内部人员身份**：只读的中间身份。在页面任意位置依次敲击键盘「inside」即获取（口令见 `server/.env` 的 `INSIDER_KEYWORD`，默认 `inside`），导航栏出现「🔑 内部模式」徽标，可点 ✕ 退出；内部人员能看到游客看不到的页面与文章，但不能编辑、不能进设置页；**进入内部模式后全站页面都显示壁纸背景**（与 Anime 页共用同一套壁纸与缓存）
 - **隐藏登录入口**：界面不显示任何登录按钮，在页面任意位置依次敲击键盘「login」四个字母弹出登录框（Esc 或点击遮罩关闭）；已登录右上角显示固定欢迎语 **Ciallo ～(∠・ω< )⌒★!** 以及 设置 / 退出 按钮
 
 ## 环境要求
@@ -165,7 +168,8 @@ cd /opt/anihub && git pull && npm ci && npm run build && sudo systemctl restart 
     │   ├── useSeason.js          # 档期状态：加载数据、切档、翻月
     │   ├── useLanguage.js        # 显示语言状态（默认中文，持久化）
     │   ├── useTheme.js           # 主题状态：浅色/深色/按时间自动
-    │   └── useSettings.js        # 站点设置状态（游客/内部人员可见页面，全局单例）
+    │   ├── useSettings.js        # 站点设置状态（游客/内部人员可见页面，全局单例）
+    │   └── useWallpaper.js       # 壁纸管理器（Anime 页与内部模式全局背景共用）
     ├── utils/
     │   ├── date.js               # 档期映射、日历网格、时间格式化
     │   ├── titles.js             # 按语言解析标题（titleFor）
@@ -186,9 +190,12 @@ cd /opt/anihub && git pull && npm ci && npm run build && sudo systemctl restart 
     │   ├── SearchView.vue        # /search 站内搜索（文章 + 动漫）
     │   ├── ToolsView.vue         # /tools 工具箱首页（子工具入口）
     │   ├── JsonToolView.vue      # /tools/json JSON 格式化（含类 JSON 解析）
-    │   └── QrToolView.vue        # /tools/qr 二维码解析
+    │   ├── QrToolView.vue        # /tools/qr 二维码解析
+    │   └── CropToolView.vue      # /tools/crop 图片裁切（网格线切图）
     └── components/
         ├── NavBar.vue            # 全站导航栏（含登录态与内部模式徽标）
+        ├── BackToTop.vue         # 一键回到顶部按钮（全站右下角）
+        ├── Mascot.vue            # 桌宠（大肥鱼）：左下角动画小宠物（帧动画/互动/拖动）
         ├── MarkdownView.vue      # Markdown 渲染（marked + DOMPurify）
         ├── RichTextView.vue      # 富文本 HTML 渲染（DOMPurify）
         ├── RichTextEditor.vue    # 所见即所得编辑器（TipTap，含样式工具栏）
@@ -199,7 +206,8 @@ cd /opt/anihub && git pull && npm ci && npm run build && sudo systemctl restart 
         ├── Calendar.vue          # 月历视图（含悬浮提示、当日弹层）
         ├── DayPopover.vue        # 当日放送列表弹层
         ├── ListView.vue          # 列表视图（按日期分组）
-        ├── AnimeBackground.vue   # 浅透明二次元美少女背景
+        ├── AnimeBackground.vue   # 浅透明二次元美少女背景（Anime 页，含横幅回退）
+        ├── InsiderBackground.vue # 内部模式全局背景（inside 模式下全站壁纸）
         ├── SeasonSwitcher.vue    # 档期切换按钮
         ├── LanguageSelector.vue  # 语言选择下拉框
         ├── ThemeSelector.vue     # 主题选择下拉框

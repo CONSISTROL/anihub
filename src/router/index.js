@@ -15,6 +15,7 @@ import SettingsView from '../views/SettingsView.vue'
 import ToolsView from '../views/ToolsView.vue'
 import JsonToolView from '../views/JsonToolView.vue'
 import QrToolView from '../views/QrToolView.vue'
+import CropToolView from '../views/CropToolView.vue'
 import SearchView from '../views/SearchView.vue'
 
 const router = createRouter({
@@ -35,6 +36,7 @@ const router = createRouter({
     { path: '/tools', name: 'tools', component: ToolsView },
     { path: '/tools/json', name: 'tools-json', component: JsonToolView },
     { path: '/tools/qr', name: 'tools-qr', component: QrToolView },
+    { path: '/tools/crop', name: 'tools-crop', component: CropToolView },
     { path: '/search', name: 'search', component: SearchView },
     // 兜底：未知路径回主页
     { path: '/:pathMatch(.*)*', redirect: '/' },
@@ -49,6 +51,7 @@ const GUEST_PAGES = {
   tools: 'tools',
   'tools-json': 'tools',
   'tools-qr': 'tools',
+  'tools-crop': 'tools',
 }
 
 router.beforeEach(async (to) => {

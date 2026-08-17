@@ -6,7 +6,9 @@ import { authRequired } from '../middleware/auth.js'
 
 const router = Router()
 
-const ALL_PAGES = ['anime', 'blog', 'wiki', 'tools'] // 主页始终可见，不在此列
+const ALL_PAGES = ['anime', 'blog', 'wiki', 'tools'] // 主页始终可见，不在此列；未设置时默认全部对游客可见
+const PET_KEY = 'pet' // 桌宠：默认不向游客/内部人员展示，需管理员在设置中显式开放
+const PAGE_KEYS = [...ALL_PAGES, PET_KEY]
 const GUEST_KEY = 'guest_pages'
 const INSIDER_KEY = 'insider_pages'
 
@@ -15,17 +17,17 @@ function readList(key, fallback) {
   if (!row) return fallback
   try {
     const v = JSON.parse(row.value)
-    if (Array.isArray(v)) return [...new Set(v)].filter((p) => ALL_PAGES.includes(p))
+    if (Array.isArray(v)) return [...new Set(v)].filter((p) => PAGE_KEYS.includes(p))
   } catch {}
   return fallback
 }
 
 function readGuestPages() {
-  return readList(GUEST_KEY, [...ALL_PAGES]) // 未设置过：默认全部对游客可见
+  return readList(GUEST_KEY, [...ALL_PAGES]) // 未设置过：默认页面全开（桌宠不在内）
 }
 
 function readInsiderPages() {
-  return readList(INSIDER_KEY, []) // 默认无额外页面
+  return readList(INSIDER_KEY, [PET_KEY]) // 未设置过：默认桌宠对内部人员可见（游客仍需显式开放）
 }
 
 function writeList(key, pages) {
@@ -44,12 +46,12 @@ router.put('/', authRequired, (req, res) => {
   const { guestPages, insiderPages } = req.body || {}
   if (
     !Array.isArray(guestPages) ||
-    guestPages.some((p) => !ALL_PAGES.includes(p)) ||
-    (insiderPages !== undefined && (!Array.isArray(insiderPages) || insiderPages.some((p) => !ALL_PAGES.includes(p))))
+    guestPages.some((p) => !PAGE_KEYS.includes(p)) ||
+    (insiderPages !== undefined && (!Array.isArray(insiderPages) || insiderPages.some((p) => !PAGE_KEYS.includes(p))))
   ) {
     return res
       .status(400)
-      .json({ error: { code: 'VALIDATION_ERROR', message: 'guestPages / insiderPages 需为 anime/blog/wiki/tools 的子集' } })
+      .json({ error: { code: 'VALIDATION_ERROR', message: 'guestPages / insiderPages 需为 anime/blog/wiki/tools/pet 的子集' } })
   }
   const guests = [...new Set(guestPages)]
   // 内部人员额外可见的页面：剔除已对游客可见的（游客可见自动包含在内部可见内）

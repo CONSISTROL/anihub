@@ -10,7 +10,8 @@ const OPTIONS = [
   { key: 'anime', label: 'Anime 日历', desc: '当前档期新番放送时间表' },
   { key: 'blog', label: 'Blog 博客', desc: '追番笔记与推荐' },
   { key: 'wiki', label: 'Wiki', desc: '动漫知识库' },
-  { key: 'tools', label: 'Tools 工具箱', desc: 'JSON 格式化 / 二维码解析' },
+  { key: 'tools', label: 'Tools 工具箱', desc: 'JSON 格式化 / 二维码解析 / 图片裁切' },
+  { key: 'pet', label: '桌宠（大肥鱼）', desc: '网页左下角的动画小宠物，默认仅登录可见' },
 ]
 
 const guestSelected = ref([])
