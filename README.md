@@ -40,6 +40,20 @@
 - **动漫**：在已缓存的各档期数据中按标题匹配（罗马音 / 日文 / 英文 / 中文译名），显示封面与所属档期；未访问过动漫页（无缓存）时该部分为空
 - 搜索结果按当前身份过滤：游客看不到无权限的文章与动漫（与各页面可见性设置一致）
 
+### 🎮 游戏（`/game`，游客公开）
+
+- **纯 2D 大肥鱼割草**：正俯视 2D 渲染，无透视；蓝色大肥鱼自动攻击，玩家专注走位与冲刺闪避
+- **游戏素材**：图片素材统一放在 `public/game/custom/`，由纯前端 Canvas 加载
+- **大世界地图**（4800×4800）：森林、雪山、魔塔、深渊四个区域各有不同色调、怪物与专属宝物，跨区域自动淡入淡出 + 区域横幅
+- **冲刺闪避**：空格 / Shift 冲刺（带短暂无敌 + 冲刺拖影），冷却时间可升级缩短
+- **升级三选一**：击杀怪物掉落经验宝石，升级后在 3 张随机能力卡中选择 1 个（伤害/攻速/移速/生命/再生/多重弹幕/贯穿弹/暴击/冲刺冷却/磁力/吸血/环绕刃）
+- **敌人类型**：小怪、快速小鬼、坦克怪、远程精英、Boss（Boss 会释放环形弹幕），不同敌人使用不同素材
+- **品质道具掉落**：小怪概率掉普通道具、精英怪掉稀有/史诗、Boss 必掉传奇；道具效果随机（回血/加攻击/护盾/移速等）
+- **连击系统**：连续击杀可叠连击倍率，让清怪更爽快
+- **可探索资源**：各区域分布发光水晶，踩上去可开出各品质道具，采集后刷新
+- **Boss 战**：每隔一段时间出现高血量 Boss，掉落传奇道具
+- 纯前端 Canvas 渲染，无需后端；操作：WASD / 方向键移动，空格 / Shift 冲刺，Esc / P 暂停
+
 ### 🧰 工具箱（`/tools`，子工具为二级页面）
 
 - **JSON 格式化**（`/tools/json`）：粘贴标准 JSON 一键格式化（缩进美化）或压缩为单行，出错提示定位，结果可一键复制；也能识别**类 JSON 文本**并转换为 JSON——支持 `key = value`、`0x` 十六进制、嵌套 `{}` 的结构体转储（如 DPDK mbuf 调试输出）、`//`、`/* */`、`#` 注释、行尾逗号、匿名块成员提升、裸值数组块（如 `dynfield1 = { 0x0, 0x0 }`），标量值保留原样字符串避免进制/精度丢失
@@ -175,6 +189,8 @@ cd /opt/anihub && git pull && npm ci && npm run build && sudo systemctl restart 
     │   ├── date.js               # 档期映射、日历网格、时间格式化
     │   ├── titles.js             # 按语言解析标题（titleFor）
     │   └── jsonLike.js           # 类 JSON 解析（C 结构体转储 → JSON）
+    ├── game/
+    │   └── engine.js             # 纯 2D 大肥鱼割草引擎（Canvas 2D，纯前端）
     ├── data/
     │   ├── zhTitles.js           # 中文标题映射表（AniList id → 译名）
     │   └── zhDescriptions.js     # 中文简介映射表
@@ -190,6 +206,7 @@ cd /opt/anihub && git pull && npm ci && npm run build && sudo systemctl restart 
     │   ├── SettingsView.vue      # /settings 设置（页面访问权限）
     │   ├── SearchView.vue        # /search 站内搜索（文章 + 动漫）
     │   ├── HttpErrorView.vue     # /error/:code 错误码页面（401/404 等插画）
+    │   ├── GameView.vue          # /game 游戏页（2D 割草，游客公开）
     │   ├── ToolsView.vue         # /tools 工具箱首页（子工具入口）
     │   ├── JsonToolView.vue      # /tools/json JSON 格式化（含类 JSON 解析）
     │   ├── QrToolView.vue        # /tools/qr 二维码解析
