@@ -23,30 +23,32 @@ const SECTIONS = [
   {
     to: '/anime',
     page: 'anime',
-    icon: '🗓️',
+    img: '/home/anime.png',
     title: 'Anime',
-    desc: '当前档期新番放送时间表，精确到分钟。周历 / 月历 / 列表三种视图，支持中文标题与深浅主题。',
   },
   {
     to: '/blog',
     page: 'blog',
-    icon: '📝',
+    img: '/home/blog.png',
     title: 'Blog',
-    desc: '记录追番心得、推荐与杂谈。登录后即可发布文章，支持 Markdown 排版。',
   },
   {
     to: '/wiki',
     page: 'wiki',
-    icon: '📚',
+    img: '/home/wiki.png',
     title: 'Wiki',
-    desc: '共同维护的动漫知识库：动画作品、术语、API 指南……登录后可编辑。',
   },
   {
     to: '/tools',
     page: 'tools',
-    icon: '🧰',
+    img: '/home/tools.png',
     title: 'Tools',
-    desc: '实用小工具：JSON 格式化、二维码解析成链接。',
+  },
+  {
+    to: '/game',
+    page: 'game',
+    img: '/home/game.png',
+    title: 'Game',
   },
 ]
 
@@ -71,9 +73,8 @@ const visibleSections = computed(() =>
 
     <section class="cards">
       <router-link v-for="s in visibleSections" :key="s.to" :to="s.to" class="card">
-        <span class="card-icon">{{ s.icon }}</span>
+        <img :src="s.img" class="card-img" :alt="s.title" loading="lazy" />
         <h2 class="card-title">{{ s.title }}</h2>
-        <p class="card-desc">{{ s.desc }}</p>
         <span class="card-go">进入 →</span>
       </router-link>
     </section>
@@ -82,7 +83,7 @@ const visibleSections = computed(() =>
 
 <style scoped>
 .home {
-  max-width: 1080px;
+  max-width: min(1280px, 95vw); /* 高分辨率适配 */
   margin: 0 auto;
   padding: 40px 20px 60px;
 }
@@ -173,26 +174,22 @@ const visibleSections = computed(() =>
   box-shadow: 0 10px 30px rgb(0 0 0 / 0.12);
 }
 
-.card-icon {
-  font-size: 30px;
+.card-img {
+  width: 100%;
+  height: 170px;
+  object-fit: contain; /* 透明底插图，随卡片背景显示 */
+  border-radius: 10px;
 }
 
 .card-title {
-  margin: 0;
+  margin: 4px 0 0;
   font-size: 18px;
-}
-
-.card-desc {
-  margin: 0;
-  font-size: 13px;
-  color: var(--muted);
-  line-height: 1.6;
-  flex: 1;
 }
 
 .card-go {
   font-size: 13px;
   color: var(--accent);
   font-weight: 600;
+  margin-top: auto;
 }
 </style>

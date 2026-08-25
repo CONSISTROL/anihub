@@ -16,8 +16,12 @@ import ToolsView from '../views/ToolsView.vue'
 import JsonToolView from '../views/JsonToolView.vue'
 import QrToolView from '../views/QrToolView.vue'
 import CropToolView from '../views/CropToolView.vue'
+import SpliceToolView from '../views/SpliceToolView.vue'
+import HtmlRenderToolView from '../views/HtmlRenderToolView.vue'
+import CompareToolView from '../views/CompareToolView.vue'
 import SearchView from '../views/SearchView.vue'
 import HttpErrorView from '../views/HttpErrorView.vue'
+import GameView from '../views/GameView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -38,7 +42,17 @@ const router = createRouter({
     { path: '/tools/json', name: 'tools-json', component: JsonToolView },
     { path: '/tools/qr', name: 'tools-qr', component: QrToolView },
     { path: '/tools/crop', name: 'tools-crop', component: CropToolView },
+    { path: '/tools/splice', name: 'tools-splice', component: SpliceToolView },
+    { path: '/tools/html-render', name: 'tools-html-render', component: HtmlRenderToolView },
+    { path: '/tools/compare', name: 'tools-compare', component: CompareToolView },
+    // 二维码生成（3D 树）：three.js 较重，路由懒加载，只在打开该工具时下载
+    {
+      path: '/tools/qr-tree',
+      name: 'tools-qr-tree',
+      component: () => import('../views/QrTreeToolView.vue'),
+    },
     { path: '/search', name: 'search', component: SearchView },
+    { path: '/game', name: 'game', component: GameView },
     { path: '/error/:code', name: 'error', component: HttpErrorView },
     // 兜底：未知路径显示 404 错误码页（不再静默回主页）
     { path: '/:pathMatch(.*)*', component: HttpErrorView, props: { code: 404 } },
@@ -54,6 +68,11 @@ const GUEST_PAGES = {
   'tools-json': 'tools',
   'tools-qr': 'tools',
   'tools-crop': 'tools',
+  'tools-splice': 'tools',
+  'tools-html-render': 'tools',
+  'tools-compare': 'tools',
+  'tools-qr-tree': 'tools',
+  game: 'game',
 }
 
 router.beforeEach(async (to) => {

@@ -9,6 +9,7 @@ import { useAuth } from '../composables/useAuth'
 import MarkdownView from '../components/MarkdownView.vue'
 import RichTextEditor from '../components/RichTextEditor.vue'
 import MdToolbar from '../components/MdToolbar.vue'
+import HtmlDocView from '../components/HtmlDocView.vue'
 import { marked } from 'marked'
 import TurndownService from 'turndown'
 
@@ -29,9 +30,12 @@ const saving = ref(false)
 const error = ref('')
 const uploading = ref(false)
 
-// 编辑模式：md（Markdown）| html（所见即所得）；新建时记住上次选择
+// 编辑模式：md（Markdown）| html（所见即所得）| raw（HTML 源码）；新建时记住上次选择
 const MODE_KEY = 'anihub.editor-mode'
-const mode = ref(localStorage.getItem(MODE_KEY) === 'html' ? 'html' : 'md')
+const mode = ref(localStorage.getItem(MODE_KEY) === 'html' ? 'html' : localStorage.getItem(MODE_KEY) === 'raw' ? 'raw' : 'md')
+
+// 完整 HTML 文档判定（独立页面，带 <!DOCTYPE html>/<html>）
+const isFullDoc = (s) => /^\s*(<!DOCTYPE[^>]*>)?\s*<html[\s>]/i.test(s || '')
 
 const form = ref({
   title: '',
@@ -88,7 +92,10 @@ async function loadExisting() {
       tags: post.tags.join('，'),
       visibility: post.visibility || 'public',
     }
-    mode.value = post.format === 'html' ? 'html' : 'md'
+    // 完整 HTML 文档用源码模式编辑（所见即所得会破坏 <head>/<style>/<script>）
+    if (post.format === 'html') mode.value = isFullDoc(post.contentHtml) ? 'raw' : 'html'
+    else mode.value = 'md'
+    localStorage.setItem(MODE_KEY, mode.value)
   } catch (e) {
     error.value = e.message
   } finally {
@@ -98,13 +105,18 @@ async function loadExisting() {
 
 watch(() => route.params.slug, loadExisting, { immediate: true })
 
-// —— 模式切换（双向转换）——
+// —— 模式切换（md / html / raw 相互转换）——
 function switchMode(next) {
   if (next === mode.value) return
-  if (next === 'html') {
-    form.value.content_html = mdToHtml(form.value.content_md)
-  } else {
-    form.value.content_md = htmlToMd(form.value.content_html)
+  const cur = mode.value
+  if (next === 'md') {
+    form.value.content_md = htmlToMd(form.value.content_html) // html / raw → md
+  } else if (next === 'html') {
+    if (cur === 'md') form.value.content_html = mdToHtml(form.value.content_md)
+    // raw → html：内容已是 HTML，直接切换
+  } else if (next === 'raw') {
+    if (cur === 'md') form.value.content_html = mdToHtml(form.value.content_md)
+    // html → raw：内容已是 HTML，直接切换
   }
   mode.value = next
   localStorage.setItem(MODE_KEY, next)
@@ -230,7 +242,7 @@ async function insertMdImage(file) {
 async function onSubmit() {
   error.value = ''
   saving.value = true
-  const isHtml = mode.value === 'html'
+  const isHtml = mode.value !== 'md' // html / raw 均按 HTML 存储
   const body = {
     category: props.category,
     title: form.value.title.trim(),
@@ -289,6 +301,9 @@ async function onSubmit() {
         <button type="button" class="mode-btn" :class="{ on: mode === 'html' }" @click="switchMode('html')">
           所见即所得
         </button>
+        <button type="button" class="mode-btn" :class="{ on: mode === 'raw' }" @click="switchMode('raw')">
+          HTML 源码
+        </button>
       </div>
 
       <!-- Markdown 模式：工具栏 + 源码 + 实时预览 -->
@@ -313,7 +328,25 @@ async function onSubmit() {
       </template>
 
       <!-- 所见即所得模式：TipTap 编辑器（所见即所得，无需额外预览） -->
-      <RichTextEditor v-else v-model="form.content_html" :image-upload="uploadImage" />
+      <RichTextEditor v-else-if="mode === 'html'" v-model="form.content_html" :image-upload="uploadImage" />
+
+      <!-- HTML 源码模式：原始 HTML（可粘贴完整文档，按原样保存与渲染） -->
+      <template v-else-if="mode === 'raw'">
+        <textarea
+          v-model="form.content_html"
+          rows="20"
+          spellcheck="false"
+          class="md-input raw-input"
+          placeholder="粘贴 / 编写原始 HTML，可包含 &lt;style&gt; 与 &lt;script&gt;（完整文档或片段均可）"
+        ></textarea>
+        <div class="preview">
+          <span class="preview-label">预览（完整文档以独立页面渲染）</span>
+          <div class="preview-body">
+            <HtmlDocView v-if="form.content_html" :source="form.content_html" />
+            <p v-else class="edit-hint">（正文为空，预览将显示在此处）</p>
+          </div>
+        </div>
+      </template>
 
       <input
         ref="fileInput"
@@ -351,7 +384,7 @@ async function onSubmit() {
 
 <style scoped>
 .edit-page {
-  max-width: 860px;
+  max-width: min(1100px, 95vw); /* 高分辨率适配 */
   margin: 0 auto;
   padding: 24px 20px 60px;
 }
@@ -446,6 +479,14 @@ async function onSubmit() {
 
 .md-input:focus {
   border-color: var(--accent);
+}
+
+/* HTML 源码模式：等宽字体便于编辑 */
+.raw-input {
+  font-family: Consolas, 'Cascadia Code', 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  min-height: 340px;
 }
 
 .file-input {

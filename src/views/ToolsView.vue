@@ -17,7 +17,31 @@ const TOOLS = [
     to: '/tools/crop',
     icon: '✂️',
     title: '图片裁切',
-    desc: '上传版图（多格图 / 精灵图），拖动网格线划分格子，裁切成一张张小图，可打包 zip 下载。纯前端处理。',
+    desc: '上传版图（多格图 / 精灵图），自动识别框线或拖动网格线划分格子，裁切成一张张小图，可打包 zip 下载。纯前端处理。',
+  },
+  {
+    to: '/tools/splice',
+    icon: '🧩',
+    title: '图片拼接',
+    desc: '把多张图片拼成一张：横向 / 纵向 / 网格，可调顺序、间距、对齐与背景色，导出 PNG。纯前端处理。',
+  },
+  {
+    to: '/tools/html-render',
+    icon: '🖥️',
+    title: 'HTML 渲染',
+    desc: '粘贴 HTML 代码，一键在新标签页中原样渲染（样式与脚本都生效）；完整文档或片段均可。纯前端处理。',
+  },
+  {
+    to: '/tools/qr-tree',
+    icon: '🌳',
+    title: '二维码生成',
+    desc: '输入 URL，生成 3D 二维码体素树；点击场景可在 3D 树和俯视二维码草坪之间切换。',
+  },
+  {
+    to: '/tools/compare',
+    icon: '🆚',
+    title: '文件对比',
+    desc: '文本逐行对比（双栏高亮、跳转差异）+ 文件夹对比（相同/不同/仅左/仅右，点击差异文件直接看文本 diff）。纯前端处理。',
   },
 ]
 </script>
@@ -40,7 +64,7 @@ const TOOLS = [
 
 <style scoped>
 .tools-page {
-  max-width: 900px;
+  max-width: min(1100px, 95vw); /* 高分辨率适配 */
   margin: 0 auto;
   padding: 24px 20px 60px;
 }

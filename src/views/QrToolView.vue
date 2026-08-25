@@ -155,7 +155,7 @@ function clearQr() {
 
 <style scoped>
 .qr-tool {
-  max-width: 640px;
+  max-width: min(720px, 95vw); /* 高分辨率适配 */
   margin: 0 auto;
   padding: 24px 20px 60px;
 }

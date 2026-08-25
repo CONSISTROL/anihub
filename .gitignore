@@ -38,5 +38,10 @@ server/*.db
 server/*.db-wal
 server/*.db-shm
 
+# 根目录误生成的旧数据库残留
+/data.db
+/data.db-wal
+/data.db-shm
+
 # 上传的图片
 server/uploads/

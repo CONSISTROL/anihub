@@ -25,6 +25,7 @@ const ALL_LINKS = [
   { to: '/blog', label: 'Blog', page: 'blog' },
   { to: '/wiki', label: 'Wiki', page: 'wiki' },
   { to: '/tools', label: 'Tools', page: 'tools' },
+  { to: '/game', label: 'Game', page: 'game' },
 ]
 
 // 未登录时按身份显示可见的页面链接：游客只看游客可见，内部人员多看内部可见

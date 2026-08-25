@@ -189,7 +189,7 @@ const selectedEpisodes = computed(() =>
 
 <style scoped>
 .app {
-  max-width: 1080px;
+  max-width: min(1280px, 95vw); /* 高分辨率适配 */
   margin: 0 auto;
   padding: 20px 20px 40px;
 }

@@ -172,7 +172,7 @@ function fmtDate(s) {
 
 <style scoped>
 .search-page {
-  max-width: 860px;
+  max-width: min(1100px, 95vw); /* 高分辨率适配 */
   margin: 0 auto;
   padding: 24px 20px 60px;
 }

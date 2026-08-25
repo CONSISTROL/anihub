@@ -150,7 +150,7 @@ async function copyJson() {
 <style scoped>
 /* 页面占满视口剩余高度（导航栏约 48px）；dvh 更准确适配移动端地址栏，不支持时回退 vh */
 .json-tool {
-  max-width: 1080px;
+  max-width: min(1280px, 95vw); /* 高分辨率适配 */
   margin: 0 auto;
   padding: 10px 20px 12px;
   min-height: calc(100vh - 48px);

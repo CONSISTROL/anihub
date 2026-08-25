@@ -112,7 +112,7 @@ async function onSave() {
 
 <style scoped>
 .settings-page {
-  max-width: 560px;
+  max-width: min(900px, 95vw); /* 高分辨率适配 */
   margin: 0 auto;
   padding: 24px 20px 60px;
 }

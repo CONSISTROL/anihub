@@ -6,7 +6,7 @@ import { authRequired } from '../middleware/auth.js'
 
 const router = Router()
 
-const ALL_PAGES = ['anime', 'blog', 'wiki', 'tools'] // 主页始终可见，不在此列；未设置时默认全部对游客可见
+const ALL_PAGES = ['anime', 'blog', 'wiki', 'tools', 'game'] // 主页始终可见，不在此列；未设置时默认全部对游客可见
 const PET_KEY = 'pet' // 桌宠：默认不向游客/内部人员展示，需管理员在设置中显式开放
 const PAGE_KEYS = [...ALL_PAGES, PET_KEY]
 const GUEST_KEY = 'guest_pages'
@@ -51,7 +51,7 @@ router.put('/', authRequired, (req, res) => {
   ) {
     return res
       .status(400)
-      .json({ error: { code: 'VALIDATION_ERROR', message: 'guestPages / insiderPages 需为 anime/blog/wiki/tools/pet 的子集' } })
+      .json({ error: { code: 'VALIDATION_ERROR', message: 'guestPages / insiderPages 需为 anime/blog/wiki/tools/game/pet 的子集' } })
   }
   const guests = [...new Set(guestPages)]
   // 内部人员额外可见的页面：剔除已对游客可见的（游客可见自动包含在内部可见内）

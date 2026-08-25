@@ -11,10 +11,11 @@
         var h = new Date().getHours()
         var r = t === 'auto' ? (h >= 6 && h < 18 ? 'light' : 'dark') : t
         document.documentElement.dataset.theme = r
-        // Anime 页 / 内部人员模式：在首帧前恢复上次的壁纸（与 useWallpaper 的缓存键一致），
+        // Anime 页 / 登录管理员 / 内部人员模式：在首帧前恢复上次的壁纸（与 useWallpaper 的缓存键一致），
         // 避免刷新时先显示纯色背景再闪出壁纸
         var isInsider = !!localStorage.getItem('anihub.insider')
-        if (location.pathname.indexOf('/anime') === 0 || isInsider) {
+        var isAdmin = !!localStorage.getItem('anihub.token')
+        if (location.pathname.indexOf('/anime') === 0 || isInsider || isAdmin) {
           var w = localStorage.getItem('anime-calendar.wallpaper')
           if (w) {
             document.documentElement.style.setProperty('--wallpaper-url', 'url("' + w.replace(/"/g, '\\"') + '")')

@@ -1,6 +1,7 @@
 <script setup>
 // 全局布局壳：导航栏 + 页面内容；键盘监听呼出隐藏的登录框 / 获取内部人员身份
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import NavBar from './components/NavBar.vue'
 import LoginModal from './components/LoginModal.vue'
 import InsiderBackground from './components/InsiderBackground.vue'
@@ -13,8 +14,12 @@ import { useSettings } from './composables/useSettings'
 const { isLoggedIn, isInsider } = useAuth()
 const settings = useSettings()
 if (!isLoggedIn.value) settings.load() // 加载可见性设置（桌宠权限依赖）
+const route = useRoute()
 const showLogin = ref(false)
 const insiderBusy = ref(false)
+
+// 游戏页为沉浸式全屏玩法：隐藏桌宠与回到顶部按钮
+const isGame = computed(() => route.name === 'game')
 
 // 桌宠可见性：登录（管理员）恒可见；游客/内部人员需管理员在设置中开放 pet 权限
 const petVisible = computed(() => {
@@ -80,12 +85,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     <NavBar />
     <router-view />
     <LoginModal v-if="showLogin" @close="showLogin = false" />
-    <!-- 内部人员模式：全站页面显示壁纸背景（与 Anime 页共用同一套壁纸逻辑） -->
-    <InsiderBackground v-if="isInsider" />
+    <!-- 登录管理员 / 内部人员模式：全站页面显示壁纸背景（与 Anime 页共用同一套壁纸逻辑） -->
+    <InsiderBackground v-if="isInsider || isLoggedIn" />
     <!-- 一键回到顶部 -->
-    <BackToTop />
+    <BackToTop v-if="!isGame" />
     <!-- 桌宠（可见性由设置页 pet 权限控制，默认仅登录可见） -->
-    <Mascot v-if="petVisible" />
+    <Mascot v-if="petVisible && !isGame" />
   </div>
 </template>
 

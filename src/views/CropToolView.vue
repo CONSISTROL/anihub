@@ -43,6 +43,7 @@ function addLine(lines) {
   if (lastGap > maxGap) best = prev + lastGap / 2
   lines.push({ id: idSeq++, pos: clamp(best) })
   sortLines()
+  detectedBoxes.value = []
 }
 
 // 等分预设：切成 cols×rows 格（切割线数 = cols-1 / rows-1）
@@ -55,6 +56,7 @@ function preset(cols, rows = cols) {
     id: idSeq++,
     pos: (i + 1) / rows,
   }))
+  detectedBoxes.value = []
 }
 
 // 自定义等分：列 × 行
@@ -71,11 +73,13 @@ function presetCustom() {
 function clearGrid() {
   vLines.value = []
   hLines.value = []
+  detectedBoxes.value = []
 }
 
 function removeLine(lines, id) {
   const i = lines.findIndex((l) => l.id === id)
   if (i >= 0) lines.splice(i, 1)
+  detectedBoxes.value = []
 }
 
 // 移除最近添加的一条线（id 单调递增，取最大 id）
@@ -83,6 +87,442 @@ function removeLastLine(lines) {
   if (!lines.length) return
   const last = [...lines].reduce((a, b) => (a.id > b.id ? a : b))
   removeLine(lines, last.id)
+}
+
+/* —— 自动识别框 —— */
+const detecting = ref(false)
+const detectedBoxes = ref([]) // [{ x, y, w, h }] 自然像素坐标
+const ignoreFrames = ref(true) // 忽略空心装饰框（虚线框/实线框）
+
+// 从图片边缘采样最可能的主背景色（16 级量化取众数）
+function sampleBackground(data, w, h) {
+  const hist = new Map()
+  const step = Math.max(1, Math.floor(Math.min(w, h) / 200))
+  const points = []
+  for (let x = 0; x < w; x += step) {
+    points.push([x, 0], [x, h - 1])
+  }
+  for (let y = 0; y < h; y += step) {
+    points.push([0, y], [w - 1, y])
+  }
+  for (const [x, y] of points) {
+    const i = (y * w + x) * 4
+    if (data[i + 3] < 20) continue
+    const key = `${data[i] >> 4},${data[i + 1] >> 4},${data[i + 2] >> 4}`
+    hist.set(key, (hist.get(key) || 0) + 1)
+  }
+  let bestKey = null
+  let bestCount = 0
+  for (const [k, c] of hist) {
+    if (c > bestCount) {
+      bestCount = c
+      bestKey = k
+    }
+  }
+  if (bestKey) {
+    const [r, g, b] = bestKey.split(',').map(Number)
+    return [r << 4, g << 4, b << 4]
+  }
+  return [255, 255, 255]
+}
+
+// 生成前景 mask：非背景且不透明像素为 1
+function buildMask(data, w, h, bg) {
+  const mask = new Uint8Array(w * h)
+  const threshold = 40
+  for (let i = 0; i < w * h; i++) {
+    const a = data[i * 4 + 3]
+    if (a < 20) {
+      mask[i] = 0
+      continue
+    }
+    const dr = data[i * 4] - bg[0]
+    const dg = data[i * 4 + 1] - bg[1]
+    const db = data[i * 4 + 2] - bg[2]
+    mask[i] = Math.sqrt(dr * dr + dg * dg + db * db) > threshold ? 1 : 0
+  }
+  return mask
+}
+
+// 连通域分析：返回每个前景连通块的外接框
+function connectedComponentBoxes(mask, w, h) {
+  const labels = new Int32Array(w * h)
+  const queue = new Int32Array(w * h)
+  const boxes = []
+  const minArea = Math.max(20, Math.floor(w * h * 0.0002))
+
+  for (let start = 0; start < w * h; start++) {
+    if (!mask[start] || labels[start]) continue
+    let head = 0
+    let tail = 0
+    queue[tail++] = start
+    labels[start] = 1
+    let minX = w
+    let minY = h
+    let maxX = 0
+    let maxY = 0
+    let area = 0
+
+    while (head < tail) {
+      const p = queue[head++]
+      const x = p % w
+      const y = (p / w) | 0
+      area++
+      if (x < minX) minX = x
+      if (x > maxX) maxX = x
+      if (y < minY) minY = y
+      if (y > maxY) maxY = y
+
+      if (x > 0) {
+        const q = p - 1
+        if (mask[q] && !labels[q]) { labels[q] = 1; queue[tail++] = q }
+      }
+      if (x < w - 1) {
+        const q = p + 1
+        if (mask[q] && !labels[q]) { labels[q] = 1; queue[tail++] = q }
+      }
+      if (y > 0) {
+        const q = p - w
+        if (mask[q] && !labels[q]) { labels[q] = 1; queue[tail++] = q }
+      }
+      if (y < h - 1) {
+        const q = p + w
+        if (mask[q] && !labels[q]) { labels[q] = 1; queue[tail++] = q }
+      }
+    }
+
+    if (area >= minArea && maxX - minX + 1 >= 4 && maxY - minY + 1 >= 4) {
+      boxes.push({ x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1, area })
+    }
+  }
+  return boxes
+}
+
+// 判断一个前景块是否为「空心装饰框」（虚线框/实线框）：沿四边外沿测量边框厚度，
+// 若厚度远小于盒子尺寸（≤ max(4, 15% 短边)）→ 是环状装饰框（图标描边、示意图框），不是裁切目标；
+// 实心内容块的「边」贯穿整个块，厚度≈盒子尺寸，不会被误判。
+function isHollowFrame(mask, w, h, box) {
+  const bw = box.w
+  const bh = box.h
+  if (bw < 12 || bh < 12) return false
+  // 测量边框厚度：沿四条边的外沿均匀取点，从外沿向内数连续前景，取非零值的中位数
+  const ts = []
+  const xs = []
+  const stepX = Math.max(1, Math.floor(bw / 30))
+  for (let px = box.x; px < box.x + bw; px += stepX) xs.push(px)
+  const ys = []
+  const stepY = Math.max(1, Math.floor(bh / 30))
+  for (let py = box.y; py < box.y + bh; py += stepY) ys.push(py)
+  // 上边（向下数）
+  for (const px of xs) {
+    let t = 0
+    for (let k = 0; k < bh; k++) {
+      if (mask[(box.y + k) * w + px]) t++
+      else break
+    }
+    if (t > 0) ts.push(t)
+  }
+  // 下边（向上数）
+  for (const px of xs) {
+    let t = 0
+    for (let k = 0; k < bh; k++) {
+      if (mask[(box.y + bh - 1 - k) * w + px]) t++
+      else break
+    }
+    if (t > 0) ts.push(t)
+  }
+  // 左边（向右数）
+  for (const py of ys) {
+    let t = 0
+    for (let k = 0; k < bw; k++) {
+      if (mask[py * w + box.x + k]) t++
+      else break
+    }
+    if (t > 0) ts.push(t)
+  }
+  // 右边（向左数）
+  for (const py of ys) {
+    let t = 0
+    for (let k = 0; k < bw; k++) {
+      if (mask[py * w + box.x + bw - 1 - k]) t++
+      else break
+    }
+    if (t > 0) ts.push(t)
+  }
+  if (!ts.length) return false
+  const sorted = [...ts].sort((a, b) => a - b)
+  const t = sorted[Math.floor(sorted.length / 2)]
+  if (t < 1) return false
+  return t <= Math.max(4, Math.floor(Math.min(bw, bh) * 0.15))
+}
+
+// 合并嵌套框：实心大块保留并吞掉内部小块；空心装饰框跳过（其内部的内容块自然保留）。
+function mergeNestedBoxes(mask, w, h, boxes) {
+  const sorted = [...boxes].sort((a, b) => b.area - a.area)
+  const result = []
+  const contains = (outer, inner) =>
+    inner.x >= outer.x - 2 &&
+    inner.y >= outer.y - 2 &&
+    inner.x + inner.w <= outer.x + outer.w + 2 &&
+    inner.y + inner.h <= outer.y + outer.h + 2
+
+  for (const b of sorted) {
+    if (isHollowFrame(mask, w, h, b)) continue // 装饰框不是裁切目标
+    if (result.some((r) => contains(r, b))) continue
+    result.push(b)
+  }
+  return result.sort((a, b) => a.y - b.y || a.x - b.x)
+}
+
+// 旧行为：外框完整包住内部小块时只保留外框（不忽略装饰框）
+function mergeNestedBoxesKeepFrames(boxes) {
+  const sorted = [...boxes].sort((a, b) => b.area - a.area)
+  const result = []
+  const contains = (outer, inner) =>
+    inner.x >= outer.x - 2 &&
+    inner.y >= outer.y - 2 &&
+    inner.x + inner.w <= outer.x + outer.w + 2 &&
+    inner.y + inner.h <= outer.y + outer.h + 2
+
+  for (const b of sorted) {
+    if (result.some((r) => contains(r, b))) continue
+    result.push(b)
+  }
+  return result.sort((a, b) => a.y - b.y || a.x - b.x)
+}
+
+// 采样线带内的颜色种类（16 级量化）：分隔线颜色单一（≤3 种），内容区域颜色多样。
+// 用于排除「覆盖全高的内容列/行」被误判为分隔线。axis: 'v' 竖线带 | 'h' 横线带
+function sampleBandColors(data, mask, w, h, axis, start, end) {
+  const colors = new Set()
+  const major = axis === 'v' ? h : w
+  const step = Math.max(1, Math.floor(major / 50))
+  let sampled = 0
+  for (let i = start; i <= end && sampled < 6000; i++) {
+    for (let j = 0; j < major; j += step) {
+      const x = axis === 'v' ? i : j
+      const y = axis === 'v' ? j : i
+      const idx = y * w + x
+      if (!mask[idx]) continue
+      const k = idx * 4
+      colors.add(`${data[k] >> 4},${data[k + 1] >> 4},${data[k + 2] >> 4}`)
+      sampled++
+      if (colors.size > 3) return false
+    }
+  }
+  return colors.size <= 3
+}
+
+// 分隔线网格检测：前景列/行满足「跨度 ≥92% 图片尺寸」，且——
+//  - 连续线：最大空隙 ≤3px（粗细均可）；
+//  - 虚线：覆盖 ≥0.35、断点 ≥5、最大间隙 ≤ max(6px, 8% 跨度)——虚线分隔线也能识别。
+// 取线带中心为切割线位置（0..1）。
+// 排除装饰框干扰：跨度条件（装饰框边只覆盖局部）、空隙条件（多排装饰框堆叠的间隙大、断点少）。
+// 支持不等分格子、粗细框线；贴边的外框线忽略。
+function detectGridLines(data, mask, w, h) {
+  // 每列/每行：前景数、首尾跨度、最大空隙、断点数
+  const col = new Array(w)
+  for (let x = 0; x < w; x++) {
+    let count = 0
+    let minY = -1
+    let maxY = -1
+    let prev = -1
+    let maxGap = 0
+    let gapCount = 0
+    for (let y = 0; y < h; y++) {
+      if (mask[y * w + x]) {
+        count++
+        if (minY < 0) minY = y
+        maxY = y
+        if (prev >= 0) {
+          const g = y - prev - 1
+          if (g > 0) gapCount++
+          if (g > maxGap) maxGap = g
+        }
+        prev = y
+      }
+    }
+    col[x] = { count, minY, maxY, maxGap, gapCount }
+  }
+  const row = new Array(h)
+  for (let y = 0; y < h; y++) {
+    let count = 0
+    let minX = -1
+    let maxX = -1
+    let prev = -1
+    let maxGap = 0
+    let gapCount = 0
+    const base = y * w
+    for (let x = 0; x < w; x++) {
+      if (mask[base + x]) {
+        count++
+        if (minX < 0) minX = x
+        maxX = x
+        if (prev >= 0) {
+          const g = x - prev - 1
+          if (g > 0) gapCount++
+          if (g > maxGap) maxGap = g
+        }
+        prev = x
+      }
+    }
+    row[y] = { count, minX, maxX, maxGap, gapCount }
+  }
+  const isVLine = (x) => {
+    const c = col[x]
+    if (c.minY < 0) return false
+    const extent = c.maxY - c.minY + 1
+    const cov = c.count / extent
+    if (c.maxGap <= 3) return extent >= h * 0.92 && cov >= 0.5
+    return extent >= h * 0.92 && cov >= 0.35 && c.gapCount >= 5 && c.maxGap <= Math.max(6, extent * 0.08)
+  }
+  const isHLine = (y) => {
+    const r = row[y]
+    if (r.minX < 0) return false
+    const extent = r.maxX - r.minX + 1
+    const cov = r.count / extent
+    if (r.maxGap <= 3) return extent >= w * 0.92 && cov >= 0.5
+    return extent >= w * 0.92 && cov >= 0.35 && r.gapCount >= 5 && r.maxGap <= Math.max(6, extent * 0.08)
+  }
+  const bands = (isLine, n, axis) => {
+    const out = []
+    let start = -1
+    for (let i = 0; i <= n; i++) {
+      const on = i < n && isLine(i)
+      if (on && start < 0) start = i
+      if (!on && start >= 0) {
+        const end = i - 1
+        // 贴边（图片外框线）忽略；颜色单一的线带才接受
+        if (start > 1 && end < n - 2 && sampleBandColors(data, mask, w, h, axis, start, end)) {
+          out.push((start + end) / 2 / n)
+        }
+        start = -1
+      }
+    }
+    return out
+  }
+  return {
+    vs: bands(isVLine, w, 'v').sort((a, b) => a - b),
+    hs: bands(isHLine, h, 'h').sort((a, b) => a - b),
+  }
+}
+
+// 自动识别：① 有分隔线 → 生成切割线网格（支持不等分 / 粗细线）；② 无分隔线 → 前景连通域逐块识别。
+// 返回 'grid' | 'boxes' | 'none'
+function detectBoxes() {
+  const img = imgEl.value
+  if (!img?.naturalWidth) return 'none'
+  detecting.value = true
+  error.value = ''
+  detectedBoxes.value = []
+  try {
+    const natW = img.naturalWidth
+    const natH = img.naturalHeight
+
+    // 大图先降采样再检测，提升速度；比例坐标映射回原图
+    const maxDim = 1024
+    const scale = Math.min(1, maxDim / Math.max(natW, natH))
+    const dw = Math.max(1, Math.round(natW * scale))
+    const dh = Math.max(1, Math.round(natH * scale))
+
+    const canvas = document.createElement('canvas')
+    canvas.width = dw
+    canvas.height = dh
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    ctx.drawImage(img, 0, 0, dw, dh)
+    const data = ctx.getImageData(0, 0, dw, dh).data
+
+    const bg = sampleBackground(data, dw, dh)
+    const mask = buildMask(data, dw, dh, bg)
+
+    // ① 分隔线网格
+    const { vs, hs } = detectGridLines(data, mask, dw, dh)
+    if (vs.length || hs.length) {
+      vLines.value = vs.map((pos) => ({ id: idSeq++, pos: clamp(pos) }))
+      hLines.value = hs.map((pos) => ({ id: idSeq++, pos: clamp(pos) }))
+      return 'grid'
+    }
+
+    // ② 无分隔线：连通域逐块识别（不等分精灵图）；空心装饰框（虚线/实线框）按开关忽略
+    const rawBoxes = connectedComponentBoxes(mask, dw, dh)
+    const boxes = ignoreFrames.value
+      ? mergeNestedBoxes(mask, dw, dh, rawBoxes)
+      : mergeNestedBoxesKeepFrames(rawBoxes)
+    if (!boxes.length) {
+      error.value = '未识别到明显框，请手动调整网格线'
+      return 'none'
+    }
+    detectedBoxes.value = boxes.map((b) => ({
+      x: Math.round(b.x / scale),
+      y: Math.round(b.y / scale),
+      w: Math.round(b.w / scale),
+      h: Math.round(b.h / scale),
+    }))
+    crops.value = []
+    return 'boxes'
+  } catch (e) {
+    error.value = `识别失败：${e.message || e}`
+    return 'none'
+  } finally {
+    detecting.value = false
+  }
+}
+
+async function cropDetectedBoxes() {
+  const img = imgEl.value
+  if (!img?.naturalWidth) return
+  if (!detectedBoxes.value.length) {
+    error.value = '请先点击「识别框」'
+    return
+  }
+  if (detectedBoxes.value.length > MAX_CROP) {
+    error.value = `识别到 ${detectedBoxes.value.length} 个框，最多支持 ${MAX_CROP} 个`
+    return
+  }
+  busy.value = true
+  error.value = ''
+  try {
+    const natW = img.naturalWidth
+    const natH = img.naturalHeight
+    const out = []
+    for (const b of detectedBoxes.value) {
+      const x = Math.min(natW - 1, Math.max(0, Math.round(b.x)))
+      const y = Math.min(natH - 1, Math.max(0, Math.round(b.y)))
+      const w = Math.max(1, Math.min(natW - x, Math.round(b.w)))
+      const h = Math.max(1, Math.min(natH - y, Math.round(b.h)))
+      const canvas = document.createElement('canvas')
+      canvas.width = w
+      canvas.height = h
+      canvas.getContext('2d').drawImage(img, x, y, w, h, 0, 0, w, h)
+      out.push({ dataUrl: canvas.toDataURL('image/png'), w, h })
+    }
+    crops.value = out
+  } catch (e) {
+    error.value = `裁切失败：${e.message || e}`
+  } finally {
+    busy.value = false
+  }
+}
+
+async function detectAndCrop() {
+  const kind = detectBoxes()
+  if (kind === 'grid') {
+    await doCrop()
+  } else if (kind === 'boxes') {
+    await cropDetectedBoxes()
+  }
+}
+
+// 识别框 overlay 样式（用图片自然尺寸换算百分比）
+function detectBoxStyle(b) {
+  const natW = imgEl.value?.naturalWidth || 1
+  const natH = imgEl.value?.naturalHeight || 1
+  return {
+    left: (b.x / natW) * 100 + '%',
+    top: (b.y / natH) * 100 + '%',
+    width: (b.w / natW) * 100 + '%',
+    height: (b.h / natH) * 100 + '%',
+  }
 }
 
 /* —— 拖拽网格线 —— */
@@ -157,6 +597,7 @@ function resetForNewImage() {
   vLines.value = Array.from({ length: 2 }, (_, i) => ({ id: idSeq++, pos: (i + 1) / 3 }))
   hLines.value = Array.from({ length: 2 }, (_, i) => ({ id: idSeq++, pos: (i + 1) / 3 }))
   crops.value = []
+  detectedBoxes.value = []
 }
 
 /* —— 裁切 —— */
@@ -241,6 +682,7 @@ function clearAll() {
   vLines.value = []
   hLines.value = []
   crops.value = []
+  detectedBoxes.value = []
   error.value = ''
 }
 </script>
@@ -250,8 +692,9 @@ function clearAll() {
     <router-link to="/tools" class="back-link">← 返回工具箱</router-link>
     <h1 class="page-title">✂️ 图片裁切</h1>
     <p class="sub">
-      上传版图（多格图 / 精灵图），拖动网格线划分格子，一键裁切成小图。
-      纯前端处理，图片不会上传。
+      上传版图（多格图 / 精灵图），自动识别框线或拖动网格线划分格子，一键裁切成小图。
+      自动识别支持<strong>不等分格子</strong>与<strong>粗细框线</strong>：有分隔线时生成切割线网格，
+      无分隔线时按内容块识别（可忽略图中的虚线框/实线框装饰）。纯前端处理，图片不会上传。
     </p>
 
     <input ref="fileInput" type="file" accept="image/*" class="hidden-input" @change="onPick" />
@@ -297,6 +740,19 @@ function clearAll() {
           <button class="btn btn-sm" @click="clearGrid">清空网格</button>
         </div>
         <div class="ctrl-group">
+          <span class="ctrl-label">自动识别</span>
+          <button class="btn btn-sm" :disabled="detecting" @click="detectBoxes">
+            {{ detecting ? '识别中…' : '🔍 识别框' }}
+          </button>
+          <button class="btn btn-sm" :disabled="detecting" @click="detectAndCrop">
+            {{ detecting ? '识别中…' : '🔍 识别并裁切' }}
+          </button>
+          <label class="opt-label" title="版图中的虚线框/实线框（装饰框）不是裁切目标时开启">
+            <input v-model="ignoreFrames" type="checkbox" />
+            忽略装饰框
+          </label>
+        </div>
+        <div class="ctrl-group">
           <button class="btn btn-sm btn-primary" :disabled="busy" @click="doCrop">
             {{ busy ? '裁切中…' : '✂️ 裁切' }}
           </button>
@@ -310,6 +766,14 @@ function clearAll() {
       <div class="stage-wrap">
         <div ref="stage" class="stage">
           <img ref="imgEl" :src="imgSrc" alt="版图" class="stage-img" />
+          <!-- 识别出的内容框（无分隔线时的连通域结果） -->
+          <div
+            v-for="(b, i) in detectedBoxes"
+            :key="'d' + i"
+            class="detect-box"
+            :style="detectBoxStyle(b)"
+            title="识别出的框"
+          ></div>
           <!-- 竖直切割线 -->
           <div
             v-for="l in vLines"
@@ -365,7 +829,7 @@ function clearAll() {
 
 <style scoped>
 .crop-tool {
-  max-width: 960px;
+  max-width: min(1100px, 95vw); /* 高分辨率适配 */
   margin: 0 auto;
   padding: 24px 20px 60px;
 }
@@ -453,6 +917,25 @@ function clearAll() {
   margin-right: 2px;
 }
 
+.opt-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  margin-left: 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  user-select: none;
+}
+
+.opt-label:hover {
+  border-color: var(--accent);
+}
+
 .custom-preset {
   display: inline-flex;
   align-items: center;
@@ -511,6 +994,16 @@ function clearAll() {
   max-height: 68vh;
   height: auto;
   border-radius: 6px;
+}
+
+/* 自动识别出的内容框（无分隔线时的连通域结果） */
+.detect-box {
+  position: absolute;
+  z-index: 4;
+  border: 2px solid #22c55e;
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.5), 0 0 6px rgba(34, 197, 94, 0.5);
+  pointer-events: none;
 }
 
 /* 切割线：14px 的隐形热区，内含 2px 可见线 */
