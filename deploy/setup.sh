@@ -8,7 +8,7 @@
 #   CERT_EMAIL      Let's Encrypt 证书邮箱（配 DOMAIN 时必填）
 #   APP_DIR         应用目录，默认 /opt/anihub
 #   APP_USER        运行用户，默认 anihub
-#   REPO_URL        git 仓库地址（留空则要求代码已放到 APP_DIR，如 scp/rsync 上传）
+#   REPO_URL        git 仓库地址（默认走 GitHub 代理，大陆服务器可直接拉取）
 #   ADMIN_USERNAME  管理员用户名，默认 admin
 #   ADMIN_PASSWORD  管理员密码（留空则自动生成并打印，注意保存）
 #   INSIDER_KEYWORD 内部人员口令，默认 inside
@@ -19,7 +19,8 @@ DOMAIN="${DOMAIN:-}"
 CERT_EMAIL="${CERT_EMAIL:-}"
 APP_DIR="${APP_DIR:-/opt/anihub}"
 APP_USER="${APP_USER:-anihub}"
-REPO_URL="${REPO_URL:-}"
+# GitHub 第三方代理（大陆直连 GitHub 不稳定）；域名失效时替换为 gh-proxy.com / mirror.ghproxy.com 等
+REPO_URL="${REPO_URL:-https://ghfast.top/https://github.com/CONSISTROL/anihub.git}"
 ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-}"
 INSIDER_KEYWORD="${INSIDER_KEYWORD:-inside}"
@@ -69,11 +70,11 @@ if [[ ! -f "$APP_DIR/package.json" ]]; then
 fi
 cd "$APP_DIR"
 git config --global --add safe.directory "$APP_DIR" || true
-# 拉取更新：加超时防止卡死；失败不阻断（继续用已有代码构建）
-if timeout 30 git pull --ff-only 2>&1 | tail -3; then
+# 拉取更新：走 REPO_URL（默认 GitHub 代理），加超时防止卡死；失败不阻断（继续用已有代码构建）
+if timeout 30 git pull "$REPO_URL" master 2>&1 | tail -3; then
   :
 else
-  echo "    git pull 超时/失败（GitHub 网络问题），继续使用本地已有代码"
+  echo "    git pull 超时/失败（网络问题），继续使用本地已有代码"
 fi
 npm ci
 npm run build

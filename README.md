@@ -129,18 +129,20 @@ npm start
 
 | 文件 | 作用 |
 |---|---|
-| `deploy/setup.sh` | 一键部署：装 Node 24 → 拉代码 → 构建 → 生成 `.env`（随机密钥）→ systemd 守护 → Nginx + HTTPS → 定时备份 |
+| `deploy/setup.sh` | 一键部署：装 Node 24 → 拉代码（默认走 GitHub 代理）→ 构建 → 生成 `.env`（随机密钥）→ systemd 守护 → Nginx + HTTPS → 定时备份 |
+| `deploy/update.sh` | 一键更新：拉代码（默认走 GitHub 代理）→ `npm ci` → 构建 → 重启服务 |
 | `deploy/anihub.service` | systemd 服务单元（开机自启、崩溃自动重启、最小权限加固） |
 | `deploy/anihub.nginx.conf` | Nginx 反向代理 + Let's Encrypt HTTPS |
 | `deploy/backup.sh` | 数据备份（SQLite + 上传图片，保留最近 14 份，每日 03:00） |
 | `deploy/crontab.example` | 定时备份任务示例 |
 
+> 大陆服务器直连 GitHub 不稳定，`setup.sh` / `update.sh` 默认使用第三方代理 `https://ghfast.top/https://github.com/CONSISTROL/anihub.git` 拉取；代理域名失效时，把脚本里 `REPO_URL` / `PROXY_URL` 换成 `gh-proxy.com`、`mirror.ghproxy.com` 等即可（也可通过环境变量 `REPO_URL` 覆盖为 Gitee 地址）。
+
 快速上手（服务器上执行）：
 
 ```bash
-# 方式一：脚本自动部署（从仓库拉取代码）
+# 方式一：脚本自动部署（默认从 GitHub 代理拉取代码，无需指定 REPO_URL）
 sudo DOMAIN=anime.example.com CERT_EMAIL=you@example.com \
-  REPO_URL=https://github.com/CONSISTROL/anihub.git \
   ADMIN_USERNAME=admin ADMIN_PASSWORD=你的密码 \
   bash deploy/setup.sh
 
@@ -151,8 +153,10 @@ sudo DOMAIN=anime.example.com CERT_EMAIL=you@example.com bash /opt/anihub/deploy
 部署完成后访问 `https://你的域名`，页面敲键盘 `login` 输入管理员账号登录。日常更新代码：
 
 ```bash
-cd /opt/anihub && git pull && npm ci && npm run build && sudo systemctl restart anihub
+bash /opt/anihub/deploy/update.sh
 ```
+
+（等价手动步骤：`cd /opt/anihub && git pull <代理URL> master && npm ci && npm run build && sudo systemctl restart anihub`）
 
 **安全提醒**：首次部署请务必在 `server/.env` 中设置强随机 `JWT_SECRET`（部署脚本已自动生成）、修改 `ADMIN_PASSWORD`；如需修改内部人员口令 `INSIDER_KEYWORD`，同步改 `src/App.vue` 顶部的 `KEY_SEQ_INSIDE` 后重新构建。
 
