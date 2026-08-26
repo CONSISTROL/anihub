@@ -23,6 +23,7 @@ const platform = ref('') // 服务器平台（用于命令提示）
 
 let ws = null
 let wsRetry = 0
+let ptyHintShown = false // PTY 交互提示只显示一次
 
 const WELCOME = `AniHub 管理员控制台
 工作目录: ${location.origin} 对应的服务器项目根目录
@@ -97,6 +98,10 @@ function connectWs() {
     }
     if (m.type === 'ready') {
       promptDir.value = m.cwd || promptDir.value
+      if (m.pty && !ptyHintShown) {
+        ptyHintShown = true
+        push('info', '已启用交互模式：运行中的命令可直接输入内容（如 su 密码），回车发送，Ctrl+C 中断')
+      }
     } else if (m.type === 'cwd') {
       promptDir.value = m.cwd || promptDir.value
     } else if (m.type === 'out') {
@@ -159,7 +164,8 @@ function onKeydown(e) {
   }
   if (e.key === 'Enter') {
     e.preventDefault()
-    run()
+    if (running.value) sendInput()
+    else run()
     return
   }
   if (e.key === 'Tab') {
@@ -167,6 +173,7 @@ function onKeydown(e) {
     onTab()
     return
   }
+  if (running.value) return // 运行中 ↑/↓ 历史不生效（输入是发给进程的）
   if (e.key === 'ArrowUp') {
     e.preventDefault()
     if (!history.value.length) return
@@ -180,11 +187,22 @@ function onKeydown(e) {
   }
 }
 
+// 运行中：把输入行发给运行中的进程（PTY 交互，如 su 密码、shell 命令）
+function sendInput() {
+  const text = input.value
+  input.value = ''
+  histIdx.value = -1
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'input', data: text + '\n' }))
+  }
+}
+
 function focusInput() {
   nextTick(() => termInput.value?.focus())
 }
 
-// 运行中提示行隐藏，Ctrl+C 需在窗口级捕获（本地终端行为：命令跑完才出现新提示行）
+// 运行中提示行保持可见：输入内容回车后发给运行中的进程（su 密码等交互）。
+// Ctrl+C 需在窗口级捕获（运行中发中断；PTY 下等价终端 Ctrl+C）
 function onWinKey(e) {
   if (running.value && e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
     e.preventDefault()
@@ -263,8 +281,8 @@ onUnmounted(() => {
             </p>
           </template>
           <!-- 当前提示行：回车后随输出下移，光标留在下一行（Xshell 风格）；
-               运行中隐藏——命令跑完才出现新提示行（本地终端行为） -->
-          <div v-show="!running" class="prompt-line">
+               运行中也保持可见——输入内容回车后发送给运行中的进程（如 su 密码） -->
+          <div class="prompt-line">
             <span class="prompt-dir">{{ promptDir }}</span>
             <span class="prompt">$</span>
             <input
@@ -272,7 +290,11 @@ onUnmounted(() => {
               v-model="input"
               class="term-input"
               type="text"
-              placeholder="输入命令（Tab 补全，Enter 执行，Ctrl+C 中断，↑/↓ 历史，Ctrl+L 清空）"
+              :placeholder="
+                running
+                  ? '运行中：输入内容回车后发送给进程（如 su 密码），Ctrl+C 中断'
+                  : '输入命令（Tab 补全，Enter 执行，Ctrl+C 中断，↑/↓ 历史，Ctrl+L 清空）'
+              "
               spellcheck="false"
               autocomplete="off"
               @keydown="onKeydown"

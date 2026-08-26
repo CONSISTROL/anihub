@@ -1,10 +1,10 @@
-// 控制台 WebSocket：实时流式输出 + 中断（Ctrl+C）。仅管理员（token 校验）。
-// 客户端消息: { type: 'run', cmd } | { type: 'kill' }
+// 控制台 WebSocket：实时流式输出 + 交互输入 + 中断（Ctrl+C）。仅管理员（token 校验）。
+// 客户端消息: { type: 'run', cmd } | { type: 'input', data } | { type: 'kill' }
 // 服务端消息: ready/out/err/cwd/exit
 import { WebSocketServer } from 'ws'
 import jwt from 'jsonwebtoken'
 import { JWT_SECRET } from './config.js'
-import { session, startStream, killCurrent } from './consoleSession.js'
+import { session, startStream, killCurrent, writeInput } from './consoleSession.js'
 
 export function attachConsoleSocket(server) {
   const wss = new WebSocketServer({ noServer: true })
@@ -36,7 +36,7 @@ export function attachConsoleSocket(server) {
   })
 
   wss.on('connection', (ws) => {
-    ws.send(JSON.stringify({ type: 'ready', cwd: session.dir }))
+    ws.send(JSON.stringify({ type: 'ready', cwd: session.dir, pty: session.pty }))
     ws.on('message', (raw) => {
       let msg
       try {
@@ -53,6 +53,9 @@ export function attachConsoleSocket(server) {
           onCwd: (dir) => ws.send(JSON.stringify({ type: 'cwd', cwd: dir })),
           onExit: (r) => ws.send(JSON.stringify({ type: 'exit', ...r })),
         })
+      } else if (msg.type === 'input' && typeof msg.data === 'string') {
+        // 交互输入：转发给运行中的进程（PTY 下如 su 密码、shell 命令）
+        writeInput(msg.data)
       } else if (msg.type === 'kill') {
         if (killCurrent()) {
           console.log('[console] admin 中断当前命令')
