@@ -8,6 +8,8 @@ export default defineConfig({
       // dev 模式下 /api 与上传图片转发到后端（生产由 Express 直接托管，无需代理）
       '/api': 'http://localhost:3001',
       '/uploads': 'http://localhost:3001',
+      // 控制台 WebSocket 实时输出
+      '/ws': { target: 'http://localhost:3001', ws: true },
     },
     watch: {
       // Windows 下文件监听偶发失效（编辑器原子写入不触发事件，导致 HMR 与重新编译

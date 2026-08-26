@@ -1,8 +1,10 @@
 <script setup>
-// 管理员控制台：在服务器上执行命令（项目根目录）+ 查看服务端实时日志。
-// 仅管理员可访问（路由 auth + 服务端 authRequired 双重校验）。
+// 管理员控制台（Xshell 风格终端）：命令 + 输出都在同一滚动区内，
+// 回车后提示符移到下一行；Tab 补全命令名/路径；↑/↓ 历史；Ctrl+L 清空；
+// 实时流式输出（WebSocket），Ctrl+C 中断当前命令。
+// 仅管理员可访问（路由 auth + 服务端 authRequired + WebSocket token 三重校验）。
 import { nextTick, onMounted, onUnmounted, ref } from 'vue'
-import { execCommand, getConsoleLogs } from '../api/settings'
+import { getConsoleLogs, completeCommand } from '../api/settings'
 
 const input = ref('')
 const running = ref(false)
@@ -10,22 +12,44 @@ const lines = ref([]) // { type: 'cmd'|'out'|'err'|'info'|'log'|'warn'|'error', 
 const history = ref([])
 const histIdx = ref(-1)
 const outEl = ref(null)
+const termInput = ref(null)
 const errMsg = ref('')
+const promptDir = ref('') // 当前工作目录（提示符显示）
 
 const logLines = ref([]) // 服务器日志
 const logErr = ref('')
 let logTimer = null
 const platform = ref('') // 服务器平台（用于命令提示）
 
+let ws = null
+let wsRetry = 0
+
 const WELCOME = `AniHub 管理员控制台
 工作目录: ${location.origin} 对应的服务器项目根目录
-输入命令回车执行（支持 shell 语法），↑/↓ 浏览历史，Ctrl+L 清空`
+输入命令回车执行（支持 shell 语法），↑/↓ 历史，Tab 补全，Ctrl+C 中断，Ctrl+L 清空`
 
 function push(type, text) {
   lines.value.push({ type, text: String(text) })
 }
 
-async function run() {
+/* —— 输出：append 追加一行；replace 覆盖最后一行输出（进度条 \r 更新） —— */
+function pushOut(text, replace) {
+  if (replace) {
+    const arr = lines.value
+    let i = arr.length - 1
+    while (i >= 0 && arr[i].type !== 'out') i--
+    if (i >= 0) {
+      arr[i] = { type: 'out', text: String(text) }
+      lines.value = [...arr]
+    } else {
+      lines.value.push({ type: 'out', text: String(text) })
+    }
+  } else {
+    lines.value.push({ type: 'out', text: String(text) })
+  }
+}
+
+function run() {
   const cmd = input.value.trim()
   if (!cmd || running.value) return
   history.value.push(cmd)
@@ -34,16 +58,77 @@ async function run() {
   push('cmd', cmd)
   running.value = true
   errMsg.value = ''
-  try {
-    const r = await execCommand(cmd)
-    if (r.stdout) push('out', r.stdout.replace(/\n$/, ''))
-    if (r.stderr) push('err', r.stderr.replace(/\n$/, ''))
-    push('info', `[退出码 ${r.exitCode}${r.timedOut ? ' · 超时终止(15s)' : ''}]`)
-  } catch (e) {
-    push('err', `执行失败: ${e.message}`)
-  } finally {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'run', cmd }))
+  } else {
+    push('err', '连接已断开，无法执行（正在重连…）')
     running.value = false
-    scrollBottom()
+  }
+  scrollBottom()
+}
+
+function sendKill() {
+  if (!running.value) return
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'kill' }))
+  push('info', '⏹ 已发送中断请求 (Ctrl+C)')
+}
+
+function connectWs() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+  const token = localStorage.getItem('anihub.token') || ''
+  ws = new WebSocket(`${proto}://${location.host}/ws/console?token=${encodeURIComponent(token)}`)
+  ws.onmessage = (ev) => {
+    let m
+    try {
+      m = JSON.parse(ev.data)
+    } catch {
+      return
+    }
+    if (m.type === 'ready') {
+      promptDir.value = m.cwd || promptDir.value
+    } else if (m.type === 'cwd') {
+      promptDir.value = m.cwd || promptDir.value
+    } else if (m.type === 'out') {
+      pushOut(m.text, m.replace)
+      scrollBottom()
+    } else if (m.type === 'err') {
+      push('err', m.text)
+      scrollBottom()
+    } else if (m.type === 'exit') {
+      push('info', `[退出码 ${m.exitCode}${m.timedOut ? ' · 超时终止(10min)' : ''}]`)
+      running.value = false
+      scrollBottom()
+      focusInput()
+    }
+  }
+  ws.onclose = () => {
+    if (running.value) {
+      push('err', '连接已断开')
+      running.value = false
+    }
+    wsRetry++
+    setTimeout(connectWs, Math.min(5000, 500 * wsRetry))
+  }
+  ws.onerror = () => {
+    /* onclose 会触发重连 */
+  }
+}
+
+// Tab 补全：唯一候选直接补全；多个候选打印到输出区（类似 shell）
+async function onTab() {
+  const text = input.value
+  if (!text || running.value) return
+  try {
+    const r = await completeCommand(text)
+    if (r.candidates.length === 1) {
+      const lastSpace = text.lastIndexOf(' ')
+      input.value = (lastSpace < 0 ? '' : text.slice(0, lastSpace + 1)) + r.candidates[0]
+    } else if (r.candidates.length > 1) {
+      push('info', r.candidates.join('  '))
+      scrollBottom()
+    }
+  } catch {
+    /* 补全失败忽略 */
   }
 }
 
@@ -53,9 +138,22 @@ function onKeydown(e) {
     lines.value = []
     return
   }
+  if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
+    // 终端习惯：Ctrl+C 清空当前输入行；运行中同时中断命令（复制请用 Ctrl+Shift+C 或右键菜单）
+    e.preventDefault()
+    input.value = ''
+    histIdx.value = -1
+    if (running.value) sendKill()
+    return
+  }
   if (e.key === 'Enter') {
     e.preventDefault()
     run()
+    return
+  }
+  if (e.key === 'Tab') {
+    e.preventDefault()
+    onTab()
     return
   }
   if (e.key === 'ArrowUp') {
@@ -69,6 +167,10 @@ function onKeydown(e) {
     histIdx.value++
     input.value = histIdx.value >= history.value.length ? '' : history.value[histIdx.value]
   }
+}
+
+function focusInput() {
+  nextTick(() => termInput.value?.focus())
 }
 
 function scrollBottom() {
@@ -94,6 +196,7 @@ function fmtTime(ts) {
 
 onMounted(async () => {
   push('info', WELCOME)
+  connectWs() // WebSocket 实时流式输出
   // 获取服务器平台，提示对应命令风格（Windows 用 dir/type，Linux 用 ls/cat）
   try {
     const mon = await import('../api/settings').then((m) => m.getMonitor())
@@ -109,7 +212,10 @@ onMounted(async () => {
   refreshLogs()
   logTimer = setInterval(refreshLogs, 3000)
 })
-onUnmounted(() => clearInterval(logTimer))
+onUnmounted(() => {
+  clearInterval(logTimer)
+  ws?.close()
+})
 </script>
 
 <template>
@@ -121,28 +227,31 @@ onUnmounted(() => clearInterval(logTimer))
       <section class="term-panel">
         <div class="term-head">
           <span>🖥️ 命令控制台</span>
-          <button class="btn btn-sm" @click="lines = []">清空输出</button>
+          <span class="head-actions">
+            <button v-if="running" class="btn btn-sm btn-danger" @click="sendKill">⏹ 停止 (Ctrl+C)</button>
+            <button class="btn btn-sm" @click="lines = []">清空输出</button>
+          </span>
         </div>
-        <div ref="outEl" class="term-out">
+        <div ref="outEl" class="term-out" @click="focusInput">
           <p v-for="(l, i) in lines" :key="i" class="term-line" :class="l.type">
             <template v-if="l.type === 'cmd'"><span class="prompt">$</span> {{ l.text }}</template>
             <template v-else>{{ l.text }}</template>
           </p>
-        </div>
-        <div class="term-input-row">
-          <span class="prompt">$</span>
-          <input
-            v-model="input"
-            class="term-input"
-            type="text"
-            placeholder="输入命令，回车执行（Windows 用 dir、type；Linux 用 ls、cat）；↑/↓ 历史，Ctrl+L 清空"
-            :disabled="running"
-            spellcheck="false"
-            @keydown="onKeydown"
-          />
-          <button class="btn btn-sm" :disabled="running || !input.trim()" @click="run">
-            {{ running ? '执行中…' : '执行' }}
-          </button>
+          <!-- 当前提示行：回车后随输出下移，光标留在下一行（Xshell 风格） -->
+          <div class="prompt-line">
+            <span class="prompt-dir">{{ promptDir }}</span>
+            <span class="prompt">$</span>
+            <input
+              ref="termInput"
+              v-model="input"
+              class="term-input"
+              type="text"
+              placeholder="输入命令（Tab 补全，Enter 执行，Ctrl+C 中断，↑/↓ 历史，Ctrl+L 清空）"
+              spellcheck="false"
+              autocomplete="off"
+              @keydown="onKeydown"
+            />
+          </div>
         </div>
       </section>
 
@@ -231,6 +340,17 @@ onUnmounted(() => clearInterval(logTimer))
   flex-shrink: 0;
 }
 
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-danger {
+  color: #f85149;
+  border-color: #6e2b2b;
+}
+
 .term-out {
   flex: 1;
   min-height: 0;
@@ -257,9 +377,7 @@ onUnmounted(() => clearInterval(logTimer))
   margin: 0;
   white-space: pre-wrap;
   word-break: break-all;
-}
-
-.term-line.cmd {
+}.term-line.cmd {
   color: #58a6ff;
   font-weight: 600;
 }
@@ -281,17 +399,42 @@ onUnmounted(() => clearInterval(logTimer))
   font-weight: 700;
   margin-right: 6px;
   user-select: none;
+  flex-shrink: 0;
+}
+
+.prompt-dir {
+  color: #58a6ff;
+  font-weight: 600;
+  margin-right: 8px;
+  user-select: none;
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
+/* 当前输入行：跟随输出区底部，回车后自然下移（Xshell 风格） */
+.prompt-line {
+  display: flex;
+  align-items: center;
+  gap: 0;
 }
 
 .term-input {
   flex: 1;
+  min-width: 0;
   background: transparent;
   border: none;
   outline: none;
   color: #c9d1d9;
+  caret-color: #3fb950;
   font-family: ui-monospace, SFMono-Regular, Consolas, "Courier New", "Microsoft YaHei", "PingFang SC", monospace;
-  font-size: 13px;
-  padding: 4px 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  padding: 0;
+}
+
+.term-input::placeholder {
+  color: #6e7681;
+  font-family: inherit;
 }
 
 .log-line .log-time {

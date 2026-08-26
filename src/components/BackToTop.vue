@@ -36,7 +36,7 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
 .back-to-top {
   position: fixed;
   right: 22px;
-  bottom: 22px;
+  bottom: 172px; /* 抬到桌宠上方（桌宠高 150 + 底距 10 + 12 间隔），避免被右下角桌宠遮挡 */
   z-index: 60; /* 低于登录弹窗（100），高于导航栏（50） */
   width: 42px;
   height: 42px;

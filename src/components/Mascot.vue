@@ -70,7 +70,9 @@ const LINES = ['你好呀～', '今天也要加油！', '呜…好像有点饿�
 const state = ref('idle')
 const frame = ref(0)
 const flipped = ref(false) // 朝右走时水平翻转（帧素材默认朝左）
-const posX = ref(MARGIN)
+// 停靠角落：右下角（left = 视口宽 - 宠物宽 - 边距）
+const HOME_X = () => Math.max(MARGIN, window.innerWidth - PET_W - MARGIN)
+const posX = ref(HOME_X())
 const dragging = ref(false)
 const hidden = ref(false) // 本次会话隐藏（刷新恢复）
 
@@ -366,7 +368,7 @@ function goHome() {
     clearTimeout(foodTimer)
     foodX.value = null
   }
-  posX.value = MARGIN
+  posX.value = HOME_X()
   flipped.value = false
   play('idle')
   say('回到角落～')
@@ -439,8 +441,8 @@ onUnmounted(() => {
 .mascot {
   position: fixed;
   left: 12px;
-  bottom: 10px;
-  z-index: 55; /* 低于登录弹窗(100)；与右下角回到顶部按钮(60)左右分置不重叠 */
+  bottom: 10px; /* 贴底：右下角（停靠点由 posX 控制，初始为右下角） */
+  z-index: 55; /* 低于登录弹窗(100) */
   cursor: grab;
   user-select: none;
   -webkit-user-select: none;

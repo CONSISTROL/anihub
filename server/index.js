@@ -10,6 +10,7 @@ import uploadRouter from './routes/upload.js'
 import wallpapersRouter from './routes/wallpapers.js'
 import monitorRouter, { serverStats } from './routes/monitor.js'
 import consoleRouter from './routes/console.js'
+import { attachConsoleSocket } from './consoleSocket.js'
 import { startMonitor } from './monitorCollector.js'
 import { captureConsole } from './logger.js'
 import { WALLPAPER_DIR } from './config.js'
@@ -65,7 +66,8 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: { code: 'INTERNAL', message: '服务器内部错误' } })
 })
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`AniHub server listening on http://localhost:${PORT}`)
   startMonitor() // 服务器指标采集（每 5 秒采样 CPU/内存/网络/磁盘）
 })
+attachConsoleSocket(server) // 控制台实时流式输出（WebSocket）
