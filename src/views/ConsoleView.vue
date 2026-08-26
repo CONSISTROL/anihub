@@ -183,6 +183,7 @@ onMounted(async () => {
     scrollback: 2000,
     cursorBlink: true,
     fontSize: 13,
+    convertEol: true, // 把 \n 当 \r\n（Windows cmd 输出单独的 \n 时提示符不错位）
     fontFamily:
       'ui-monospace, SFMono-Regular, Consolas, "Courier New", "Microsoft YaHei", "PingFang SC", "Noto Sans Mono CJK SC", monospace',
     theme: {
