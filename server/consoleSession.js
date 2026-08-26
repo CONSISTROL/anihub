@@ -1,14 +1,13 @@
-// 控制台会话：流式进程执行（实时回显）+ 会话工作目录 + 中断 + 交互输入。
+// 控制台会话：流式进程执行（原始字节流）+ 会话工作目录 + 中断 + 交互输入。
 // Linux 上通过系统自带的 script（util-linux）给子进程分配伪终端（PTY），
-// 从而支持 su/passwd 等交互命令（密码提示实时显示、输入可转发、Ctrl+C 走终端驱动发 SIGINT）。
+// 从而支持 su/passwd/htop/vim 等交互命令（终端模拟器 xterm.js 自行解析 ANSI）。
 // 与 REST 路由（console.js）共享 session 状态；WebSocket（consoleSocket.js）使用 startStream 实时推送。
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 
 const PROJECT_ROOT = path.join(import.meta.dirname, '..') // 项目根目录（server/ 的上级）
-const STREAM_TIMEOUT_MS = 600000 // 流式命令最长 10 分钟（有输出/输入则顺延；可用 Ctrl+C 中断）
-const FLUSH_IDLE_MS = 150 // 无换行的部分输出（如 su 的 "Password: " 提示）空闲后及时冲刷
+const STREAM_TIMEOUT_MS = 600000 // 一次性命令最长 10 分钟（有输出/输入则顺延；终端会话不设超时）
 
 export const session = {
   dir: PROJECT_ROOT, // 会话工作目录
@@ -36,7 +35,7 @@ export function tryCd(cmd) {
   return { ok: true, dir: session.dir, msg: '' }
 }
 
-/** 行级解码：先按 UTF-8 严格解，出现替换符则按 GBK 解。
+/** 行级解码（REST 一次性执行用）：先按 UTF-8 严格解，出现替换符则按 GBK 解。
  *  \n 与 \r 在 UTF-8/GBK 的多字节字符内都不会出现，按行切分是安全的。 */
 export function decodeLine(buf) {
   const s = Buffer.from(buf).toString('utf8')
@@ -48,26 +47,7 @@ export function decodeLine(buf) {
   }
 }
 
-/** 去掉 ANSI 转义序列（PTY 下程序会输出颜色/光标控制，行列表 UI 里显示为乱码） */
-function stripAnsi(s) {
-  return s
-    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '') // CSI（颜色、光标移动等）
-    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '') // OSC（标题等）
-    .replace(/\x1b[@-_][0-9]*/g, '') // 单字符转义（ESC M/7/8 等）
-    .replace(/\x1b\[/g, '') // 残留的半截 CSI（跨块被切开的兜底）
-}
-
-/** 处理 \b 退格回显（PTY 行编辑会回显 "\b \b"，把前一个字符删掉） */
-function collapseBackspaces(s) {
-  if (!s.includes('\b')) return s
-  while (s.includes('\b')) {
-    const i = s.indexOf('\b')
-    s = s.slice(0, Math.max(0, i - 1)) + s.slice(i + 1)
-  }
-  return s
-}
-
-/** 向运行中的进程写入输入（PTY 模式下经 script 转发给伪终端） */
+/** 向运行中的进程写入输入（PTY 模式下经 script 转发给伪终端，含逐键字节） */
 export function writeInput(data) {
   const p = session.proc
   if (!p || !p.stdin || !p.stdin.writable) return false
@@ -150,10 +130,11 @@ export function killCurrent(hard = false) {
 }
 
 /**
- * 流式执行命令：实时回调输出（\r 进度条会以 replace=true 覆盖当前行；无换行提示 150ms 空闲即冲刷）。
- * onOut(text, replace) / onErr(text) / onCwd(dir) / onExit({exitCode, timedOut, cwd, ...})
+ * 流式执行命令：原始字节流输出（终端模拟器 xterm.js 自行解析 ANSI/换行/进度条）。
+ * onOut(text) / onErr(text) / onCwd(dir) / onExit({exitCode, timedOut, cwd, ...})
+ * noTimeout=true：终端会话不设 10 分钟超时（交互 shell 挂机不被杀）。
  */
-export function startStream(cmd, { onOut, onErr, onCwd, onExit }) {
+export function startStream(cmd, { onOut, onErr, onCwd, onExit, noTimeout = false }) {
   killCurrent(true) // 单会话：新命令替换旧命令（硬杀旧进程）
   const cd = tryCd(cmd)
   if (cd) {
@@ -163,7 +144,7 @@ export function startStream(cmd, { onOut, onErr, onCwd, onExit }) {
     return
   }
 
-  // Linux 且存在 script（util-linux，Ubuntu 自带）：走伪终端，支持交互输入（su 密码等）
+  // Linux 且存在 script（util-linux，Ubuntu 自带）：走伪终端，支持交互命令
   const usePty = process.platform !== 'win32' && fs.existsSync('/usr/bin/script')
   // 子进程环境：不继承 NODE_ENV=production——否则 npm ci 会跳过 devDependencies（vite 等），
   // 控制台里跑构建/更新会报 vite: not found
@@ -205,7 +186,7 @@ export function startStream(cmd, { onOut, onErr, onCwd, onExit }) {
   const finish = (r) => {
     if (finished) return
     finished = true
-    clearTimeout(timer)
+    if (timer) clearTimeout(timer)
     resetSoftKill()
     // 只清理自己拥有的进程：旧命令被新命令顶替时（kill 是异步的），
     // 旧 finish 可能晚于新进程启动——不能把新进程的 session.proc 清掉
@@ -220,77 +201,43 @@ export function startStream(cmd, { onOut, onErr, onCwd, onExit }) {
     killCurrent(true)
     finish({ exitCode: 124, timedOut: true, cwd: session.dir })
   }
-  let timer = setTimeout(onTimeout, STREAM_TIMEOUT_MS)
-  timer.unref?.()
-  // 有输出/输入就顺延超时（交互 shell 挂机不会被误杀；静默进程仍按 10 分钟兜底）
+  let timer = null
   const resetTimer = () => {
+    if (!timer) return
     clearTimeout(timer)
     timer = setTimeout(onTimeout, STREAM_TIMEOUT_MS)
     timer.unref?.()
   }
-  session.resetTimer = resetTimer
-
-  // 行级泵：\n 追加一行；\r\n 追加一行；单独 \r 覆盖当前行（进度条）；
-  // 无换行的残留缓冲 150ms 空闲即冲刷（"Password: " 这类提示要实时显示）
-  const makePump = (emit) => {
-    let buf = Buffer.alloc(0)
-    let flusher = null
-    const flush = () => {
-      if (flusher) {
-        clearTimeout(flusher)
-        flusher = null
-      }
-      if (buf.length) {
-        emit(collapseBackspaces(stripAnsi(decodeLine(buf))), false)
-        buf = Buffer.alloc(0)
-      }
-    }
-    const push = (chunk) => {
-      buf = Buffer.concat([buf, chunk])
-      for (;;) {
-        if (!buf.length) break
-        const iN = buf.indexOf(0x0a)
-        const iR = buf.indexOf(0x0d)
-        if (iN < 0 && iR < 0) break
-        if (iN >= 0 && (iR < 0 || iN < iR)) {
-          // \n 先出现：一行结束（追加）
-          emit(collapseBackspaces(stripAnsi(decodeLine(buf.slice(0, iN)))), false)
-          buf = buf.slice(iN + 1)
-        } else if (iR + 1 < buf.length && buf[iR + 1] === 0x0a) {
-          // \r\n：一行结束（追加）
-          emit(collapseBackspaces(stripAnsi(decodeLine(buf.slice(0, iR)))), false)
-          buf = buf.slice(iR + 2)
-        } else {
-          // 单独 \r：进度条覆盖当前行
-          emit(collapseBackspaces(stripAnsi(decodeLine(buf.slice(0, iR)))), true)
-          buf = buf.slice(iR + 1)
-        }
-      }
-      if (buf.length) {
-        if (flusher) clearTimeout(flusher)
-        flusher = setTimeout(flush, FLUSH_IDLE_MS)
-        flusher.unref?.()
-      }
-    }
-    return { push, flush }
+  if (!noTimeout) {
+    timer = setTimeout(onTimeout, STREAM_TIMEOUT_MS)
+    timer.unref?.()
+    // 有输出/输入就顺延超时（交互挂机不会被误杀；静默进程仍按 10 分钟兜底）
+    session.resetTimer = resetTimer
+  } else {
+    session.resetTimer = null
   }
-  const pOut = makePump(onOut)
-  const pErr = makePump(onErr)
 
+  // 原始字节流：UTF-8 流式解码（跨块多字节字符安全），ANSI 原样交给终端模拟器
+  const decOut = new TextDecoder('utf-8', { stream: true })
+  const decErr = new TextDecoder('utf-8', { stream: true })
   child.stdout.on('data', (d) => {
-    pOut.push(d)
+    const t = decOut.decode(d)
+    if (t) onOut(t)
     resetTimer()
   })
   child.stderr.on('data', (d) => {
-    pErr.push(d)
+    const t = decErr.decode(d)
+    if (t) onErr(t)
     resetTimer()
   })
   child.on('error', (e) => {
     finish({ exitCode: 1, timedOut: false, cwd: session.dir, error: e.message })
   })
   child.on('exit', (code, signal) => {
-    pOut.flush()
-    pErr.flush()
+    const tailOut = decOut.decode()
+    if (tailOut) onOut(tailOut)
+    const tailErr = decErr.decode()
+    if (tailErr) onErr(tailErr)
     const timedOut = !!signal || code === 124
     finish({ exitCode: code ?? (timedOut ? 124 : 1), timedOut, cwd: session.dir, signal })
   })

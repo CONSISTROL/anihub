@@ -1,45 +1,35 @@
 <script setup>
-// 管理员控制台（Xshell 风格终端）：命令 + 输出都在同一滚动区内，
-// 回车后提示符移到下一行；Tab 补全命令名/路径；↑/↓ 历史；Ctrl+L 清空；
-// 实时流式输出（WebSocket），Ctrl+C 中断当前命令。
+// 管理员控制台：真正的终端模拟器（xterm.js），与 Xshell 一致——
+// htop/vim/top 等全屏程序正常显示，bash 原生 Tab 补全/提示符/方向键/历史，
+// 输入逐键转发（WebSocket），Ctrl+C 由终端发 \x03（等价真终端）。
+// 右侧保留服务器日志面板（3 秒刷新 + 关键词搜索高亮）。
 // 仅管理员可访问（路由 auth + 服务端 authRequired + WebSocket token 三重校验）。
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
-import { getConsoleLogs, completeCommand } from '../api/settings'
+import { Terminal } from 'xterm'
+import { FitAddon } from '@xterm/addon-fit'
+import { SearchAddon } from '@xterm/addon-search'
+import 'xterm/css/xterm.css'
+import { getConsoleLogs } from '../api/settings'
 
-const input = ref('')
-const running = ref(false)
-const lines = ref([]) // { type: 'cmd'|'out'|'err'|'info'|'log'|'warn'|'error', text }
-const termQuery = ref('') // 终端输出搜索关键词
-const shellPrompt = ref('') // 交互 shell 提示符结尾标记（# = root，$ = 普通用户），运行中作为输入前缀
+const TERM_CMD = /win/i.test(navigator.platform || '') ? 'cmd' : 'bash' // 终端会话的 shell（服务端包装 stty 尺寸）
 
-// 从交互 shell 输出中识别提示符结尾标记：bash 默认 PS1（root@host:/path#）以 #/$ 结尾。
-// 含路径/主机名特征（: @ / ~ 等）或极短（单独 "$"、"#"）才算，避免命令输出误判
-function matchShellPrompt(line) {
-  const t = line.replace(/\s+$/, '')
-  if (!t || t.length > 90) return null
-  const m = t.match(/[$#%❯➜]$/)
-  if (!m) return null
-  const looksPathy = /[:@/\\~]/.test(t) || t.length <= 4
-  if (!looksPathy) return null
-  return m[0]
-}
-
-// 终端输出搜索过滤（不区分大小写，匹配输出正文）
-const filteredLines = computed(() => {
-  const q = termQuery.value.trim().toLowerCase()
-  if (!q) return lines.value
-  return lines.value.filter((l) => l.text.toLowerCase().includes(q))
-})
-const history = ref([])
-const histIdx = ref(-1)
-const outEl = ref(null)
-const termInput = ref(null)
+const termEl = ref(null)
+const termRunning = ref(false) // 终端会话是否运行中
 const errMsg = ref('')
-const promptDir = ref('') // 当前工作目录（提示符显示）
 
 const logLines = ref([]) // 服务器日志
 const logErr = ref('')
 const logQuery = ref('') // 日志搜索关键词
+
+const findQuery = ref('') // 终端输出查找
+const findResult = ref('') // 查找结果位置（如 3/12）
+
+let term = null
+let fitAddon = null
+let searchAddon = null
+let ws = null
+let wsRetry = 0
+let logTimer = null
 
 // 日志搜索过滤（不区分大小写，匹配日志正文）
 const filteredLogs = computed(() => {
@@ -52,8 +42,9 @@ function escapeHtml(s) {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 }
 
-// 通用搜索高亮：先转义防 XSS，再把命中的片段包成 <mark>
-function highlight(text, q) {
+// 日志搜索高亮：先转义防 XSS，再把命中的片段包成 <mark>
+function highlightLog(text) {
+  const q = logQuery.value.trim()
   if (!q) return escapeHtml(text)
   const lower = text.toLowerCase()
   const ql = q.toLowerCase()
@@ -71,81 +62,56 @@ function highlight(text, q) {
   return out
 }
 
-function highlightLog(text) {
-  return highlight(text, logQuery.value.trim())
+function termWrite(text) {
+  term?.write(text)
 }
 
-function highlightTerm(text) {
-  return highlight(text, termQuery.value.trim())
-}
-let logTimer = null
-const platform = ref('') // 服务器平台（用于命令提示）
-
-let ws = null
-let wsRetry = 0
-let ptyHintShown = false // PTY 交互提示只显示一次
-
-const WELCOME = `AniHub 管理员控制台
-工作目录: ${location.origin} 对应的服务器项目根目录
-输入命令回车执行（支持 shell 语法），↑/↓ 历史，Tab 补全，Ctrl+C 中断，Ctrl+L 清空`
-
-// 输出行数上限（终端 scrollback 风格）：超出后丢弃最早的输出，最新内容始终可见
-const MAX_LINES = 2000
-
-function push(type, text) {
-  lines.value.push({ type, text: String(text) })
-  trimLines()
+function termWriteln(text) {
+  term?.writeln(text)
 }
 
-function trimLines() {
-  if (lines.value.length > MAX_LINES) {
-    lines.value = lines.value.slice(lines.value.length - MAX_LINES)
-  }
-}
-
-/* —— 输出：append 追加一行；replace 覆盖最后一行输出（进度条 \r 更新） —— */
-function pushOut(text, replace) {
-  if (replace) {
-    const arr = lines.value
-    let i = arr.length - 1
-    while (i >= 0 && arr[i].type !== 'out') i--
-    if (i >= 0) {
-      arr[i] = { type: 'out', text: String(text) }
-      lines.value = [...arr]
-    } else {
-      lines.value.push({ type: 'out', text: String(text) })
-    }
-  } else {
-    lines.value.push({ type: 'out', text: String(text) })
-    trimLines()
-  }
-}
-
-function run() {
-  const cmd = input.value.trim()
-  if (!cmd || running.value) return
-  history.value.push(cmd)
-  histIdx.value = -1
-  input.value = ''
-  shellPrompt.value = '' // 新命令重新开始，等 shell 打印新提示符再识别
-  push('cmd', cmd)
-  running.value = true
+/* —— 终端会话 —— */
+function startTerminal() {
+  if (!term || !ws || ws.readyState !== WebSocket.OPEN) return
+  termRunning.value = true
   errMsg.value = ''
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'run', cmd }))
-  } else {
-    push('err', '连接已断开，无法执行（正在重连…）')
-    running.value = false
-  }
-  scrollBottom()
+  term.clear()
+  ws.send(
+    JSON.stringify({ type: 'run', cmd: TERM_CMD, term: true, cols: term.cols, rows: term.rows })
+  )
 }
 
 function sendKill() {
-  if (!running.value) return
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'kill' }))
-  push('info', '⏹ 已发送中断请求 (Ctrl+C)')
+  termWriteln('\x1b[90m[已发送中断请求 (Ctrl+C)]\x1b[0m')
 }
 
+function clearTerm() {
+  term?.clear()
+}
+
+function restartTerm() {
+  if (ws && ws.readyState === WebSocket.OPEN) startTerminal()
+  else connectWs()
+}
+
+/* —— 终端内查找（xterm search addon）—— */
+function findNext() {
+  const q = findQuery.value
+  if (!q || !searchAddon) {
+    findResult.value = ''
+    return
+  }
+  searchAddon.findNext(q, { caseSensitive: false, incremental: true })
+}
+
+function findPrev() {
+  const q = findQuery.value
+  if (!q || !searchAddon) return
+  searchAddon.findPrevious(q, { caseSensitive: false })
+}
+
+/* —— WebSocket —— */
 function connectWs() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   const token = localStorage.getItem('anihub.token') || ''
@@ -158,34 +124,22 @@ function connectWs() {
       return
     }
     if (m.type === 'ready') {
-      promptDir.value = m.cwd || promptDir.value
-      if (m.pty && !ptyHintShown) {
-        ptyHintShown = true
-        push('info', '已启用交互模式：运行中的命令可直接输入内容（如 su 密码），回车发送，Ctrl+C 中断')
-      }
-    } else if (m.type === 'cwd') {
-      promptDir.value = m.cwd || promptDir.value
+      if (!termRunning.value) startTerminal()
     } else if (m.type === 'out') {
-      pushOut(m.text, m.replace)
-      if (!m.replace) {
-        const marker = matchShellPrompt(m.text)
-        if (marker) shellPrompt.value = marker
-      }
-      scrollBottom()
+      termWrite(m.text)
     } else if (m.type === 'err') {
-      push('err', m.text)
-      scrollBottom()
+      termWrite(m.text)
     } else if (m.type === 'exit') {
-      push('info', `[退出码 ${m.exitCode}${m.timedOut ? ' · 超时终止(10min)' : ''}]`)
-      running.value = false
-      scrollBottom()
-      focusInput()
+      termRunning.value = false
+      termWriteln(
+        `\x1b[90m[会话已结束 · 退出码 ${m.exitCode}${m.timedOut ? ' · 超时终止' : ''}]（可点右上角"重启会话"）\x1b[0m`
+      )
     }
   }
   ws.onclose = () => {
-    if (running.value) {
-      push('err', '连接已断开')
-      running.value = false
+    if (termRunning.value) {
+      termRunning.value = false
+      termWriteln('\x1b[31m连接已断开，正在重连…\x1b[0m')
     }
     wsRetry++
     setTimeout(connectWs, Math.min(5000, 500 * wsRetry))
@@ -195,109 +149,7 @@ function connectWs() {
   }
 }
 
-// Tab 补全：唯一候选直接补全；多个候选打印到输出区（类似 shell）。
-// 空闲与运行中（交互 shell）都能用——服务端基于会话目录 + PATH 补全
-async function onTab() {
-  const text = input.value
-  if (!text) return
-  try {
-    const r = await completeCommand(text)
-    if (r.candidates.length === 1) {
-      const lastSpace = text.lastIndexOf(' ')
-      input.value = (lastSpace < 0 ? '' : text.slice(0, lastSpace + 1)) + r.candidates[0]
-    } else if (r.candidates.length > 1) {
-      push('info', r.candidates.join('  '))
-      scrollBottom()
-    }
-  } catch {
-    /* 补全失败忽略 */
-  }
-}
-
-function onKeydown(e) {
-  if (e.ctrlKey && e.key === 'l') {
-    e.preventDefault()
-    lines.value = []
-    return
-  }
-  if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
-    // 终端习惯：Ctrl+C 清空当前输入行；运行中同时中断命令（复制请用 Ctrl+Shift+C 或右键菜单）
-    // stopPropagation：避免与窗口级 onWinKey 重复触发（一次按键发两次 kill）
-    e.preventDefault()
-    e.stopPropagation()
-    input.value = ''
-    histIdx.value = -1
-    if (running.value) sendKill()
-    return
-  }
-  if (running.value && e.ctrlKey && (e.key === 'd' || e.key === 'D')) {
-    // 交互 shell 里 Ctrl+D = EOF：空行退出 shell（等价输入 exit）
-    e.preventDefault()
-    e.stopPropagation()
-    input.value = ''
-    sendRaw('\x04')
-    return
-  }
-  if (e.key === 'Enter') {
-    e.preventDefault()
-    if (running.value) sendInput()
-    else run()
-    return
-  }
-  if (e.key === 'Tab') {
-    e.preventDefault()
-    onTab()
-    return
-  }
-  if (running.value) return // 运行中 ↑/↓ 历史不生效（输入是发给进程的）
-  if (e.key === 'ArrowUp') {
-    e.preventDefault()
-    if (!history.value.length) return
-    histIdx.value = histIdx.value < 0 ? history.value.length - 1 : Math.max(0, histIdx.value - 1)
-    input.value = history.value[histIdx.value]
-  } else if (e.key === 'ArrowDown') {
-    e.preventDefault()
-    if (histIdx.value < 0) return
-    histIdx.value++
-    input.value = histIdx.value >= history.value.length ? '' : history.value[histIdx.value]
-  }
-}
-
-// 运行中：把输入行发给运行中的进程（PTY 交互，如 su 密码、shell 命令）
-function sendInput() {
-  const text = input.value
-  input.value = ''
-  histIdx.value = -1
-  sendRaw(text + '\n')
-}
-
-// 直接发送原始字节（如 Ctrl+D 的 \x04 EOF）
-function sendRaw(data) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'input', data }))
-  }
-}
-
-function focusInput() {
-  nextTick(() => termInput.value?.focus())
-}
-
-// 窗口级兜底：仅当输入框未聚焦时捕获 Ctrl+C（聚焦时由 onKeydown 处理并 stopPropagation，避免重复发中断）
-function onWinKey(e) {
-  if (running.value && e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
-    e.preventDefault()
-    input.value = ''
-    histIdx.value = -1
-    sendKill()
-  }
-}
-
-function scrollBottom() {
-  nextTick(() => {
-    if (outEl.value) outEl.value.scrollTop = outEl.value.scrollHeight
-  })
-}
-
+/* —— 服务器日志 —— */
 async function refreshLogs() {
   try {
     logLines.value = (await getConsoleLogs()).lines || []
@@ -313,29 +165,76 @@ function fmtTime(ts) {
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
 }
 
+function fitTerm() {
+  nextTick(() => {
+    try {
+      fitAddon?.fit()
+    } catch {
+      /* 终端不可见时忽略 */
+    }
+  })
+}
+
 onMounted(async () => {
-  push('info', WELCOME)
-  connectWs() // WebSocket 实时流式输出
-  window.addEventListener('keydown', onWinKey)
-  // 获取服务器平台，提示对应命令风格（Windows 用 dir/type，Linux 用 ls/cat）
-  try {
-    const mon = await import('../api/settings').then((m) => m.getMonitor())
-    platform.value = mon?.platform || ''
-    const win = /win/i.test(platform.value)
-    push(
-      'info',
-      `服务器平台: ${platform.value} — 命令提示: ${win ? 'Windows 用 dir / type / cd（没有 ls / cat）' : 'Linux 用 ls / cat / pwd'}`
-    )
-  } catch {
-    /* 忽略平台获取失败 */
-  }
+  // 创建终端模拟器
+  term = new Terminal({
+    scrollback: 2000,
+    cursorBlink: true,
+    fontSize: 13,
+    fontFamily:
+      'ui-monospace, SFMono-Regular, Consolas, "Courier New", "Microsoft YaHei", "PingFang SC", "Noto Sans Mono CJK SC", monospace',
+    theme: {
+      background: '#0d1117',
+      foreground: '#c9d1d9',
+      cursor: '#3fb950',
+      cursorAccent: '#0d1117',
+      selectionBackground: '#2a3441',
+      black: '#0d1117',
+      red: '#ff7b72',
+      green: '#3fb950',
+      yellow: '#d29922',
+      blue: '#58a6ff',
+      magenta: '#bc8cff',
+      cyan: '#39c5cf',
+      white: '#c9d1d9',
+      brightBlack: '#6e7681',
+      brightRed: '#ffa198',
+      brightGreen: '#56d364',
+      brightYellow: '#e3b341',
+      brightBlue: '#79c0ff',
+      brightMagenta: '#d2a8ff',
+      brightCyan: '#56d4dd',
+      brightWhite: '#f0f6fc',
+    },
+  })
+  fitAddon = new FitAddon()
+  searchAddon = new SearchAddon()
+  term.loadAddon(fitAddon)
+  term.loadAddon(searchAddon)
+  term.open(termEl.value)
+  searchAddon.onDidChangeResults(({ resultIndex, resultCount }) => {
+    findResult.value = resultCount ? `${resultIndex + 1}/${resultCount}` : ''
+  })
+  // 输入逐键转发给服务器（bash 的编辑/补全/信号都在终端层完成）
+  term.onData((data) => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'input', data }))
+    }
+  })
+  termWriteln('\x1b[90mAniHub 管理员终端 — 正在连接…\x1b[0m')
+  fitTerm()
+  setTimeout(fitTerm, 300) // 布局稳定后再校正一次尺寸
+  window.addEventListener('resize', fitTerm)
+  connectWs()
   refreshLogs()
   logTimer = setInterval(refreshLogs, 3000)
 })
 onUnmounted(() => {
   clearInterval(logTimer)
-  window.removeEventListener('keydown', onWinKey)
-  ws?.close()
+  window.removeEventListener('resize', fitTerm)
+  ws?.close() // 服务端会在 WS 关闭时清理会话进程
+  term?.dispose()
+  term = null
 })
 </script>
 
@@ -344,61 +243,28 @@ onUnmounted(() => {
     <p v-if="errMsg" class="tool-error">{{ errMsg }}</p>
 
     <div class="console-grid">
-      <!-- 命令控制台 -->
+      <!-- 终端 -->
       <section class="term-panel">
         <div class="term-head">
-          <span>🖥️ 命令控制台</span>
+          <span>🖥️ 管理员终端</span>
           <span class="head-actions">
             <input
-              v-model="termQuery"
+              v-model="findQuery"
               class="log-search"
               type="text"
-              placeholder="搜索输出…"
+              placeholder="查找输出 (Enter 下一个 / Shift+Enter 上一个)"
               spellcheck="false"
+              @input="findNext"
+              @keydown.enter.prevent="findNext"
+              @keydown.shift.enter.prevent="findPrev"
             />
-            <button v-if="termQuery" class="btn btn-sm" @click="termQuery = ''">清除</button>
-            <button v-if="running" class="btn btn-sm btn-danger" @click="sendKill">
-              {{ shellPrompt ? '⏹ 中断 (Ctrl+C)' : '⏹ 停止 (Ctrl+C)' }}
-            </button>
-            <button class="btn btn-sm" @click="lines = []">清空输出</button>
+            <span v-if="findResult" class="find-result">{{ findResult }}</span>
+            <button v-if="termRunning" class="btn btn-sm btn-danger" @click="sendKill">⏹ 停止 (Ctrl+C)</button>
+            <button v-if="!termRunning" class="btn btn-sm" @click="restartTerm">重启会话</button>
+            <button class="btn btn-sm" @click="clearTerm">清空</button>
           </span>
         </div>
-        <p v-if="termQuery.trim()" class="log-match-info">匹配 {{ filteredLines.length }} 条</p>
-        <div ref="outEl" class="term-out" @click="focusInput">
-          <template v-for="(l, i) in filteredLines" :key="i">
-            <p class="term-line" :class="l.type">
-              <template v-if="l.type === 'cmd'"><span class="prompt">$</span> <span v-html="highlightTerm(l.text)"></span></template>
-              <template v-else><span v-html="highlightTerm(l.text)"></span></template>
-            </p>
-          </template>
-          <!-- 当前提示行：空闲时显示会话目录与 $；运行中显示识别出的 shell 提示符
-               标记（# = root，$ = 普通用户，等价真终端提示符），未识别出（如
-               su 密码提示期间）才显示低调的 > -->
-          <div class="prompt-line">
-            <template v-if="!running">
-              <span class="prompt-dir">{{ promptDir }}</span>
-              <span class="prompt">$</span>
-            </template>
-            <template v-else>
-              <span v-if="shellPrompt" class="prompt">{{ shellPrompt }}</span>
-              <span v-else class="prompt-run">&gt;</span>
-            </template>
-            <input
-              ref="termInput"
-              v-model="input"
-              class="term-input"
-              type="text"
-              :placeholder="
-                running
-                  ? '运行中：输入内容回车后发送给进程（如 su 密码 / root shell 命令），Ctrl+C 中断'
-                  : '输入命令（Tab 补全，Enter 执行，Ctrl+C 中断，↑/↓ 历史，Ctrl+L 清空）'
-              "
-              spellcheck="false"
-              autocomplete="off"
-              @keydown="onKeydown"
-            />
-          </div>
-        </div>
+        <div ref="termEl" class="term-shell" @click="term?.focus()"></div>
       </section>
 
       <!-- 服务器日志 -->
@@ -437,21 +303,12 @@ onUnmounted(() => {
   max-width: 100%;
   padding: 0;
   box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-}
-
-.tool-error {
-  color: #ff9d9d;
-  font-size: 13px;
-  margin: 0 0 6px;
 }
 
 .console-grid {
-  flex: 1;
-  min-height: 0;
+  height: 100%;
   display: grid;
-  grid-template-columns: 1.5fr 1fr;
+  grid-template-columns: minmax(0, 1fr) 420px; /* 左：终端；右：日志 */
   gap: 0;
 }
 
@@ -504,8 +361,17 @@ onUnmounted(() => {
   gap: 8px;
 }
 
+/* xterm 容器：占满剩余高度 */
+.term-shell {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 6px 0 6px 6px;
+  background: #0d1117;
+}
+
 .log-search {
-  width: 140px;
+  width: 160px;
   padding: 3px 8px;
   font-size: 12px;
   color: #c9d1d9;
@@ -517,6 +383,12 @@ onUnmounted(() => {
 
 .log-search:focus {
   border-color: #58a6ff;
+}
+
+.find-result {
+  font-size: 12px;
+  color: #8b949e;
+  flex-shrink: 0;
 }
 
 .log-match-info {
@@ -533,11 +405,6 @@ onUnmounted(() => {
   padding: 0 1px;
 }
 
-.btn-danger {
-  color: #f85149;
-  border-color: #6e2b2b;
-}
-
 .term-out {
   flex: 1;
   min-height: 0;
@@ -550,93 +417,33 @@ onUnmounted(() => {
   background: #0d1117;
 }
 
-.term-input-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  border-top: 1px solid #2a3441;
-  background: #161b22;
-  flex-shrink: 0;
-}
-
 .term-line {
   margin: 0;
   white-space: pre-wrap;
   word-break: break-all;
-}.term-line.cmd {
-  color: #58a6ff;
-  font-weight: 600;
 }
 
-.term-line.out {
-  color: #c9d1d9;
+.term-line.cmd {
+  color: #3fb950;
 }
 
-.term-line.err {
+.term-line.info,
+.term-line.log {
+  color: #8b949e;
+}
+
+.term-line.err,
+.term-line.error {
   color: #f85149;
 }
 
-.term-line.info {
-  color: #8b949e;
-}
-
-.prompt {
-  color: #3fb950;
-  font-weight: 700;
-  margin-right: 6px;
-  user-select: none;
-  flex-shrink: 0;
-}
-
-.prompt-dir {
-  color: #58a6ff;
-  font-weight: 600;
-  margin-right: 8px;
-  user-select: none;
-  flex-shrink: 0;
-  font-size: 12px;
-}
-
-/* 运行中（交互 shell）的输入前缀：低调的 >，提示符以 shell 自己输出的为准 */
-.prompt-run {
-  color: #8b949e;
-  font-weight: 700;
-  margin-right: 8px;
-  user-select: none;
-  flex-shrink: 0;
-}
-
-/* 当前输入行：跟随输出区底部，回车后自然下移（Xshell 风格） */
-.prompt-line {
-  display: flex;
-  align-items: center;
-  gap: 0;
-}
-
-.term-input {
-  flex: 1;
-  min-width: 0;
-  background: transparent;
-  border: none;
-  outline: none;
+.log-line {
   color: #c9d1d9;
-  caret-color: #3fb950;
-  font-family: ui-monospace, SFMono-Regular, Consolas, "Courier New", "Microsoft YaHei", "PingFang SC", monospace;
-  font-size: 12.5px;
-  line-height: 1.55;
-  padding: 0;
-}
-
-.term-input::placeholder {
-  color: #6e7681;
-  font-family: inherit;
 }
 
 .log-line .log-time {
-  color: #6e7681;
+  color: #8b949e;
   margin-right: 8px;
-  user-select: none;
 }
 
 .log-line.warn {
@@ -645,5 +452,11 @@ onUnmounted(() => {
 
 .log-line.error {
   color: #f85149;
+}
+
+.btn-danger {
+  background: #da3633;
+  border-color: #da3633;
+  color: #fff;
 }
 </style>

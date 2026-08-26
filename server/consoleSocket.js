@@ -1,10 +1,19 @@
-// 控制台 WebSocket：实时流式输出 + 交互输入 + 中断（Ctrl+C）。仅管理员（token 校验）。
-// 客户端消息: { type: 'run', cmd } | { type: 'input', data } | { type: 'kill' }
+// 控制台 WebSocket：原始字节流（终端模拟器渲染）+ 交互输入 + 中断（Ctrl+C）。仅管理员（token 校验）。
+// 客户端消息: { type: 'run', cmd, term?, cols?, rows? } | { type: 'input', data } | { type: 'kill' }
 // 服务端消息: ready/out/err/cwd/exit
 import { WebSocketServer } from 'ws'
 import jwt from 'jsonwebtoken'
 import { JWT_SECRET } from './config.js'
-import { session, startStream, killCurrent, writeInput, tryCd } from './consoleSession.js'
+import { session, startStream, killCurrent, writeInput } from './consoleSession.js'
+
+/** 终端会话启动命令：设置 PTY 尺寸后进入交互 shell（stty 静默、无回显污染） */
+function terminalCommand(cols, rows) {
+  const shell = process.platform === 'win32' ? 'cmd' : 'bash'
+  const c = Math.max(20, Math.min(500, Number(cols) || 80))
+  const r = Math.max(5, Math.min(200, Number(rows) || 24))
+  if (process.platform === 'win32') return shell
+  return `stty rows ${r} cols ${c}; exec ${shell}`
+}
 
 export function attachConsoleSocket(server) {
   const wss = new WebSocketServer({ noServer: true })
@@ -45,23 +54,18 @@ export function attachConsoleSocket(server) {
         return
       }
       if (msg.type === 'run' && typeof msg.cmd === 'string' && msg.cmd.trim()) {
-        const cmd = msg.cmd.trim()
-        console.log(`[console] admin 执行命令: ${cmd}`)
+        const isTerm = msg.term === true
+        const cmd = isTerm ? terminalCommand(msg.cols, msg.rows) : msg.cmd.trim()
+        console.log(`[console] admin ${isTerm ? '启动终端会话' : `执行命令: ${cmd}`}`)
         startStream(cmd, {
-          onOut: (text, replace) => ws.send(JSON.stringify({ type: 'out', text, replace })),
+          onOut: (text) => ws.send(JSON.stringify({ type: 'out', text })),
           onErr: (text) => ws.send(JSON.stringify({ type: 'err', text })),
           onCwd: (dir) => ws.send(JSON.stringify({ type: 'cwd', cwd: dir })),
           onExit: (r) => ws.send(JSON.stringify({ type: 'exit', ...r })),
+          noTimeout: isTerm, // 终端会话不设超时（交互 shell 挂机不被杀）
         })
       } else if (msg.type === 'input' && typeof msg.data === 'string') {
-        // 交互输入：转发给运行中的进程（PTY 下如 su 密码、shell 命令）
-        // 交互 shell 里的 cd 是 shell 内建命令，不经 tryCd——这里镜像跟踪，
-        // 让提示符目录与 shell 实际目录同步（绝对路径可靠；相对路径基于 session.dir）
-        const line = msg.data.replace(/\r?\n$/, '')
-        if (/^cd(?:\s|$)/.test(line)) {
-          const cd = tryCd(line)
-          if (cd && cd.ok) ws.send(JSON.stringify({ type: 'cwd', cwd: cd.dir }))
-        }
+        // 交互输入（终端模式为逐键字节）：转发给运行中的进程
         writeInput(msg.data)
       } else if (msg.type === 'kill') {
         if (killCurrent()) {
@@ -69,6 +73,8 @@ export function attachConsoleSocket(server) {
         }
       }
     })
+    // 终端断开（页面关闭/刷新）：清理会话进程，避免孤儿 shell
+    ws.on('close', () => killCurrent(true))
   })
 
   return wss
