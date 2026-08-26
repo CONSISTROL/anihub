@@ -9,6 +9,14 @@ import { getConsoleLogs, completeCommand } from '../api/settings'
 const input = ref('')
 const running = ref(false)
 const lines = ref([]) // { type: 'cmd'|'out'|'err'|'info'|'log'|'warn'|'error', text }
+const termQuery = ref('') // 终端输出搜索关键词
+
+// 终端输出搜索过滤（不区分大小写，匹配输出正文）
+const filteredLines = computed(() => {
+  const q = termQuery.value.trim().toLowerCase()
+  if (!q) return lines.value
+  return lines.value.filter((l) => l.text.toLowerCase().includes(q))
+})
 const history = ref([])
 const histIdx = ref(-1)
 const outEl = ref(null)
@@ -31,9 +39,8 @@ function escapeHtml(s) {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 }
 
-// 日志搜索高亮：先转义防 XSS，再把命中的片段包成 <mark>
-function highlightLog(text) {
-  const q = logQuery.value.trim()
+// 通用搜索高亮：先转义防 XSS，再把命中的片段包成 <mark>
+function highlight(text, q) {
   if (!q) return escapeHtml(text)
   const lower = text.toLowerCase()
   const ql = q.toLowerCase()
@@ -49,6 +56,14 @@ function highlightLog(text) {
     i = j + q.length
   }
   return out
+}
+
+function highlightLog(text) {
+  return highlight(text, logQuery.value.trim())
+}
+
+function highlightTerm(text) {
+  return highlight(text, termQuery.value.trim())
 }
 let logTimer = null
 const platform = ref('') // 服务器平台（用于命令提示）
@@ -301,15 +316,24 @@ onUnmounted(() => {
         <div class="term-head">
           <span>🖥️ 命令控制台</span>
           <span class="head-actions">
+            <input
+              v-model="termQuery"
+              class="log-search"
+              type="text"
+              placeholder="搜索输出…"
+              spellcheck="false"
+            />
+            <button v-if="termQuery" class="btn btn-sm" @click="termQuery = ''">清除</button>
             <button v-if="running" class="btn btn-sm btn-danger" @click="sendKill">⏹ 停止 (Ctrl+C)</button>
             <button class="btn btn-sm" @click="lines = []">清空输出</button>
           </span>
         </div>
+        <p v-if="termQuery.trim()" class="log-match-info">匹配 {{ filteredLines.length }} 条</p>
         <div ref="outEl" class="term-out" @click="focusInput">
-          <template v-for="(l, i) in lines" :key="i">
+          <template v-for="(l, i) in filteredLines" :key="i">
             <p class="term-line" :class="l.type">
-              <template v-if="l.type === 'cmd'"><span class="prompt">$</span> {{ l.text }}</template>
-              <template v-else>{{ l.text }}</template>
+              <template v-if="l.type === 'cmd'"><span class="prompt">$</span> <span v-html="highlightTerm(l.text)"></span></template>
+              <template v-else><span v-html="highlightTerm(l.text)"></span></template>
             </p>
           </template>
           <!-- 当前提示行：回车后随输出下移，光标留在下一行（Xshell 风格）；
