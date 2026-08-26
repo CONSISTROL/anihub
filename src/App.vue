@@ -85,8 +85,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     <NavBar />
     <router-view />
     <LoginModal v-if="showLogin" @close="showLogin = false" />
-    <!-- 登录管理员 / 内部人员模式：全站页面显示壁纸背景（与 Anime 页共用同一套壁纸逻辑） -->
-    <InsiderBackground v-if="isInsider || isLoggedIn" />
+    <!-- 全站壁纸背景（组件内部按身份自检：管理员恒可见，游客/内部人员按设置开关） -->
+    <InsiderBackground v-if="!isGame" />
     <!-- 一键回到顶部 -->
     <BackToTop v-if="!isGame" />
     <!-- 桌宠（可见性由设置页 pet 权限控制，默认仅登录可见） -->
