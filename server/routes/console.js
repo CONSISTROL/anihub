@@ -84,7 +84,7 @@ router.post('/exec', authRequired, (req, res) => {
   }
   console.log(`[console] admin 执行命令: ${cmd}`)
   // cd 命令：更新会话工作目录，不启动子进程
-  const cd = tryCd(cmd)
+  const cd = tryCd(session, cmd)
   if (cd) {
     console.log(`[console] 工作目录 -> ${cd.dir}`)
     return res.json({
