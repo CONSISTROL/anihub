@@ -54,6 +54,7 @@ const WELCOME = 'Ciallo ～(∠・ω< )⌒★!'
       </span>
       <template v-if="isLoggedIn">
         <span class="username">{{ WELCOME }}</span>
+        <router-link to="/console" class="btn btn-sm">控制台</router-link>
         <router-link to="/settings" class="btn btn-sm">设置</router-link>
         <button class="btn btn-sm" @click="clearSession">退出</button>
       </template>

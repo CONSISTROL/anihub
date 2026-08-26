@@ -38,6 +38,7 @@ const router = createRouter({
     { path: '/wiki/:slug/edit', name: 'wiki-edit', component: EditView, props: { category: 'wiki' }, meta: { auth: true } },
     { path: '/login', name: 'login', component: LoginView },
     { path: '/settings', name: 'settings', component: SettingsView, meta: { auth: true } },
+    { path: '/console', name: 'console', component: () => import('../views/ConsoleView.vue'), meta: { auth: true } },
     { path: '/tools', name: 'tools', component: ToolsView },
     { path: '/tools/json', name: 'tools-json', component: JsonToolView },
     { path: '/tools/qr', name: 'tools-qr', component: QrToolView },

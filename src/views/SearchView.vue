@@ -3,6 +3,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { listPosts } from '../api/posts'
+import { CACHE_PREFIX } from '../api/anilist'
 import { useAuth } from '../composables/useAuth'
 import { useSettings } from '../composables/useSettings'
 import { ZH_TITLES } from '../data/zhTitles'
@@ -11,7 +12,7 @@ const route = useRoute()
 const router = useRouter()
 const { isLoggedIn, isInsider } = useAuth()
 const settings = useSettings()
-if (!isLoggedIn.value) settings.load()
+settings.load() // 需要 showAdult（成人内容身份开关）与页面可见性
 
 const q = ref(route.query.q || '')
 const loading = ref(false)
@@ -21,7 +22,6 @@ const anime = ref([])
 const error = ref('')
 
 const SEASON_ZH = { WINTER: '冬', SPRING: '春', SUMMER: '夏', FALL: '秋' }
-const CACHE_PREFIX = 'anime-calendar:v2:'
 
 function canSee(page) {
   return isLoggedIn.value || settings.canAccess(page, isInsider.value)
@@ -44,6 +44,7 @@ watch(
 )
 
 async function runSearch(kw) {
+  await settings.load() // 确保成人内容身份开关等设置已加载（URL 直访时与搜索存在竞态）
   loading.value = true
   done.value = false
   error.value = ''
@@ -71,7 +72,7 @@ function searchAnime(kw) {
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i)
       if (!key || !key.startsWith(CACHE_PREFIX)) continue
-      const m = /^anime-calendar:v2:(\d{4})-(\w+)$/.exec(key)
+      const m = /^anime-calendar:v3:(\d{4})-(\w+)$/.exec(key)
       if (!m) continue
       const year = m[1]
       const seasonEn = m[2]
@@ -83,6 +84,7 @@ function searchAnime(kw) {
       }
       if (!data || !Array.isArray(data.media)) continue
       for (const media of data.media) {
+        if (media.isAdult && !settings.canSeeAdult(isLoggedIn.value, isInsider.value)) continue // 成人内容按身份隐藏
         const t = media.title || {}
         const zh = ZH_TITLES[media.id]
         const haystack = [t.romaji, t.native, t.english, zh].filter(Boolean).join(' ').toLowerCase()
@@ -172,7 +174,7 @@ function fmtDate(s) {
 
 <style scoped>
 .search-page {
-  max-width: min(1100px, 95vw); /* 高分辨率适配 */
+  max-width: min(960px, 95vw); /* 高分辨率适配 */
   margin: 0 auto;
   padding: 24px 20px 60px;
 }

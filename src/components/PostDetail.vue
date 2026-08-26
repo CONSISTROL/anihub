@@ -383,14 +383,14 @@ onMounted(() => window.addEventListener('message', onMessage))
 
 <style scoped>
 .post-detail {
-  max-width: min(880px, 95vw); /* 博客正文适度加宽；Wiki 由 detail-wide 控制 */
+  max-width: min(1160px, 95vw); /* 博客正文适度加宽；Wiki 由 detail-wide 控制 */
   margin: 0 auto;
   padding: 24px 20px 60px;
 }
 
 /* Wiki：高分辨率下更宽正文（右侧抽屉悬浮，不占正文列宽） */
 .detail-wide {
-  max-width: min(1280px, 95vw);
+  max-width: min(1320px, 95vw);
 }
 
 /* 完整 HTML 文档 Wiki：全宽直铺，无卡片外壳，仅保留顶部导航 */

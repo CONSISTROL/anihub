@@ -2,12 +2,25 @@
 // Anime 页背景：壁纸逻辑已抽到 useWallpaper 管理器（Anime 页与内部人员模式全局背景共用）。
 // 壁纸通过 --wallpaper-url 应用到 <body> 背景；本组件仅在全部壁纸加载失败时
 // 用档期数据的横幅图回退（依赖 mediaMap）。
-import { computed, onUnmounted } from 'vue'
+// 壁纸是否显示按身份控制（设置 → 网站壁纸：游客/内部人员开关，管理员恒可见）。
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { acquireWallpaper } from '../composables/useWallpaper'
+import { useAuth } from '../composables/useAuth'
+import { useSettings } from '../composables/useSettings'
 
 const props = defineProps({ mediaMap: { type: Map, required: true } })
-const { allFailed, release } = acquireWallpaper()
-onUnmounted(() => release())
+const auth = useAuth()
+const settings = useSettings()
+const holder = ref(null)
+
+onMounted(async () => {
+  await settings.load() // 确保身份相关设置已加载
+  const allowed = settings.canSeeWallpaper(auth.isLoggedIn.value, auth.isInsider.value)
+  if (allowed) holder.value = acquireWallpaper()
+})
+onUnmounted(() => holder.value?.release())
+
+const allFailed = computed(() => holder.value?.allFailed.value ?? false)
 
 // 封面 URL 里 AniList 可能只给 medium/large 桶，这里强制换成 extra_large 原图桶
 function hdCover(m) {

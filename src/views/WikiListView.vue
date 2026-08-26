@@ -13,7 +13,7 @@ import PostList from '../components/PostList.vue'
 <style scoped>
 .page {
   /* 高分辨率适配：随视口变宽，上限 1280px */
-  max-width: min(1280px, 95vw);
+  max-width: min(1320px, 95vw);
   margin: 0 auto;
   padding: 24px 20px 60px;
 }

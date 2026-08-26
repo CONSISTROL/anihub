@@ -83,7 +83,7 @@ const visibleSections = computed(() =>
 
 <style scoped>
 .home {
-  max-width: min(1280px, 95vw); /* 高分辨率适配 */
+  max-width: min(1320px, 95vw); /* 高分辨率适配 */
   margin: 0 auto;
   padding: 40px 20px 60px;
 }

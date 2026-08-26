@@ -1,6 +1,8 @@
 import { ref, computed } from 'vue'
 import { loadSeasonData } from '../api/anilist'
 import { seasonOf, shiftSeason, seasonWindow, seasonMonths, isCurrentSeason } from '../utils/date'
+import { useSettings } from './useSettings'
+import { useAuth } from './useAuth'
 
 /** 档期状态管理：当前档期数据加载、档期/月份切换 */
 export function useSeason() {
@@ -8,10 +10,27 @@ export function useSeason() {
   const year = ref(current.year)
   const season = ref(current.season)
   const month = ref({ y: current.year, m: new Date().getMonth() }) // 日历显示的月份
-  const mediaMap = ref(new Map()) // id → 动漫详情
-  const schedules = ref([]) // [{ airingAt, episode, mediaId }] 按时间升序
+  const rawMap = ref(new Map()) // id → 动漫详情（原始，含成人内容）
+  const rawSchedules = ref([]) // [{ airingAt, episode, mediaId }] 按时间升序
   const loading = ref(false)
   const error = ref('')
+
+  // 成人内容是否显示：按身份（设置 → Anime 内容，管理员恒可见）
+  const settings = useSettings()
+  const auth = useAuth()
+  settings.load()
+
+  // 对外暴露的媒体表与排期：按身份过滤成人内容
+  const mediaMap = computed(() => {
+    if (settings.canSeeAdult(auth.isLoggedIn.value, auth.isInsider.value)) return rawMap.value
+    const out = new Map()
+    for (const [id, m] of rawMap.value) if (!m.isAdult) out.set(id, m)
+    return out
+  })
+  const schedules = computed(() => {
+    const visible = mediaMap.value
+    return rawSchedules.value.filter((s) => visible.has(s.mediaId))
+  })
 
   async function load() {
     loading.value = true
@@ -20,8 +39,8 @@ export function useSeason() {
       const q = { year: year.value, season: season.value }
       // 有缓存时直接返回，避免重复请求 AniList（缓存 12 小时）
       const { mediaMap: map, schedules: sched } = await loadSeasonData(q, seasonWindow(q))
-      mediaMap.value = map
-      schedules.value = sched
+      rawMap.value = map
+      rawSchedules.value = sched
       // 默认月份：当前档期显示当月，其他档期显示档期的第一个月
       month.value = isCurrentSeason(q)
         ? { y: new Date().getFullYear(), m: new Date().getMonth() }

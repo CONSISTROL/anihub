@@ -423,7 +423,7 @@ onUnmounted(() => {
 
 <style scoped>
 .tool-page {
-  max-width: min(1100px, 95vw);
+  max-width: min(1160px, 95vw);
   margin: 0 auto;
   padding: 24px 20px 60px;
 }

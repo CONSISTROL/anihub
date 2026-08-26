@@ -8,16 +8,31 @@ import postsRouter from './routes/posts.js'
 import settingsRouter from './routes/settings.js'
 import uploadRouter from './routes/upload.js'
 import wallpapersRouter from './routes/wallpapers.js'
+import monitorRouter, { serverStats } from './routes/monitor.js'
+import consoleRouter from './routes/console.js'
+import { startMonitor } from './monitorCollector.js'
+import { captureConsole } from './logger.js'
 import { WALLPAPER_DIR } from './config.js'
+
+// 捕获服务端 console 输出（管理员控制台实时日志）
+captureConsole()
 
 const app = express()
 app.use(express.json({ limit: '2mb' }))
+
+// 请求计数（服务器监控用）
+app.use((req, res, next) => {
+  serverStats.requests++
+  next()
+})
 
 app.use('/api/auth', authRouter)
 app.use('/api/posts', postsRouter)
 app.use('/api/settings', settingsRouter)
 app.use('/api/upload', uploadRouter)
 app.use('/api/wallpapers', wallpapersRouter)
+app.use('/api/monitor', monitorRouter)
+app.use('/api/console', consoleRouter)
 
 // 上传的图片静态托管（dev 模式由 vite 代理 /uploads 到本服务）
 const uploads = path.join(import.meta.dirname, 'uploads')
@@ -52,4 +67,5 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, () => {
   console.log(`AniHub server listening on http://localhost:${PORT}`)
+  startMonitor() // 服务器指标采集（每 5 秒采样 CPU/内存/网络/磁盘）
 })

@@ -4,9 +4,15 @@
 // 怪物 / 地图资源 / 道具先用 Canvas 矢量图形渲染。
 import { onMounted, onUnmounted, ref } from 'vue'
 import { MowGame } from '../game/engine'
+import { acquireWallpaper } from '../composables/useWallpaper'
+import { useAuth } from '../composables/useAuth'
+import { useSettings } from '../composables/useSettings'
 
 const canvas = ref(null)
 const game = ref(null)
+const auth = useAuth()
+const settings = useSettings()
+const wallpaperHolder = ref(null) // 开始/暂停等界面背景显示壁纸（按身份控制）
 
 const screen = ref('start') // start | playing | levelup | paused | dead
 const choices = ref([])
@@ -58,12 +64,18 @@ function quitGame() {
   screen.value = 'start'
 }
 
-onMounted(() => {
+onMounted(async () => {
+  // 开始/暂停等界面背景显示壁纸（与 Anime 页共用壁纸管理器，按身份控制，管理员恒可见）
+  await settings.load()
+  if (settings.canSeeWallpaper(auth.isLoggedIn.value, auth.isInsider.value)) {
+    wallpaperHolder.value = acquireWallpaper()
+  }
   game.value = new MowGame(canvas.value, { onLevelUp, onGameOver, onPause, spawnRate: spawnRate.value })
   if (import.meta.env.DEV) window.__game = game.value
 })
 
 onUnmounted(() => {
+  wallpaperHolder.value?.release()
   game.value?.destroy()
 })
 </script>
@@ -166,7 +178,8 @@ onUnmounted(() => {
   position: relative;
   height: calc(100vh - 48px); /* 导航栏下方全屏 */
   overflow: hidden;
-  background: #0b1020;
+  /* 背景透明：开始/暂停等界面露出站点壁纸；游戏运行时 canvas 由引擎自行清屏绘制 */
+  background: transparent;
 }
 
 .game-canvas {
@@ -181,8 +194,8 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgb(2 6 23 / 0.65);
-  backdrop-filter: blur(3px);
+  background: rgb(2 6 23 / 0.4);
+  backdrop-filter: blur(4px);
   z-index: 10;
 }
 

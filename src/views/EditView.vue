@@ -384,7 +384,7 @@ async function onSubmit() {
 
 <style scoped>
 .edit-page {
-  max-width: min(1100px, 95vw); /* 高分辨率适配 */
+  max-width: min(1160px, 95vw); /* 高分辨率适配 */
   margin: 0 auto;
   padding: 24px 20px 60px;
 }
