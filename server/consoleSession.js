@@ -14,7 +14,6 @@ export const session = {
   dir: PROJECT_ROOT, // 会话工作目录
   proc: null, // 当前运行的子进程
   pty: false, // 当前进程是否运行在伪终端（script）上
-  killTimer: null, // PTY 软中断后的硬杀兜底定时器
   resetTimer: null, // startStream 内部超时定时器的重置函数（供 writeInput 调用）
 }
 
@@ -81,41 +80,70 @@ export function writeInput(data) {
   }
 }
 
+// 软中断（\x03）计数：连续 3 次内只发 SIGINT（真终端行为，停在提示符的 shell 不会被杀），
+// 3 次内仍不退出则转硬杀
+let softKillCount = 0
+let softKillTimer = null
+
+function resetSoftKill() {
+  if (softKillTimer) clearTimeout(softKillTimer)
+  softKillTimer = null
+  softKillCount = 0
+}
+
+/** 杀进程树：先杀 pid 所在进程组，再读 /proc/<pid>/task/<pid>/children
+ *  杀其直接子进程组——script 的子 shell（setsid 后是独立会话/进程组首领）
+ *  包含 su/root shell 全家，只杀 script 自己会导致它们残留 */
+function killGroupTree(pid, sig) {
+  let kids = []
+  try {
+    kids = fs
+      .readFileSync(`/proc/${pid}/task/${pid}/children`, 'utf8')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map(Number)
+  } catch {}
+  try {
+    process.kill(-pid, sig)
+  } catch {}
+  for (const k of kids) {
+    if (k && k !== pid) {
+      try {
+        process.kill(-k, sig)
+      } catch {}
+    }
+  }
+}
+
 /**
  * 中断当前命令。
- * PTY 模式：先向伪终端写 \x03（终端驱动发 SIGINT，等价真实终端的 Ctrl+C），
- *   5 秒内进程没退出则硬杀兜底；第二次调用立即硬杀。
+ * PTY 模式：向伪终端写 \x03（终端驱动发 SIGINT，等价真实终端 Ctrl+C）。
+ *   停在提示符的 shell 收到后只是换行出新提示符，不会被杀（真终端行为）；
+ *   连续 3 次 \x03 仍不退出（进程忽略 SIGINT）则硬杀兜底。
  * 非 PTY 模式（Windows / 无 script）：直接硬杀（Windows taskkill /T 杀进程树；Linux 杀进程组）。
  */
 export function killCurrent(hard = false) {
   const p = session.proc
   if (!p || !p.pid) return false
   if (session.pty && !hard) {
-    if (session.killTimer) {
-      // 第二次 Ctrl+C：立即硬杀
-      clearTimeout(session.killTimer)
-      session.killTimer = null
-      return killCurrent(true)
-    }
+    softKillCount++
+    if (softKillTimer) clearTimeout(softKillTimer)
+    softKillTimer = setTimeout(resetSoftKill, 8000)
     try {
       p.stdin?.write('\x03')
     } catch {}
-    session.killTimer = setTimeout(() => {
-      session.killTimer = null
-      killCurrent(true)
-    }, 5000)
-    session.killTimer.unref?.()
+    if (softKillCount >= 3) {
+      resetSoftKill()
+      return killCurrent(true)
+    }
     return true
   }
   try {
     if (process.platform === 'win32') {
       spawn('taskkill', ['/F', '/T', '/PID', String(p.pid)], { windowsHide: true, stdio: 'ignore' })
     } else {
-      try {
-        process.kill(-p.pid, hard ? 'SIGKILL' : 'SIGTERM')
-      } catch {
-        p.kill(hard ? 'SIGKILL' : 'SIGTERM')
-      }
+      killGroupTree(p.pid, hard ? 'SIGKILL' : 'SIGTERM')
     }
   } catch {}
   return true
@@ -137,12 +165,16 @@ export function startStream(cmd, { onOut, onErr, onCwd, onExit }) {
 
   // Linux 且存在 script（util-linux，Ubuntu 自带）：走伪终端，支持交互输入（su 密码等）
   const usePty = process.platform !== 'win32' && fs.existsSync('/usr/bin/script')
+  // 子进程环境：不继承 NODE_ENV=production——否则 npm ci 会跳过 devDependencies（vite 等），
+  // 控制台里跑构建/更新会报 vite: not found
+  const childEnv = { ...process.env }
+  delete childEnv.NODE_ENV
   let child
   if (usePty) {
     child = spawn('script', ['-qefc', cmd, '/dev/null'], {
       cwd: session.dir,
       env: {
-        ...process.env,
+        ...childEnv,
         TERM: 'xterm-256color',
         PYTHONIOENCODING: 'utf-8',
         PYTHONUTF8: '1',
@@ -155,7 +187,7 @@ export function startStream(cmd, { onOut, onErr, onCwd, onExit }) {
     child = spawn(cmd, {
       cwd: session.dir,
       env: {
-        ...process.env,
+        ...childEnv,
         PYTHONIOENCODING: 'utf-8',
         PYTHONUTF8: '1',
         PYTHONUNBUFFERED: '1',
@@ -174,13 +206,14 @@ export function startStream(cmd, { onOut, onErr, onCwd, onExit }) {
     if (finished) return
     finished = true
     clearTimeout(timer)
-    if (session.killTimer) {
-      clearTimeout(session.killTimer)
-      session.killTimer = null
+    resetSoftKill()
+    // 只清理自己拥有的进程：旧命令被新命令顶替时（kill 是异步的），
+    // 旧 finish 可能晚于新进程启动——不能把新进程的 session.proc 清掉
+    if (session.proc === child) {
+      session.proc = null
+      session.pty = false
+      session.resetTimer = null
     }
-    session.proc = null
-    session.pty = false
-    session.resetTimer = null
     if (onExit) onExit(r)
   }
   const onTimeout = () => {

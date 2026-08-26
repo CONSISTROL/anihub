@@ -177,10 +177,11 @@ function connectWs() {
   }
 }
 
-// Tab 补全：唯一候选直接补全；多个候选打印到输出区（类似 shell）
+// Tab 补全：唯一候选直接补全；多个候选打印到输出区（类似 shell）。
+// 空闲与运行中（交互 shell）都能用——服务端基于会话目录 + PATH 补全
 async function onTab() {
   const text = input.value
-  if (!text || running.value) return
+  if (!text) return
   try {
     const r = await completeCommand(text)
     if (r.candidates.length === 1) {
@@ -203,10 +204,20 @@ function onKeydown(e) {
   }
   if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
     // 终端习惯：Ctrl+C 清空当前输入行；运行中同时中断命令（复制请用 Ctrl+Shift+C 或右键菜单）
+    // stopPropagation：避免与窗口级 onWinKey 重复触发（一次按键发两次 kill）
     e.preventDefault()
+    e.stopPropagation()
     input.value = ''
     histIdx.value = -1
     if (running.value) sendKill()
+    return
+  }
+  if (running.value && e.ctrlKey && (e.key === 'd' || e.key === 'D')) {
+    // 交互 shell 里 Ctrl+D = EOF：空行退出 shell（等价输入 exit）
+    e.preventDefault()
+    e.stopPropagation()
+    input.value = ''
+    sendRaw('\x04')
     return
   }
   if (e.key === 'Enter') {
@@ -239,8 +250,13 @@ function sendInput() {
   const text = input.value
   input.value = ''
   histIdx.value = -1
+  sendRaw(text + '\n')
+}
+
+// 直接发送原始字节（如 Ctrl+D 的 \x04 EOF）
+function sendRaw(data) {
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'input', data: text + '\n' }))
+    ws.send(JSON.stringify({ type: 'input', data }))
   }
 }
 
@@ -248,8 +264,7 @@ function focusInput() {
   nextTick(() => termInput.value?.focus())
 }
 
-// 运行中提示行保持可见：输入内容回车后发给运行中的进程（su 密码等交互）。
-// Ctrl+C 需在窗口级捕获（运行中发中断；PTY 下等价终端 Ctrl+C）
+// 窗口级兜底：仅当输入框未聚焦时捕获 Ctrl+C（聚焦时由 onKeydown 处理并 stopPropagation，避免重复发中断）
 function onWinKey(e) {
   if (running.value && e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
     e.preventDefault()
