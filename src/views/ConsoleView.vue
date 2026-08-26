@@ -79,6 +79,8 @@ function startTerminal() {
   ws.send(
     JSON.stringify({ type: 'run', cmd: TERM_CMD, term: true, cols: term.cols, rows: term.rows })
   )
+  // 会话启动后确保键盘焦点在终端（xterm 依赖其隐藏 textarea 捕获按键）
+  nextTick(() => term?.focus())
 }
 
 function sendKill() {
@@ -224,6 +226,9 @@ onMounted(async () => {
   termWriteln('\x1b[90mAniHub 管理员终端 — 正在连接…\x1b[0m')
   fitTerm()
   setTimeout(fitTerm, 300) // 布局稳定后再校正一次尺寸
+  // 挂载后主动聚焦终端（mousedown/延迟各兜底一次），否则键入无效
+  nextTick(() => term?.focus())
+  setTimeout(() => term?.focus(), 400)
   window.addEventListener('resize', fitTerm)
   connectWs()
   refreshLogs()
@@ -264,7 +269,7 @@ onUnmounted(() => {
             <button class="btn btn-sm" @click="clearTerm">清空</button>
           </span>
         </div>
-        <div ref="termEl" class="term-shell" @click="term?.focus()"></div>
+        <div ref="termEl" class="term-shell" @mousedown="term?.focus()"></div>
       </section>
 
       <!-- 服务器日志 -->
