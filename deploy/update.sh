@@ -24,9 +24,6 @@ echo "==> 安装依赖并构建前端"
 npm ci
 npm run build
 
-echo "==> 重启服务"
-systemctl restart anihub
-
 echo "==> 同步 Nginx 反代配置（WebSocket 转发等）"
 if [[ -f /etc/nginx/sites-available/anihub ]]; then
   DOMAIN="$(sed -n 's/^[[:space:]]*server_name[[:space:]]*\([^;]*\);.*/\1/p' /etc/nginx/sites-available/anihub | head -1 | xargs)"
@@ -55,3 +52,9 @@ if [[ $EUID -eq 0 ]]; then
   chown -R "$APP_USER":"$APP_USER" "$APP_DIR"
   echo "==> 已把 $APP_DIR 所有权归还给 $APP_USER"
 fi
+
+# 重启必须放最后：本脚本是 anihub 服务的子进程（控制台里跑的），
+# systemctl restart 会终止整个服务（含本脚本进程树），后面的步骤将不会执行。
+echo "==> 重启服务（会断开控制台连接，属正常现象，稍后自动重连）"
+systemctl restart anihub
+echo "==> 服务已重启"
