@@ -4,7 +4,7 @@
 import { WebSocketServer } from 'ws'
 import jwt from 'jsonwebtoken'
 import { JWT_SECRET } from './config.js'
-import { session, startStream, killCurrent, writeInput } from './consoleSession.js'
+import { session, startStream, killCurrent, writeInput, tryCd } from './consoleSession.js'
 
 export function attachConsoleSocket(server) {
   const wss = new WebSocketServer({ noServer: true })
@@ -55,6 +55,13 @@ export function attachConsoleSocket(server) {
         })
       } else if (msg.type === 'input' && typeof msg.data === 'string') {
         // 交互输入：转发给运行中的进程（PTY 下如 su 密码、shell 命令）
+        // 交互 shell 里的 cd 是 shell 内建命令，不经 tryCd——这里镜像跟踪，
+        // 让提示符目录与 shell 实际目录同步（绝对路径可靠；相对路径基于 session.dir）
+        const line = msg.data.replace(/\r?\n$/, '')
+        if (/^cd(?:\s|$)/.test(line)) {
+          const cd = tryCd(line)
+          if (cd && cd.ok) ws.send(JSON.stringify({ type: 'cwd', cwd: cd.dir }))
+        }
         writeInput(msg.data)
       } else if (msg.type === 'kill') {
         if (killCurrent()) {
