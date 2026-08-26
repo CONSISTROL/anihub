@@ -336,11 +336,15 @@ onUnmounted(() => {
               <template v-else><span v-html="highlightTerm(l.text)"></span></template>
             </p>
           </template>
-          <!-- 当前提示行：回车后随输出下移，光标留在下一行（Xshell 风格）；
-               运行中也保持可见——输入内容回车后发送给运行中的进程（如 su 密码） -->
+          <!-- 当前提示行：空闲时显示会话目录与 $ 提示；运行中隐藏假提示——
+               shell 自己的提示符已随输出显示（如 root@host:/opt/anihub#），
+               只保留输入框发送内容，避免误导以为还在原会话 -->
           <div class="prompt-line">
-            <span class="prompt-dir">{{ promptDir }}</span>
-            <span class="prompt">$</span>
+            <template v-if="!running">
+              <span class="prompt-dir">{{ promptDir }}</span>
+              <span class="prompt">$</span>
+            </template>
+            <span v-else class="prompt-run">&gt;</span>
             <input
               ref="termInput"
               v-model="input"
@@ -348,7 +352,7 @@ onUnmounted(() => {
               type="text"
               :placeholder="
                 running
-                  ? '运行中：输入内容回车后发送给进程（如 su 密码），Ctrl+C 中断'
+                  ? '运行中：输入内容回车后发送给进程（如 su 密码 / root shell 命令），Ctrl+C 中断'
                   : '输入命令（Tab 补全，Enter 执行，Ctrl+C 中断，↑/↓ 历史，Ctrl+L 清空）'
               "
               spellcheck="false"
@@ -554,6 +558,15 @@ onUnmounted(() => {
   user-select: none;
   flex-shrink: 0;
   font-size: 12px;
+}
+
+/* 运行中（交互 shell）的输入前缀：低调的 >，提示符以 shell 自己输出的为准 */
+.prompt-run {
+  color: #8b949e;
+  font-weight: 700;
+  margin-right: 8px;
+  user-select: none;
+  flex-shrink: 0;
 }
 
 /* 当前输入行：跟随输出区底部，回车后自然下移（Xshell 风格） */
