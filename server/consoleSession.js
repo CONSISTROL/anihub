@@ -51,6 +51,11 @@ export function decodeLine(buf) {
 export function writeInput(data) {
   const p = session.proc
   if (!p || !p.stdin || !p.stdin.writable) return false
+  // Windows 无 PTY（cmd 走管道）：cmd 的行终止符是 \n（单独的 \r 不触发执行），
+  // 而终端模拟器的回车键发 \r——翻译成 \n
+  if (process.platform === 'win32' && !session.pty) {
+    data = String(data).replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+  }
   try {
     p.stdin.write(data)
     session.resetTimer?.()
@@ -127,6 +132,40 @@ export function killCurrent(hard = false) {
     }
   } catch {}
   return true
+}
+
+/** 原始流解码器：按 \n 切分（\n 不在多字节字符内，切分安全），每段独立解码
+ *  （UTF-8 优先，出现替换符按 GBK 兜底——兼容 Windows cmd 的 GBK 输出），
+ *  拼回原样保留 \r 与 ANSI 序列交给终端模拟器解析；无换行的残留（如提示符）
+ *  150ms 空闲冲刷（xterm 光标会把它和后续回显拼在同一行） */
+function makeRawDecoder(emit) {
+  let buf = Buffer.alloc(0)
+  let flusher = null
+  const flushNow = () => {
+    if (flusher) {
+      clearTimeout(flusher)
+      flusher = null
+    }
+    if (buf.length) {
+      emit(decodeLine(buf))
+      buf = Buffer.alloc(0)
+    }
+  }
+  const push = (chunk) => {
+    buf = Buffer.concat([buf, chunk])
+    for (;;) {
+      const i = buf.indexOf(0x0a)
+      if (i < 0) break
+      emit(decodeLine(buf.slice(0, i)) + '\n')
+      buf = buf.slice(i + 1)
+    }
+    if (buf.length) {
+      if (flusher) clearTimeout(flusher)
+      flusher = setTimeout(flushNow, 150)
+      flusher.unref?.()
+    }
+  }
+  return { push, flush: flushNow }
 }
 
 /**
@@ -217,27 +256,23 @@ export function startStream(cmd, { onOut, onErr, onCwd, onExit, noTimeout = fals
     session.resetTimer = null
   }
 
-  // 原始字节流：UTF-8 流式解码（跨块多字节字符安全），ANSI 原样交给终端模拟器
-  const decOut = new TextDecoder('utf-8', { stream: true })
-  const decErr = new TextDecoder('utf-8', { stream: true })
+  // 原始字节流：按行解码（UTF-8 优先、GBK 兜底），ANSI 原样交给终端模拟器
+  const decOut = makeRawDecoder(onOut)
+  const decErr = makeRawDecoder(onErr)
   child.stdout.on('data', (d) => {
-    const t = decOut.decode(d)
-    if (t) onOut(t)
+    decOut.push(d)
     resetTimer()
   })
   child.stderr.on('data', (d) => {
-    const t = decErr.decode(d)
-    if (t) onErr(t)
+    decErr.push(d)
     resetTimer()
   })
   child.on('error', (e) => {
     finish({ exitCode: 1, timedOut: false, cwd: session.dir, error: e.message })
   })
   child.on('exit', (code, signal) => {
-    const tailOut = decOut.decode()
-    if (tailOut) onOut(tailOut)
-    const tailErr = decErr.decode()
-    if (tailErr) onErr(tailErr)
+    decOut.flush()
+    decErr.flush()
     const timedOut = !!signal || code === 124
     finish({ exitCode: code ?? (timedOut ? 124 : 1), timedOut, cwd: session.dir, signal })
   })
