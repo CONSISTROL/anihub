@@ -3,7 +3,7 @@
 // 回车后提示符移到下一行；Tab 补全命令名/路径；↑/↓ 历史；Ctrl+L 清空；
 // 实时流式输出（WebSocket），Ctrl+C 中断当前命令。
 // 仅管理员可访问（路由 auth + 服务端 authRequired + WebSocket token 三重校验）。
-import { nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { getConsoleLogs, completeCommand } from '../api/settings'
 
 const input = ref('')
@@ -18,6 +18,38 @@ const promptDir = ref('') // 当前工作目录（提示符显示）
 
 const logLines = ref([]) // 服务器日志
 const logErr = ref('')
+const logQuery = ref('') // 日志搜索关键词
+
+// 日志搜索过滤（不区分大小写，匹配日志正文）
+const filteredLogs = computed(() => {
+  const q = logQuery.value.trim().toLowerCase()
+  if (!q) return logLines.value
+  return logLines.value.filter((l) => l.text.toLowerCase().includes(q))
+})
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+}
+
+// 日志搜索高亮：先转义防 XSS，再把命中的片段包成 <mark>
+function highlightLog(text) {
+  const q = logQuery.value.trim()
+  if (!q) return escapeHtml(text)
+  const lower = text.toLowerCase()
+  const ql = q.toLowerCase()
+  let out = ''
+  let i = 0
+  for (;;) {
+    const j = lower.indexOf(ql, i)
+    if (j < 0) {
+      out += escapeHtml(text.slice(i))
+      break
+    }
+    out += escapeHtml(text.slice(i, j)) + '<mark class="log-hl">' + escapeHtml(text.slice(j, j + q.length)) + '</mark>'
+    i = j + q.length
+  }
+  return out
+}
 let logTimer = null
 const platform = ref('') // 服务器平台（用于命令提示）
 
@@ -307,12 +339,24 @@ onUnmounted(() => {
       <section class="log-panel">
         <div class="term-head">
           <span>服务器日志（最近 {{ logLines.length }} 条，每 3 秒刷新）</span>
-          <button class="btn btn-sm" @click="refreshLogs">刷新</button>
+          <span class="head-actions">
+            <input
+              v-model="logQuery"
+              class="log-search"
+              type="text"
+              placeholder="搜索日志…"
+              spellcheck="false"
+            />
+            <button v-if="logQuery" class="btn btn-sm" @click="logQuery = ''">清除</button>
+            <button class="btn btn-sm" @click="refreshLogs">刷新</button>
+          </span>
         </div>
         <p v-if="logErr" class="tool-error">{{ logErr }}</p>
+        <p v-if="logQuery.trim()" class="log-match-info">匹配 {{ filteredLogs.length }} 条</p>
         <div class="term-out log-out">
-          <p v-for="(l, i) in logLines" :key="i" class="term-line log-line" :class="l.level">
-            <span class="log-time">{{ fmtTime(l.ts) }}</span> {{ l.text }}
+          <p v-for="(l, i) in filteredLogs" :key="i" class="term-line log-line" :class="l.level">
+            <span class="log-time">{{ fmtTime(l.ts) }}</span>
+            <span v-html="highlightLog(l.text)"></span>
           </p>
         </div>
       </section>
@@ -392,6 +436,35 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.log-search {
+  width: 140px;
+  padding: 3px 8px;
+  font-size: 12px;
+  color: #c9d1d9;
+  background: #0d1117;
+  border: 1px solid #2a3441;
+  border-radius: 4px;
+  outline: none;
+}
+
+.log-search:focus {
+  border-color: #58a6ff;
+}
+
+.log-match-info {
+  margin: 4px 14px 0;
+  font-size: 12px;
+  color: #8b949e;
+  flex-shrink: 0;
+}
+
+.log-hl {
+  background: #f0c36d;
+  color: #1c2333;
+  border-radius: 2px;
+  padding: 0 1px;
 }
 
 .btn-danger {
