@@ -10,6 +10,19 @@ const input = ref('')
 const running = ref(false)
 const lines = ref([]) // { type: 'cmd'|'out'|'err'|'info'|'log'|'warn'|'error', text }
 const termQuery = ref('') // 终端输出搜索关键词
+const shellPrompt = ref('') // 交互 shell 提示符结尾标记（# = root，$ = 普通用户），运行中作为输入前缀
+
+// 从交互 shell 输出中识别提示符结尾标记：bash 默认 PS1（root@host:/path#）以 #/$ 结尾。
+// 含路径/主机名特征（: @ / ~ 等）或极短（单独 "$"、"#"）才算，避免命令输出误判
+function matchShellPrompt(line) {
+  const t = line.replace(/\s+$/, '')
+  if (!t || t.length > 90) return null
+  const m = t.match(/[$#%❯➜]$/)
+  if (!m) return null
+  const looksPathy = /[:@/\\~]/.test(t) || t.length <= 4
+  if (!looksPathy) return null
+  return m[0]
+}
 
 // 终端输出搜索过滤（不区分大小写，匹配输出正文）
 const filteredLines = computed(() => {
@@ -114,6 +127,7 @@ function run() {
   history.value.push(cmd)
   histIdx.value = -1
   input.value = ''
+  shellPrompt.value = '' // 新命令重新开始，等 shell 打印新提示符再识别
   push('cmd', cmd)
   running.value = true
   errMsg.value = ''
@@ -153,6 +167,10 @@ function connectWs() {
       promptDir.value = m.cwd || promptDir.value
     } else if (m.type === 'out') {
       pushOut(m.text, m.replace)
+      if (!m.replace) {
+        const marker = matchShellPrompt(m.text)
+        if (marker) shellPrompt.value = marker
+      }
       scrollBottom()
     } else if (m.type === 'err') {
       push('err', m.text)
@@ -339,7 +357,9 @@ onUnmounted(() => {
               spellcheck="false"
             />
             <button v-if="termQuery" class="btn btn-sm" @click="termQuery = ''">清除</button>
-            <button v-if="running" class="btn btn-sm btn-danger" @click="sendKill">⏹ 停止 (Ctrl+C)</button>
+            <button v-if="running" class="btn btn-sm btn-danger" @click="sendKill">
+              {{ shellPrompt ? '⏹ 中断 (Ctrl+C)' : '⏹ 停止 (Ctrl+C)' }}
+            </button>
             <button class="btn btn-sm" @click="lines = []">清空输出</button>
           </span>
         </div>
@@ -351,15 +371,18 @@ onUnmounted(() => {
               <template v-else><span v-html="highlightTerm(l.text)"></span></template>
             </p>
           </template>
-          <!-- 当前提示行：空闲时显示会话目录与 $ 提示；运行中隐藏假提示——
-               shell 自己的提示符已随输出显示（如 root@host:/opt/anihub#），
-               只保留输入框发送内容，避免误导以为还在原会话 -->
+          <!-- 当前提示行：空闲时显示会话目录与 $；运行中显示识别出的 shell 提示符
+               标记（# = root，$ = 普通用户，等价真终端提示符），未识别出（如
+               su 密码提示期间）才显示低调的 > -->
           <div class="prompt-line">
             <template v-if="!running">
               <span class="prompt-dir">{{ promptDir }}</span>
               <span class="prompt">$</span>
             </template>
-            <span v-else class="prompt-run">&gt;</span>
+            <template v-else>
+              <span v-if="shellPrompt" class="prompt">{{ shellPrompt }}</span>
+              <span v-else class="prompt-run">&gt;</span>
+            </template>
             <input
               ref="termInput"
               v-model="input"
