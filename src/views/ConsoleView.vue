@@ -28,8 +28,18 @@ const WELCOME = `AniHub 管理员控制台
 工作目录: ${location.origin} 对应的服务器项目根目录
 输入命令回车执行（支持 shell 语法），↑/↓ 历史，Tab 补全，Ctrl+C 中断，Ctrl+L 清空`
 
+// 输出行数上限（终端 scrollback 风格）：超出后丢弃最早的输出，最新内容始终可见
+const MAX_LINES = 2000
+
 function push(type, text) {
   lines.value.push({ type, text: String(text) })
+  trimLines()
+}
+
+function trimLines() {
+  if (lines.value.length > MAX_LINES) {
+    lines.value = lines.value.slice(lines.value.length - MAX_LINES)
+  }
 }
 
 /* —— 输出：append 追加一行；replace 覆盖最后一行输出（进度条 \r 更新） —— */
@@ -46,6 +56,7 @@ function pushOut(text, replace) {
     }
   } else {
     lines.value.push({ type: 'out', text: String(text) })
+    trimLines()
   }
 }
 
@@ -173,6 +184,16 @@ function focusInput() {
   nextTick(() => termInput.value?.focus())
 }
 
+// 运行中提示行隐藏，Ctrl+C 需在窗口级捕获（本地终端行为：命令跑完才出现新提示行）
+function onWinKey(e) {
+  if (running.value && e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
+    e.preventDefault()
+    input.value = ''
+    histIdx.value = -1
+    sendKill()
+  }
+}
+
 function scrollBottom() {
   nextTick(() => {
     if (outEl.value) outEl.value.scrollTop = outEl.value.scrollHeight
@@ -197,6 +218,7 @@ function fmtTime(ts) {
 onMounted(async () => {
   push('info', WELCOME)
   connectWs() // WebSocket 实时流式输出
+  window.addEventListener('keydown', onWinKey)
   // 获取服务器平台，提示对应命令风格（Windows 用 dir/type，Linux 用 ls/cat）
   try {
     const mon = await import('../api/settings').then((m) => m.getMonitor())
@@ -214,6 +236,7 @@ onMounted(async () => {
 })
 onUnmounted(() => {
   clearInterval(logTimer)
+  window.removeEventListener('keydown', onWinKey)
   ws?.close()
 })
 </script>
@@ -233,12 +256,15 @@ onUnmounted(() => {
           </span>
         </div>
         <div ref="outEl" class="term-out" @click="focusInput">
-          <p v-for="(l, i) in lines" :key="i" class="term-line" :class="l.type">
-            <template v-if="l.type === 'cmd'"><span class="prompt">$</span> {{ l.text }}</template>
-            <template v-else>{{ l.text }}</template>
-          </p>
-          <!-- 当前提示行：回车后随输出下移，光标留在下一行（Xshell 风格） -->
-          <div class="prompt-line">
+          <template v-for="(l, i) in lines" :key="i">
+            <p class="term-line" :class="l.type">
+              <template v-if="l.type === 'cmd'"><span class="prompt">$</span> {{ l.text }}</template>
+              <template v-else>{{ l.text }}</template>
+            </p>
+          </template>
+          <!-- 当前提示行：回车后随输出下移，光标留在下一行（Xshell 风格）；
+               运行中隐藏——命令跑完才出现新提示行（本地终端行为） -->
+          <div v-show="!running" class="prompt-line">
             <span class="prompt-dir">{{ promptDir }}</span>
             <span class="prompt">$</span>
             <input
