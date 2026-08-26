@@ -15,12 +15,9 @@ Restart=always
 RestartSec=3
 Environment=NODE_ENV=production
 
-# 安全加固：只允许写应用数据目录（SQLite + 上传图片）
-NoNewPrivileges=true
-ProtectSystem=full
-ProtectHome=true
-PrivateTmp=true
-ReadWritePaths=__APP_DIR__/server
+# 说明：本服务不做 NoNewPrivileges / ProtectSystem / ProtectHome 等安全加固——
+# 管理员需要在网页控制台里 su/sudo 提权、跑 deploy/update.sh 更新网站、访问 /home。
+# 提权入口：setup.sh 已给 __APP_USER__ 配免密 sudo（/etc/sudoers.d/anihub）。
 
 [Install]
 WantedBy=multi-user.target

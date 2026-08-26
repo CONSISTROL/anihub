@@ -104,6 +104,11 @@ fi
 
 echo "==> [6/8] 安装 systemd 服务并启动"
 chown -R "$APP_USER":"$APP_USER" "$APP_DIR"
+# 控制台提权：$APP_USER 免密 sudo（个人站 + 仅管理员可登录控制台；
+# 用于在网页控制台里 su/sudo 提权、跑 update.sh 更新网站、访问 /home）
+echo "# AniHub console privilege escalation (personal site, admin-only)" > /etc/sudoers.d/anihub
+echo "$APP_USER ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/anihub
+chmod 440 /etc/sudoers.d/anihub
 sed -e "s|__APP_DIR__|$APP_DIR|g" -e "s|__APP_USER__|$APP_USER|g" \
   "$APP_DIR/deploy/anihub.service" > /etc/systemd/system/anihub.service
 systemctl daemon-reload

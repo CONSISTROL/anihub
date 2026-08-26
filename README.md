@@ -81,7 +81,7 @@
 - **网站壁纸**：与页面权限一致的**按身份控制**——勾选「游客可见壁纸 / 内部人员可见壁纸」（管理员登录后恒可见），壁纸取自服务器默认目录（`public/wallpapers` 或环境变量 `WALLPAPER_DIR`）
 - **Anime 成人内容**：同样**按身份控制**——勾选「游客可见成人内容 / 内部人员可见成人内容」（默认仅管理员可见），决定 Anime 日历与站内搜索是否展示标注为成人的番剧
 - **服务器监控**：设置页底部实时显示服务器状态（每 5 秒自动刷新，仅管理员可见）——运行时长、收到请求数、系统内存 / 进程 RSS / 堆内存占用、系统负载、CPU 核数、Node 版本、系统平台、主机名、数据库大小（含 WAL）与文章数，附内存占用条；并有**监控图表**：CPU 使用率、内存使用、网络带宽（入网/出网）、系统盘读写，**时间范围可选 小时 / 天 / 周 / 月 / 自定义**（悬停显示各序列数值）。指标由后端每 5 秒采样（CPU/内存用 node:os；网络 Linux 读 /proc/net/dev、Windows 用 netstat；磁盘 Linux 读 /proc/diskstats、Windows 用 Get-Counter）存入 SQLite，保留 35 天，按范围自动分桶聚合
-- **管理员控制台**（`/console`，登录后导航栏入口）：**Xshell 风格终端**——命令与输出在同一滚动区，回车后提示符移到下一行，提示符实时显示当前工作目录；**实时流式输出**（WebSocket，长命令/脚本边跑边显示，`\r` 进度条原地覆盖，无换行提示如 `Password:` 实时显示）；**交互输入**（Linux 下经伪终端 PTY，可执行 `su`/`passwd` 等需要输入密码的命令，回车发送输入）；**Ctrl+C / ⏹ 停止**中断当前命令（PTY 下等价终端 Ctrl+C 发 SIGINT，超时硬杀兜底；Windows taskkill 杀进程树）；**Tab 补全**命令名与路径；**cd 持久工作目录**；↑/↓ 历史、Ctrl+L 清空、10 分钟超时、退出码显示；**服务端实时日志**（每 3 秒刷新）。仅管理员可用：路由守卫 401 + 服务端 `authRequired` + WebSocket token 三重校验
+- **管理员控制台**（`/console`，登录后导航栏入口）：**Xshell 风格终端**——命令与输出在同一滚动区，回车后提示符移到下一行，提示符实时显示当前工作目录；**实时流式输出**（WebSocket，长命令/脚本边跑边显示，`\r` 进度条原地覆盖，无换行提示如 `Password:` 实时显示）；**交互输入**（Linux 下经伪终端 PTY，可执行 `su`/`passwd`/`sudo` 等需要输入密码的命令，回车发送输入）；**Ctrl+C / ⏹ 停止**中断当前命令（PTY 下等价终端 Ctrl+C 发 SIGINT，超时硬杀兜底；Windows taskkill 杀进程树）；**Tab 补全**命令名与路径；**cd 持久工作目录**；↑/↓ 历史、Ctrl+L 清空、10 分钟超时、退出码显示；**服务端实时日志**（每 3 秒刷新）。仅管理员可用：路由守卫 401 + 服务端 `authRequired` + WebSocket token 三重校验。**提权**：部署脚本给运行用户配了免密 sudo（`/etc/sudoers.d/anihub`），控制台里可 `sudo -i` 进 root shell、`sudo bash deploy/update.sh` 一键更新网站（见下方部署章节）
 - **内部人员身份**：只读的中间身份。在页面任意位置依次敲击键盘「inside」即获取（口令见 `server/.env` 的 `INSIDER_KEYWORD`，默认 `inside`），导航栏出现「🔑 内部模式」徽标，可点 ✕ 退出；内部人员能看到游客看不到的页面与文章，但不能编辑、不能进设置页；**进入内部模式后全站页面都显示壁纸背景**（与 Anime 页共用同一套壁纸与缓存）
 - **隐藏登录入口**：界面不显示任何登录按钮，在页面任意位置依次敲击键盘「login」四个字母弹出登录框（Esc 或点击遮罩关闭）；已登录右上角显示固定欢迎语 **Ciallo ～(∠・ω< )⌒★!** 以及 设置 / 退出 按钮
 
@@ -134,9 +134,9 @@ npm start
 | 文件 | 作用 |
 |---|---|
 | `deploy/setup.sh` | 一键部署：装 Node 24 → 拉代码（默认走 GitHub 代理）→ 构建 → 生成 `.env`（随机密钥）→ systemd 守护 → Nginx + HTTPS → 定时备份 |
-| `deploy/update.sh` | 一键更新：拉代码（默认走 GitHub 代理）→ `npm ci` → 构建 → 重启服务 → 同步 Nginx 配置（自动解析域名，`nginx -t` 失败自动回滚） |
-| `deploy/anihub.service` | systemd 服务单元（开机自启、崩溃自动重启、最小权限加固） |
-| `deploy/anihub.nginx.conf` | Nginx 反向代理 + Let's Encrypt HTTPS |
+| `deploy/update.sh` | 一键更新：拉代码（默认走 GitHub 代理）→ `npm ci` → 构建 → 重启服务 → 同步 Nginx 配置（自动解析域名，`nginx -t` 失败自动回滚）；以 root 运行时自动把应用目录所有权归还给运行用户 |
+| `deploy/anihub.service` | systemd 服务单元（开机自启、崩溃自动重启；不做提权类加固，以支持控制台内 su/sudo） |
+| `deploy/anihub.nginx.conf` | Nginx 反向代理（含 WebSocket 转发）+ Let's Encrypt HTTPS |
 | `deploy/backup.sh` | 数据备份（SQLite + 上传图片，保留最近 14 份，每日 03:00） |
 | `deploy/crontab.example` | 定时备份任务示例 |
 
@@ -161,6 +161,13 @@ bash /opt/anihub/deploy/update.sh
 ```
 
 （等价手动步骤：`cd /opt/anihub && git pull <代理URL> master && npm ci && npm run build && sudo systemctl restart anihub`）
+
+**在网页控制台里更新网站**：部署脚本已给运行用户（默认 `anihub`）配免密 sudo，控制台内执行：
+
+```bash
+sudo bash deploy/update.sh   # 一键更新（拉代码 → 构建 → 重启 → 同步 nginx）
+sudo -i                       # 或直接进 root shell（su 需 root 密码，sudo 免密）
+```
 
 **安全提醒**：首次部署请务必在 `server/.env` 中设置强随机 `JWT_SECRET`（部署脚本已自动生成）、修改 `ADMIN_PASSWORD`；如需修改内部人员口令 `INSIDER_KEYWORD`，同步改 `src/App.vue` 顶部的 `KEY_SEQ_INSIDE` 后重新构建。
 

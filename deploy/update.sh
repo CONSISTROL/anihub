@@ -8,12 +8,15 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+APP_DIR="$(pwd)"
+APP_USER="${APP_USER:-anihub}"
 # GitHub 第三方代理；域名失效时替换为 gh-proxy.com / mirror.ghproxy.com 等
 PROXY_URL="https://ghfast.top/https://github.com/CONSISTROL/anihub.git"
 REMOTE="${1:-$PROXY_URL}"
 BRANCH="${2:-master}"
 
 echo "==> 拉取 $REMOTE/$BRANCH"
+git config --global --add safe.directory "$APP_DIR" >/dev/null 2>&1 || true
 git fetch "$REMOTE" "$BRANCH"
 git merge --ff-only FETCH_HEAD
 
@@ -46,3 +49,9 @@ else
 fi
 
 echo "==> 更新完成"
+# 以 root 跑完（控制台 sudo 提权）后，把应用目录所有权归还给运行用户，
+# 否则 npm 等会因 root 拥有的文件报 EACCES
+if [[ $EUID -eq 0 ]]; then
+  chown -R "$APP_USER":"$APP_USER" "$APP_DIR"
+  echo "==> 已把 $APP_DIR 所有权归还给 $APP_USER"
+fi
