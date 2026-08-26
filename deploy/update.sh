@@ -24,4 +24,25 @@ npm run build
 echo "==> 重启服务"
 systemctl restart anihub
 
+echo "==> 同步 Nginx 反代配置（WebSocket 转发等）"
+if [[ -f /etc/nginx/sites-available/anihub ]]; then
+  DOMAIN="$(sed -n 's/^[[:space:]]*server_name[[:space:]]*\([^;]*\);.*/\1/p' /etc/nginx/sites-available/anihub | head -1 | xargs)"
+  if [[ -n "$DOMAIN" ]]; then
+    BAK="/etc/nginx/sites-available/anihub.bak.$(date +%s)"
+    cp /etc/nginx/sites-available/anihub "$BAK"
+    sed "s|__DOMAIN__|$DOMAIN|g" deploy/anihub.nginx.conf > /etc/nginx/sites-available/anihub
+    if nginx -t >/dev/null 2>&1; then
+      systemctl reload nginx
+      echo "    Nginx 配置已同步并重载（域名: $DOMAIN）"
+    else
+      cp "$BAK" /etc/nginx/sites-available/anihub
+      echo "    ⚠ nginx -t 校验失败，已回滚到原配置（请检查 deploy/anihub.nginx.conf）"
+    fi
+  else
+    echo "    ⚠ 未能从现有配置解析出域名，跳过 Nginx 更新（请手动检查 /etc/nginx/sites-available/anihub）"
+  fi
+else
+  echo "    未安装 Nginx 反代（直连 3001 访问），跳过"
+fi
+
 echo "==> 更新完成"

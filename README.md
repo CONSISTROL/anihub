@@ -134,7 +134,7 @@ npm start
 | 文件 | 作用 |
 |---|---|
 | `deploy/setup.sh` | 一键部署：装 Node 24 → 拉代码（默认走 GitHub 代理）→ 构建 → 生成 `.env`（随机密钥）→ systemd 守护 → Nginx + HTTPS → 定时备份 |
-| `deploy/update.sh` | 一键更新：拉代码（默认走 GitHub 代理）→ `npm ci` → 构建 → 重启服务 |
+| `deploy/update.sh` | 一键更新：拉代码（默认走 GitHub 代理）→ `npm ci` → 构建 → 重启服务 → 同步 Nginx 配置（自动解析域名，`nginx -t` 失败自动回滚） |
 | `deploy/anihub.service` | systemd 服务单元（开机自启、崩溃自动重启、最小权限加固） |
 | `deploy/anihub.nginx.conf` | Nginx 反向代理 + Let's Encrypt HTTPS |
 | `deploy/backup.sh` | 数据备份（SQLite + 上传图片，保留最近 14 份，每日 03:00） |
