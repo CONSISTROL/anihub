@@ -1,6 +1,6 @@
 <script setup>
 // 控制台文件管理：浏览服务器目录、上传文件、下载文件（仅管理员）。
-import { ref, onMounted } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { useAuth } from '../composables/useAuth'
 
 const { token } = useAuth()
@@ -11,6 +11,16 @@ const loading = ref(false)
 const uploading = ref(false)
 const error = ref('')
 const fileInput = ref(null)
+const pathInput = ref('')
+const editorVisible = ref(false)
+const editingPath = ref('')
+const editingName = ref('')
+const editContent = ref('')
+const saving = ref(false)
+
+watch(cwd, (v) => {
+  pathInput.value = v
+})
 
 async function api(url, options = {}) {
   const headers = {
@@ -64,6 +74,11 @@ function refresh() {
   load(cwd.value)
 }
 
+function goToPath() {
+  const p = pathInput.value.trim()
+  if (p) load(p)
+}
+
 async function onUpload(e) {
   const files = Array.from(e.target.files || [])
   e.target.value = ''
@@ -104,6 +119,74 @@ async function download(entry) {
   }
 }
 
+function isHtml(name) {
+  return /\.html?$/i.test(name)
+}
+
+async function openEditor(entry) {
+  if (entry.type !== 'file') return
+  error.value = ''
+  try {
+    const res = await api(`/api/console/files/content?path=${encodeURIComponent(entry.path)}`)
+    const data = await res.json()
+    editingPath.value = data.path
+    editingName.value = data.name
+    editContent.value = data.content
+    editorVisible.value = true
+  } catch (e) {
+    error.value = e.message
+  }
+}
+
+async function saveEditor() {
+  if (!editingPath.value) return
+  saving.value = true
+  error.value = ''
+  try {
+    await api(`/api/console/files/content?path=${encodeURIComponent(editingPath.value)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: editContent.value,
+    })
+    editorVisible.value = false
+    await load(cwd.value)
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    saving.value = false
+  }
+}
+
+function closeEditor() {
+  if (!saving.value) editorVisible.value = false
+}
+
+async function removeEntry(entry) {
+  if (!window.confirm(`确定删除 ${entry.name} 吗？删除后不可恢复。`)) return
+  error.value = ''
+  try {
+    await api(`/api/console/files?path=${encodeURIComponent(entry.path)}`, { method: 'DELETE' })
+    await load(cwd.value)
+  } catch (e) {
+    error.value = e.message
+  }
+}
+
+async function previewHtml(entry) {
+  if (!isHtml(entry.name)) return
+  error.value = ''
+  try {
+    const res = await api(`/api/console/files/download?path=${encodeURIComponent(entry.path)}`)
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    window.open(url, '_blank')
+    // 延迟释放，避免新标签页还没加载完 blob 就被回收
+    setTimeout(() => URL.revokeObjectURL(url), 60000)
+  } catch (e) {
+    error.value = e.message
+  }
+}
+
 function formatSize(n) {
   if (n == null) return '-'
   if (n < 1024) return `${n} B`
@@ -131,7 +214,15 @@ onMounted(() => load(''))
         {{ uploading ? '上传中…' : '⬆ 上传文件' }}
       </button>
       <input ref="fileInput" type="file" multiple class="hidden-input" @change="onUpload" />
-      <span class="fm-path">{{ cwd || '加载中…' }}</span>
+      <input
+        v-model="pathInput"
+        class="fm-path-input"
+        type="text"
+        spellcheck="false"
+        placeholder="输入路径，例如 /home"
+        @keydown.enter="goToPath"
+      />
+      <button class="fm-btn" @click="goToPath">跳转</button>
     </div>
 
     <p v-if="error" class="fm-error">{{ error }}</p>
@@ -156,8 +247,16 @@ onMounted(() => load(''))
             <td>{{ entry.type === 'directory' ? '-' : formatSize(entry.size) }}</td>
             <td>{{ formatTime(entry.mtime) }}</td>
             <td>
-              <button v-if="entry.type === 'directory'" class="fm-btn small" @click="openEntry(entry)">进入</button>
-              <button v-else class="fm-btn small" @click="download(entry)">下载</button>
+              <template v-if="entry.type === 'directory'">
+                <button class="fm-btn small" @click="openEntry(entry)">进入</button>
+                <button class="fm-btn small danger" @click="removeEntry(entry)">删除</button>
+              </template>
+              <template v-else>
+                <button v-if="isHtml(entry.name)" class="fm-btn small" @click="previewHtml(entry)">预览</button>
+                <button class="fm-btn small" @click="download(entry)">下载</button>
+                <button class="fm-btn small" @click="openEditor(entry)">编辑</button>
+                <button class="fm-btn small danger" @click="removeEntry(entry)">删除</button>
+              </template>
             </td>
           </tr>
           <tr v-if="!entries.length && !loading">
@@ -165,6 +264,22 @@ onMounted(() => load(''))
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- 在线编辑弹窗 -->
+    <div v-if="editorVisible" class="fm-editor-mask" @click.self="closeEditor">
+      <div class="fm-editor">
+        <div class="fm-editor-head">
+          <span class="fm-editor-title">编辑 {{ editingName }}</span>
+          <button class="fm-btn small" :disabled="saving" @click="closeEditor">关闭</button>
+        </div>
+        <textarea v-model="editContent" class="fm-editor-text" spellcheck="false"></textarea>
+        <div class="fm-editor-foot">
+          <button class="fm-btn primary" :disabled="saving" @click="saveEditor">
+            {{ saving ? '保存中…' : '保存' }}
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -216,10 +331,31 @@ onMounted(() => load(''))
   font-size: 12px;
 }
 
-.fm-path {
-  color: #8b949e;
-  word-break: break-all;
+.fm-btn.danger {
+  color: #f85149;
+  border-color: #3d1d1d;
+}
+
+.fm-btn.danger:hover:not(:disabled) {
+  border-color: #f85149;
+  color: #f85149;
+}
+
+.fm-path-input {
+  flex: 1;
+  min-width: 200px;
+  padding: 5px 10px;
+  background: #0d1117;
+  border: 1px solid #2a3441;
+  border-radius: 6px;
+  color: #e6edf3;
   font-family: Consolas, 'Courier New', monospace;
+  font-size: 12.5px;
+  outline: none;
+}
+
+.fm-path-input:focus {
+  border-color: #58a6ff;
 }
 
 .hidden-input {
@@ -286,5 +422,67 @@ onMounted(() => load(''))
   text-align: center;
   color: #8b949e;
   padding: 30px 0;
+}
+
+/* 在线编辑弹窗 */
+.fm-editor-mask {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.fm-editor {
+  width: min(900px, 100%);
+  height: min(80vh, 700px);
+  display: flex;
+  flex-direction: column;
+  background: #0d1117;
+  border: 1px solid #2a3441;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.fm-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #161b22;
+  border-bottom: 1px solid #2a3441;
+}
+
+.fm-editor-title {
+  font-size: 13px;
+  color: #e6edf3;
+  word-break: break-all;
+}
+
+.fm-editor-text {
+  flex: 1;
+  min-height: 0;
+  padding: 12px;
+  background: #0d1117;
+  border: none;
+  outline: none;
+  color: #e6edf3;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: none;
+  tab-size: 2;
+}
+
+.fm-editor-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 12px;
+  background: #161b22;
+  border-top: 1px solid #2a3441;
 }
 </style>

@@ -11,14 +11,15 @@ const PROJECT_ROOT = path.join(import.meta.dirname, '..') // 项目根目录（s
 const STREAM_TIMEOUT_MS = 600000 // 一次性命令最长 10 分钟（有输出/输入则顺延；终端会话不设超时）
 
 /** 新建一个会话（多终端：每连接一个，互不影响） */
-export function createSession() {
+export function createSession(initialDir = PROJECT_ROOT) {
   return {
-    dir: PROJECT_ROOT, // 会话工作目录
+    dir: initialDir, // 会话工作目录
     proc: null, // 当前运行的子进程
     pty: false, // 当前进程是否运行在伪终端（script）上
     resetTimer: null, // startStream 内部超时定时器的重置函数（供 writeInput 调用）
     softKillCount: 0, // 软中断（\x03）连续次数
     softKillTimer: null,
+    inputBuf: '', // 交互终端输入缓冲，用于识别 cd 命令并同步工作目录
   }
 }
 

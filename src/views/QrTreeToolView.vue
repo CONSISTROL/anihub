@@ -20,7 +20,7 @@ const MAX_H = 18 // 树冠最高层
 const TRUNK_R = 0.18 // 树干半径（归一化，细一点）
 const MAX_R = 1.1 // 树冠最大半径（归一化，更大）
 
-let mount = null
+const mount = ref(null) // 3D 场景挂载点（模板 ref）
 let renderer = null
 let scene = null
 let camera = null
@@ -76,20 +76,25 @@ function buildMatrix(text) {
 
 /* —— 场景 —— */
 function initScene() {
+  const el = mount.value
+  if (!el) {
+    error.value = 'WebGL 初始化失败：场景挂载点不存在'
+    return false
+  }
   try {
-    const w = mount.clientWidth || 720
-    const h = mount.clientHeight || 480
+    const w = el.clientWidth || 720
+    const h = el.clientHeight || 480
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.setSize(w, h)
-    mount.appendChild(renderer.domElement)
+    el.appendChild(renderer.domElement)
   } catch (e) {
     error.value = `WebGL 初始化失败：${e?.message || e}`
     return false
   }
 
   scene = new THREE.Scene()
-  const aspect = (mount.clientWidth || 720) / (mount.clientHeight || 480)
+  const aspect = (el.clientWidth || 720) / (el.clientHeight || 480)
   const d = 9.5
   camera = new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, 0.1, 100)
   camera.position.copy(CAM_3D_POS)
@@ -350,9 +355,10 @@ function tick() {
 
 /* —— 生命周期 —— */
 function resize() {
-  if (!renderer || !mount) return
-  const w = mount.clientWidth || 720
-  const h = mount.clientHeight || 480
+  const el = mount.value
+  if (!renderer || !el) return
+  const w = el.clientWidth || 720
+  const h = el.clientHeight || 480
   renderer.setSize(w, h)
   const aspect = w / h
   const d = 9.5
@@ -391,7 +397,7 @@ onUnmounted(() => {
     orbitGroup?.remove(voxelMesh)
   }
   renderer?.dispose()
-  mount && (mount.innerHTML = '')
+  if (mount.value) mount.value.innerHTML = ''
 })
 </script>
 

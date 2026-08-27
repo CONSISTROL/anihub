@@ -6,6 +6,9 @@ import { ref } from 'vue'
 import ConsoleTerminal from '../components/ConsoleTerminal.vue'
 import FileManager from '../components/FileManager.vue'
 
+// 供 <KeepAlive> 按组件名缓存，离开控制台再回来时保留终端会话和文件管理器状态
+defineOptions({ name: 'ConsoleView' })
+
 const tabs = ref([{ id: 1, title: '终端 1' }])
 const activeId = ref(1)
 const mode = ref('terminal') // 'terminal' | 'files'

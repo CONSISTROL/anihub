@@ -214,6 +214,73 @@ router.post(
   }
 )
 
+router.get('/files/content', authRequired, (req, res) => {
+  const file = resolveFsPath(req.query.path)
+  let st
+  try {
+    st = fs.statSync(file)
+  } catch {
+    return res.status(400).json({ error: { code: 'INVALID_PATH', message: '文件不存在' } })
+  }
+  if (!st.isFile()) {
+    return res.status(400).json({ error: { code: 'INVALID_PATH', message: '路径不是文件' } })
+  }
+  const MAX_TEXT = 2 * 1024 * 1024
+  if (st.size > MAX_TEXT) {
+    return res.status(413).json({ error: { code: 'TOO_LARGE', message: '文件超过 2MB，暂不支持在线编辑' } })
+  }
+  const buf = fs.readFileSync(file)
+  let text = buf.toString('utf8')
+  if (text.includes('\uFFFD')) {
+    try {
+      text = new TextDecoder('gbk').decode(buf)
+    } catch {
+      /* 保留 utf8 结果 */
+    }
+  }
+  res.json({ path: file, name: path.basename(file), content: text })
+})
+
+router.post(
+  '/files/content',
+  authRequired,
+  raw({ type: 'text/plain', limit: '10mb' }),
+  (req, res) => {
+    const file = resolveFsPath(req.query.path)
+    let st
+    try {
+      st = fs.statSync(file)
+    } catch {
+      return res.status(400).json({ error: { code: 'INVALID_PATH', message: '文件不存在' } })
+    }
+    if (!st.isFile()) {
+      return res.status(400).json({ error: { code: 'INVALID_PATH', message: '路径不是文件' } })
+    }
+    try {
+      fs.writeFileSync(file, req.body || Buffer.alloc(0))
+    } catch (e) {
+      return res.status(500).json({ error: { code: 'WRITE_FAILED', message: e.message } })
+    }
+    res.json({ ok: true, path: file })
+  }
+)
+
+router.delete('/files', authRequired, (req, res) => {
+  const target = resolveFsPath(req.query.path)
+  let st
+  try {
+    st = fs.statSync(target)
+  } catch {
+    return res.status(400).json({ error: { code: 'INVALID_PATH', message: '文件或目录不存在' } })
+  }
+  try {
+    fs.rmSync(target, { recursive: true, force: true })
+  } catch (e) {
+    return res.status(500).json({ error: { code: 'DELETE_FAILED', message: e.message } })
+  }
+  res.json({ ok: true, path: target })
+})
+
 router.get('/logs', authRequired, (req, res) => {
   res.json({ lines: getConsoleLines() })
 })

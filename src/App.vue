@@ -83,7 +83,11 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 <template>
   <div class="app-shell">
     <NavBar />
-    <router-view />
+    <router-view v-slot="{ Component }">
+      <keep-alive :include="['ConsoleView']">
+        <component :is="Component" />
+      </keep-alive>
+    </router-view>
     <LoginModal v-if="showLogin" @close="showLogin = false" />
     <!-- 全站壁纸背景（组件内部按身份自检：管理员恒可见，游客/内部人员按设置开关） -->
     <InsiderBackground v-if="!isGame" />

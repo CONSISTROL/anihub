@@ -5,7 +5,7 @@
 import { WebSocketServer } from 'ws'
 import jwt from 'jsonwebtoken'
 import { JWT_SECRET } from './config.js'
-import { createSession, startStream, killCurrent, writeInput } from './consoleSession.js'
+import { createSession, startStream, killCurrent, writeInput, tryCd, session } from './consoleSession.js'
 
 /** 终端会话启动命令：设置 PTY 尺寸后进入交互 shell（stty 静默、无回显污染） */
 function terminalCommand(cols, rows) {
@@ -14,6 +14,27 @@ function terminalCommand(cols, rows) {
   const r = Math.max(5, Math.min(200, Number(rows) || 24))
   if (process.platform === 'win32') return shell
   return `stty rows ${r} cols ${c}; exec ${shell}`
+}
+
+/** 尽力识别交互终端里的 cd 命令，让文件管理器/控制台目录跟随当前终端路径 */
+function trackCdInput(sess, data) {
+  sess.inputBuf = (sess.inputBuf || '') + data
+  let idx
+  while ((idx = sess.inputBuf.search(/[\r\n]/)) >= 0) {
+    const line = sess.inputBuf
+      .slice(0, idx)
+      .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
+      .trim()
+    sess.inputBuf = sess.inputBuf.slice(idx + 1)
+    if (/^cd(?:\s|$)/i.test(line)) {
+      const cd = tryCd(sess, line)
+      if (cd?.ok) {
+        session.dir = sess.dir
+        console.log(`[console] 终端工作目录 -> ${sess.dir}`)
+      }
+    }
+  }
+  if (sess.inputBuf.length > 8192) sess.inputBuf = sess.inputBuf.slice(-4096)
 }
 
 export function attachConsoleSocket(server) {
@@ -46,7 +67,8 @@ export function attachConsoleSocket(server) {
   })
 
   wss.on('connection', (ws) => {
-    const sess = createSession() // 每个连接独立会话（多终端互不影响）
+    // 每个连接独立会话（多终端互不影响），初始目录跟随控制台当前目录
+    const sess = createSession(session.dir)
     ws.send(JSON.stringify({ type: 'ready', cwd: sess.dir, pty: sess.pty }))
     ws.on('message', (raw) => {
       let msg
@@ -69,6 +91,7 @@ export function attachConsoleSocket(server) {
       } else if (msg.type === 'input' && typeof msg.data === 'string') {
         // 交互输入（终端模式为逐键字节）：转发给本会话的进程
         writeInput(sess, msg.data)
+        trackCdInput(sess, msg.data)
       } else if (msg.type === 'kill') {
         if (killCurrent(sess)) {
           console.log('[console] admin 中断当前命令')
