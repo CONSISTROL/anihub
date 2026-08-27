@@ -1,4 +1,4 @@
-// 主题状态：浅色 / 深色 / 按时间自动切换（默认）
+// 主题状态：浅色 / 深色 / 按时间自动切换（默认自动）
 // 手动选择持久化到 localStorage；自动模式在 6:00–18:00 用浅色，其余用深色
 
 import { computed, ref } from 'vue'
@@ -19,9 +19,15 @@ export function themeByTime(date = new Date()) {
 /** 实际生效的主题 */
 export const resolved = computed(() => (theme.value === 'auto' ? themeByTime() : theme.value))
 
-/** 把生效主题应用到 <html data-theme> */
+let animTimer = null
+
+/** 把生效主题应用到 <html data-theme>；切换瞬间挂 .theme-animating 让全局颜色平滑过渡 */
 export function applyTheme() {
-  document.documentElement.dataset.theme = resolved.value
+  const el = document.documentElement
+  el.classList.add('theme-animating')
+  el.dataset.theme = resolved.value
+  clearTimeout(animTimer)
+  animTimer = setTimeout(() => el.classList.remove('theme-animating'), 600)
 }
 
 /** 切换主题选择（auto/light/dark），持久化并生效 */
