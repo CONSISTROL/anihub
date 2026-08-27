@@ -345,6 +345,11 @@ watch(
   font-size: 12px;
 }
 
+/* 操作列按钮间距 */
+.fm-table td .fm-btn + .fm-btn {
+  margin-left: 6px;
+}
+
 .fm-btn.danger {
   color: #f85149;
   border-color: #3d1d1d;
