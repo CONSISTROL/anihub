@@ -1,7 +1,7 @@
 <script setup>
 // 设置页：配置哪些页面对游客可见、哪些页面对内部人员额外可见 + 壁纸/成人内容身份控制 + 服务器监控（图表）
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { getSettings, updateSettings, getMonitor, getMonitorHistory } from '../api/settings'
+import { getSettings, updateSettings, getMonitor, getMonitorHistory, getWallpapersManage, saveWallpaperSelection } from '../api/settings'
 import { useSettings } from '../composables/useSettings'
 import LineChart from '../components/LineChart.vue'
 
@@ -27,6 +27,43 @@ const saving = ref(false)
 const message = ref('')
 const error = ref('')
 
+/* —— 壁纸管理（选择参与展示的壁纸） —— */
+const wpImages = ref([]) // [{ name, url, selected }]
+const wpSaving = ref(false)
+const wpMessage = ref('')
+
+async function loadWallpapers() {
+  try {
+    const d = await getWallpapersManage()
+    wpImages.value = d.images || []
+  } catch {
+    /* 接口失败保持空列表（非管理员/接口不可用时静默） */
+  }
+}
+
+function toggleWp(img) {
+  img.selected = !img.selected
+}
+
+function selectAllWp(v) {
+  wpImages.value.forEach((i) => (i.selected = v))
+}
+
+async function saveWp() {
+  wpSaving.value = true
+  wpMessage.value = ''
+  try {
+    await saveWallpaperSelection(wpImages.value.filter((i) => i.selected).map((i) => i.name))
+    // 清除本地缓存的旧壁纸，下次访问从新选择中取
+    localStorage.removeItem('anime-calendar.wallpaper')
+    wpMessage.value = '壁纸选择已保存'
+  } catch (e) {
+    wpMessage.value = '保存失败：' + e.message
+  } finally {
+    wpSaving.value = false
+  }
+}
+
 onMounted(async () => {
   try {
     const d = await getSettings()
@@ -41,6 +78,7 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+  loadWallpapers()
 })
 
 // 内部人员额外可见的选项：已对游客可见的页面自动包含在内部可见内，不再重复勾选
@@ -285,6 +323,32 @@ onUnmounted(() => {
             <span class="opt-desc">内部人员身份访问时显示壁纸背景</span>
           </span>
         </label>
+
+        <h3 class="sub-title">壁纸管理</h3>
+        <p class="section-sub">勾选参与展示的壁纸（轮播只在选中项中随机）；不勾选任何时自动使用全部</p>
+        <div class="wp-grid">
+          <div
+            v-for="img in wpImages"
+            :key="img.name"
+            class="wp-item"
+            :class="{ on: img.selected }"
+            :title="img.name"
+            @click="toggleWp(img)"
+          >
+            <img :src="img.url" :alt="img.name" loading="lazy" />
+            <span class="wp-check">{{ img.selected ? '✓' : '' }}</span>
+            <span class="wp-name">{{ img.name }}</span>
+          </div>
+          <p v-if="!wpImages.length" class="settings-hint">壁纸目录为空（public/wallpapers/ 或 WALLPAPER_DIR）</p>
+        </div>
+        <div class="wp-actions">
+          <button class="btn btn-sm" @click="selectAllWp(true)">全选</button>
+          <button class="btn btn-sm" @click="selectAllWp(false)">全不选</button>
+          <button class="btn btn-sm btn-primary" :disabled="wpSaving" @click="saveWp">
+            {{ wpSaving ? '保存中…' : '保存壁纸选择' }}
+          </button>
+          <span v-if="wpMessage" class="wp-msg">{{ wpMessage }}</span>
+        </div>
       </section>
 
       <section class="settings-card">
@@ -471,6 +535,87 @@ onUnmounted(() => {
   font-size: 12px;
   color: var(--muted);
   line-height: 1.6;
+}
+
+.sub-title {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--text);
+}
+
+/* 壁纸管理 */
+.wp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.wp-item {
+  position: relative;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  aspect-ratio: 16 / 10;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.wp-item:hover {
+  border-color: var(--accent);
+}
+
+.wp-item.on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.wp-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.wp-item .wp-check {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  line-height: 20px;
+  text-align: center;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.35);
+}
+
+.wp-item .wp-name {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 3px 6px;
+  font-size: 11px;
+  color: #fff;
+  background: linear-gradient(transparent, rgb(0 0 0 / 0.65));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wp-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.wp-msg {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .opt {

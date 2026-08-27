@@ -15,3 +15,5 @@ export const getMonitorHistory = (params = {}) => {
 export const execCommand = (cmd) => api('/console/exec', { method: 'POST', body: { cmd } })
 export const getConsoleLogs = () => api('/console/logs')
 export const completeCommand = (text) => api(`/console/complete?text=${encodeURIComponent(text)}`)
+export const getWallpapersManage = () => api('/wallpapers/manage')
+export const saveWallpaperSelection = (names) => api('/wallpapers/selected', { method: 'PUT', body: { names } })
