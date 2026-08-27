@@ -37,7 +37,7 @@ export function useSeason() {
     error.value = ''
     try {
       const q = { year: year.value, season: season.value }
-      // 有缓存时直接返回，避免重复请求 AniList（缓存 12 小时）
+      // 有缓存时直接返回，避免重复请求 AniList（媒体列表 7 天 / 排期当前档期 12 小时、过去档期 30 天）
       const { mediaMap: map, schedules: sched } = await loadSeasonData(q, seasonWindow(q))
       rawMap.value = map
       rawSchedules.value = sched
