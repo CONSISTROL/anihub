@@ -4,15 +4,18 @@
 // 仅管理员可访问（路由 auth + 服务端 authRequired + WebSocket token 三重校验）。
 import { ref } from 'vue'
 import ConsoleTerminal from '../components/ConsoleTerminal.vue'
+import FileManager from '../components/FileManager.vue'
 
 const tabs = ref([{ id: 1, title: '终端 1' }])
 const activeId = ref(1)
+const mode = ref('terminal') // 'terminal' | 'files'
 let nextId = 2
 
 function addTab() {
   const id = nextId++
   tabs.value.push({ id, title: `终端 ${id}` })
   activeId.value = id
+  mode.value = 'terminal'
 }
 
 function closeTab(id) {
@@ -32,17 +35,26 @@ function closeTab(id) {
         v-for="t in tabs"
         :key="t.id"
         class="tab"
-        :class="{ active: t.id === activeId }"
-        @click="activeId = t.id"
+        :class="{ active: t.id === activeId && mode === 'terminal' }"
+        @click="activeId = t.id; mode = 'terminal'"
         @mousedown.prevent
       >
         {{ t.title }}
         <span v-if="tabs.length > 1" class="tab-close" title="关闭" @click.stop="closeTab(t.id)">✕</span>
       </button>
       <button class="tab tab-add" title="新建终端" @click="addTab">＋</button>
+      <button
+        class="tab file-tab"
+        :class="{ active: mode === 'files' }"
+        title="文件管理"
+        @click="mode = 'files'"
+      >📁 文件管理</button>
     </div>
 
-    <div class="term-area">
+    <div v-if="mode === 'files'" class="file-area">
+      <FileManager />
+    </div>
+    <div v-else class="term-area">
       <section v-for="t in tabs" :key="t.id" v-show="t.id === activeId" class="term-panel">
         <ConsoleTerminal :active="t.id === activeId" />
       </section>
@@ -120,6 +132,19 @@ function closeTab(id) {
 .tab-add:hover {
   color: #58a6ff;
   border-color: #58a6ff;
+}
+
+/* 文件管理标签靠右 */
+.file-tab {
+  margin-left: auto;
+}
+
+/* 文件管理区占满 */
+.file-area {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* 终端区：当前标签页占满 */

@@ -1,6 +1,6 @@
 // 管理员控制台：REST 接口（一次性执行 / Tab 补全 / 服务端日志）
 // 实时流式执行与中断走 WebSocket（consoleSocket.js），本文件保持 REST 兼容
-import { Router } from 'express'
+import { Router, raw } from 'express'
 import { exec } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -10,6 +10,13 @@ import { session, tryCd, decodeLine } from '../consoleSession.js'
 
 const router = Router()
 const TIMEOUT_MS = 15000
+
+/** 解析文件管理路径：相对路径基于当前控制台会话目录，绝对路径直接使用 */
+function resolveFsPath(p) {
+  if (!p) return session.dir
+  const target = path.isAbsolute(p) ? p : path.resolve(session.dir, p)
+  return path.normalize(target)
+}
 
 /* —— Tab 补全 —— */
 const WIN_EXE_EXT = new Set(['.exe', '.cmd', '.bat', '.com'])
@@ -121,6 +128,91 @@ router.post('/exec', authRequired, (req, res) => {
     }
   )
 })
+
+/* —— 文件管理（仅管理员） —— */
+router.get('/files', authRequired, (req, res) => {
+  const dir = resolveFsPath(req.query.path)
+  let st
+  try {
+    st = fs.statSync(dir)
+  } catch {
+    return res.status(400).json({ error: { code: 'INVALID_PATH', message: '目录不存在' } })
+  }
+  if (!st.isDirectory()) {
+    return res.status(400).json({ error: { code: 'INVALID_PATH', message: '路径不是目录' } })
+  }
+  let names = []
+  try {
+    names = fs.readdirSync(dir)
+  } catch (e) {
+    return res.status(500).json({ error: { code: 'READ_DIR_FAILED', message: e.message } })
+  }
+  const entries = names
+    .map((name) => {
+      const full = path.join(dir, name)
+      try {
+        const s = fs.statSync(full)
+        return {
+          name,
+          path: full,
+          type: s.isDirectory() ? 'directory' : 'file',
+          size: s.size,
+          mtime: s.mtimeMs,
+        }
+      } catch {
+        return null
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
+      return a.name.localeCompare(b.name)
+    })
+  res.json({ cwd: dir, entries })
+})
+
+router.get('/files/download', authRequired, (req, res) => {
+  const file = resolveFsPath(req.query.path)
+  let st
+  try {
+    st = fs.statSync(file)
+  } catch {
+    return res.status(400).json({ error: { code: 'INVALID_PATH', message: '文件不存在' } })
+  }
+  if (!st.isFile()) {
+    return res.status(400).json({ error: { code: 'INVALID_PATH', message: '路径不是文件' } })
+  }
+  res.download(file)
+})
+
+router.post(
+  '/files/upload',
+  authRequired,
+  raw({ type: 'application/octet-stream', limit: '200mb' }),
+  (req, res) => {
+    const dir = resolveFsPath(req.query.dir)
+    const name = path.basename(String(req.query.name || 'upload.bin'))
+    if (!name || name === '.' || name === '..') {
+      return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: '文件名不合法' } })
+    }
+    let st
+    try {
+      st = fs.statSync(dir)
+    } catch {
+      return res.status(400).json({ error: { code: 'INVALID_PATH', message: '目录不存在' } })
+    }
+    if (!st.isDirectory()) {
+      return res.status(400).json({ error: { code: 'INVALID_PATH', message: '路径不是目录' } })
+    }
+    const dest = path.join(dir, name)
+    try {
+      fs.writeFileSync(dest, req.body || Buffer.alloc(0))
+    } catch (e) {
+      return res.status(500).json({ error: { code: 'WRITE_FAILED', message: e.message } })
+    }
+    res.json({ ok: true, path: dest })
+  }
+)
 
 router.get('/logs', authRequired, (req, res) => {
   res.json({ lines: getConsoleLines() })

@@ -76,15 +76,20 @@ function buildMatrix(text) {
 
 /* —— 场景 —— */
 function initScene() {
-  const w = mount.clientWidth || 720
-  const h = mount.clientHeight || 480
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-  renderer.setSize(w, h)
-  mount.appendChild(renderer.domElement)
+  try {
+    const w = mount.clientWidth || 720
+    const h = mount.clientHeight || 480
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    renderer.setSize(w, h)
+    mount.appendChild(renderer.domElement)
+  } catch (e) {
+    error.value = `WebGL 初始化失败：${e?.message || e}`
+    return false
+  }
 
   scene = new THREE.Scene()
-  const aspect = w / h
+  const aspect = (mount.clientWidth || 720) / (mount.clientHeight || 480)
   const d = 9.5
   camera = new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, 0.1, 100)
   camera.position.copy(CAM_3D_POS)
@@ -101,6 +106,7 @@ function initScene() {
   orbitGroup = new THREE.Group()
   scene.add(orbitGroup)
   clock = new THREE.Clock()
+  return true
 }
 
 function disposeObject3D(obj) {
@@ -360,14 +366,14 @@ function resize() {
 watch(url, () => {
   clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => {
-    if (url.value.trim()) generate(true)
+    if (url.value.trim()) generate()
   }, 300)
 })
 
 onMounted(() => {
-  initScene()
+  if (!initScene()) return
   window.addEventListener('resize', resize)
-  generate(true)
+  generate()
   rafId = requestAnimationFrame(tick)
 })
 
@@ -415,6 +421,7 @@ onUnmounted(() => {
       ref="mount"
       class="scene"
       :class="{ top: view === 'top' }"
+      style="min-height: 480px"
       title="点击切换俯视 / 3D"
       @click="toggleView"
     ></div>
