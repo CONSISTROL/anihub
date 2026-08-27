@@ -12,6 +12,8 @@ defineOptions({ name: 'ConsoleView' })
 const tabs = ref([{ id: 1, title: '终端 1' }])
 const activeId = ref(1)
 const mode = ref('terminal') // 'terminal' | 'files'
+const termCwdByTab = ref({}) // tabId -> 该终端当前工作目录（从 shell 提示符解析）
+const fileTick = ref(0) // 每次打开文件管理 +1，强制文件管理器重新同步到终端目录
 let nextId = 2
 
 function addTab() {
@@ -28,6 +30,15 @@ function closeTab(id) {
   if (activeId.value === id) {
     activeId.value = tabs.value.length ? tabs.value[Math.max(0, i - 1)].id : 0
   }
+}
+
+function onTermCwd(tabId, p) {
+  termCwdByTab.value = { ...termCwdByTab.value, [tabId]: p }
+}
+
+function openFiles() {
+  mode.value = 'files'
+  fileTick.value++ // 打开时强制文件管理器重新定位到当前终端目录
 }
 </script>
 
@@ -50,16 +61,21 @@ function closeTab(id) {
         class="tab file-tab"
         :class="{ active: mode === 'files' }"
         title="文件管理"
-        @click="mode = 'files'"
+        @click="openFiles"
       >📁 文件管理</button>
     </div>
 
-    <div v-if="mode === 'files'" class="file-area">
-      <FileManager />
+    <!-- v-show 而非 v-if：切换视图时终端组件保持挂载，会话不被释放 -->
+    <div v-show="mode === 'files'" class="file-area">
+      <FileManager :start-path="termCwdByTab[activeId] || ''" :start-tick="fileTick" />
     </div>
-    <div v-else class="term-area">
+    <div v-show="mode !== 'files'" class="term-area">
       <section v-for="t in tabs" :key="t.id" v-show="t.id === activeId" class="term-panel">
-        <ConsoleTerminal :active="t.id === activeId" />
+        <ConsoleTerminal
+          :tab-id="t.id"
+          :active="t.id === activeId && mode === 'terminal'"
+          @cwd="onTermCwd"
+        />
       </section>
     </div>
   </div>

@@ -1,7 +1,13 @@
 <script setup>
 // 控制台文件管理：浏览服务器目录、上传文件、下载文件（仅管理员）。
+// startPath/startTick：与终端工作目录同步——打开文件管理或终端 cd 后自动定位到终端目录。
 import { ref, watch, onMounted } from 'vue'
 import { useAuth } from '../composables/useAuth'
+
+const props = defineProps({
+  startPath: { type: String, default: '' },
+  startTick: { type: Number, default: 0 },
+})
 
 const { token } = useAuth()
 
@@ -202,7 +208,15 @@ function formatTime(ms) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-onMounted(() => load(''))
+onMounted(() => load(props.startPath || ''))
+
+// 终端 cd 后 / 每次打开文件管理：重新定位到终端当前目录
+watch(
+  [() => props.startPath, () => props.startTick],
+  () => {
+    if (props.startPath) load(props.startPath)
+  }
+)
 </script>
 
 <template>

@@ -10,7 +10,9 @@ import 'xterm/css/xterm.css'
 
 const props = defineProps({
   active: { type: Boolean, default: false }, // 是否为当前激活标签页
+  tabId: { type: Number, default: 0 }, // 标签页 id（用于向父级上报 cwd）
 })
+const emit = defineEmits(['cwd'])
 
 const TERM_CMD = /win/i.test(navigator.platform || '') ? 'cmd' : 'bash' // 会话 shell（服务端包装 stty 尺寸）
 
@@ -79,6 +81,20 @@ function findPrev() {
 }
 
 /* —— WebSocket —— */
+
+// 从 shell 提示符解析当前工作目录（bash 默认 PS1 user@host:/path$/#；Windows cmd D:\path>）
+// 供文件管理器与之同步；解析不到（自定义 PS1 / ~ 相对路径）则保持上次值
+let lastCwd = ''
+function parsePromptPath(text) {
+  const t = String(text || '').replace(/\s+$/, '')
+  if (!t || t.length > 200) return null
+  const bash = t.match(/^[\w.-]+@[\w.-]+:(.+?)[#$%]$/)
+  if (bash) return bash[1].startsWith('~') ? null : bash[1]
+  const win = t.match(/^([A-Za-z]:\\.+?)[>]$/)
+  if (win) return win[1]
+  return null
+}
+
 function connectWs() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   const token = localStorage.getItem('anihub.token') || ''
@@ -94,6 +110,11 @@ function connectWs() {
       if (!termRunning.value) startTerminal()
     } else if (m.type === 'out') {
       termWrite(m.text)
+      const p = parsePromptPath(m.text)
+      if (p && p !== lastCwd) {
+        lastCwd = p
+        emit('cwd', props.tabId, p)
+      }
     } else if (m.type === 'err') {
       termWrite(m.text)
     } else if (m.type === 'exit') {
