@@ -8,6 +8,7 @@ import Link from '@tiptap/extension-link'
 import Image from '@tiptap/extension-image'
 import Underline from '@tiptap/extension-underline'
 import { computed, ref, watch } from 'vue'
+import AppIcon from './AppIcon.vue'
 
 const props = defineProps({
   modelValue: { type: String, default: '' }, // HTML 内容（v-model）
@@ -142,27 +143,28 @@ function onPickImage(e) {
 <template>
   <div class="richtext">
     <div class="rt-toolbar">
-      <button type="button" class="rt-btn" title="撤销" :disabled="!editor?.can().undo()" @click="run((c) => c.undo())">↩</button>
-      <button type="button" class="rt-btn" title="重做" :disabled="!editor?.can().redo()" @click="run((c) => c.redo())">↪</button>
+      <button type="button" class="rt-btn" title="撤销" :disabled="!editor?.can().undo()" @click="run((c) => c.undo())"><AppIcon name="undo" :size="14" /></button>
+      <button type="button" class="rt-btn" title="重做" :disabled="!editor?.can().redo()" @click="run((c) => c.redo())"><AppIcon name="redo" :size="14" /></button>
       <span class="rt-sep" />
-      <button type="button" class="rt-btn" :class="{ on: active.bold }" title="加粗" @click="run((c) => c.toggleBold())"><b>B</b></button>
-      <button type="button" class="rt-btn" :class="{ on: active.italic }" title="斜体" @click="run((c) => c.toggleItalic())"><i>I</i></button>
-      <button type="button" class="rt-btn" :class="{ on: active.underline }" title="下划线" @click="run((c) => c.toggleUnderline())"><u>U</u></button>
-      <button type="button" class="rt-btn" :class="{ on: active.strike }" title="删除线" @click="run((c) => c.toggleStrike())"><s>S</s></button>
+      <button type="button" class="rt-btn" :class="{ on: active.bold }" title="加粗" @click="run((c) => c.toggleBold())"><AppIcon name="bold" :size="14" /></button>
+      <button type="button" class="rt-btn" :class="{ on: active.italic }" title="斜体" @click="run((c) => c.toggleItalic())"><AppIcon name="italic" :size="14" /></button>
+      <button type="button" class="rt-btn" :class="{ on: active.underline }" title="下划线" @click="run((c) => c.toggleUnderline())"><AppIcon name="underline" :size="14" /></button>
+      <button type="button" class="rt-btn" :class="{ on: active.strike }" title="删除线" @click="run((c) => c.toggleStrike())"><AppIcon name="strike" :size="14" /></button>
       <span class="rt-sep" />
       <button type="button" class="rt-btn" :class="{ on: active.h1 }" title="一级标题" @click="toggleHeading(1)">H1</button>
       <button type="button" class="rt-btn" :class="{ on: active.h2 }" title="二级标题" @click="toggleHeading(2)">H2</button>
       <button type="button" class="rt-btn" :class="{ on: active.h3 }" title="三级标题" @click="toggleHeading(3)">H3</button>
       <span class="rt-sep" />
-      <button type="button" class="rt-btn" :class="{ on: active.code }" title="行内代码" @click="run((c) => c.toggleCode())">&lt;/&gt;</button>
-      <button type="button" class="rt-btn" :class="{ on: active.codeBlock }" title="代码块" @click="run((c) => c.toggleCodeBlock())">{ }</button>
-      <button type="button" class="rt-btn" :class="{ on: active.quote }" title="引用" @click="run((c) => c.toggleBlockquote())">❝</button>
-      <button type="button" class="rt-btn" :class="{ on: active.bullet }" title="无序列表" @click="run((c) => c.toggleBulletList())">•</button>
-      <button type="button" class="rt-btn" :class="{ on: active.ordered }" title="有序列表" @click="run((c) => c.toggleOrderedList())">1.</button>
+      <button type="button" class="rt-btn" :class="{ on: active.code }" title="行内代码" @click="run((c) => c.toggleCode())"><AppIcon name="code" :size="14" /></button>
+      <button type="button" class="rt-btn" :class="{ on: active.codeBlock }" title="代码块" @click="run((c) => c.toggleCodeBlock())"><AppIcon name="braces" :size="14" /></button>
+      <button type="button" class="rt-btn" :class="{ on: active.quote }" title="引用" @click="run((c) => c.toggleBlockquote())"><AppIcon name="quote" :size="14" /></button>
+      <button type="button" class="rt-btn" :class="{ on: active.bullet }" title="无序列表" @click="run((c) => c.toggleBulletList())"><AppIcon name="list" :size="14" /></button>
+      <button type="button" class="rt-btn" :class="{ on: active.ordered }" title="有序列表" @click="run((c) => c.toggleOrderedList())"><AppIcon name="list-ordered" :size="14" /></button>
       <span class="rt-sep" />
-      <button type="button" class="rt-btn" :class="{ on: active.link }" title="链接" @click="onLink">🔗</button>
+      <button type="button" class="rt-btn" :class="{ on: active.link }" title="链接" @click="onLink"><AppIcon name="link" :size="14" /></button>
       <button type="button" class="rt-btn" title="插入图片（或直接 Ctrl+V 粘贴图片）" :disabled="uploading" @click="fileInput.click()">
-        {{ uploading ? '…' : '🖼️' }}
+        <AppIcon v-if="!uploading" name="image" :size="14" />
+        <template v-else>…</template>
       </button>
       <input ref="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" class="rt-file" @change="onPickImage" />
       <span class="rt-sep" />
@@ -182,7 +184,7 @@ function onPickImage(e) {
         />
         <input type="color" class="rt-picker" title="自定义颜色" @input="onColor($event.target.value)" />
       </span>
-      <button type="button" class="rt-btn" title="清除格式" @click="run((c) => c.clearNodes().unsetAllMarks())">✕</button>
+      <button type="button" class="rt-btn" title="清除格式" @click="run((c) => c.clearNodes().unsetAllMarks())"><AppIcon name="eraser" :size="14" /></button>
     </div>
 
     <p v-if="errMsg" class="rt-error">{{ errMsg }}</p>
@@ -208,6 +210,9 @@ function onPickImage(e) {
 }
 
 .rt-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   min-width: 26px;
   height: 26px;
   padding: 0 5px;

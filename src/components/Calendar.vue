@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { buildMonthGrid, fmtDate, fmtTime, dayKey } from '../utils/date'
 import { titleFor } from '../utils/titles'
 import DayPopover from './DayPopover.vue'
+import AppIcon from './AppIcon.vue'
 
 const props = defineProps({
   month: { type: Object, required: true }, // { y, m }
@@ -121,7 +122,7 @@ onUnmounted(() => window.removeEventListener('scroll', hideTooltip))
               @click="emit('select', e.mediaId)"
             >
               <img v-if="coverOf(e.mediaId)" :src="coverOf(e.mediaId)" class="chip-cover" alt="" />
-              <span v-else class="chip-cover chip-cover-ph">🎬</span>
+              <span v-else class="chip-cover chip-cover-ph"><AppIcon name="film" :size="10" /></span>
               <span class="chip-title">{{ titleOf(e.mediaId) }}</span>
               <span class="chip-ep">第{{ e.episode }}话</span>
               <span class="chip-time">{{ fmtTime(e.airingAt) }}</span>

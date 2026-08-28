@@ -3,6 +3,7 @@
 // 默认打开 CONSOLE_HOME（生产通常为 /opt/anihub），不与终端目录联动。
 import { ref, watch, onMounted } from 'vue'
 import { useAuth } from '../composables/useAuth'
+import AppIcon from './AppIcon.vue'
 
 const { token } = useAuth()
 
@@ -216,10 +217,11 @@ onMounted(() => load(''))
 <template>
   <div class="file-manager">
     <div class="fm-toolbar">
-      <button class="fm-btn" title="上一级" @click="goUp">⬆ 上级</button>
-      <button class="fm-btn" title="刷新" @click="refresh">⟳ 刷新</button>
+      <button class="fm-btn" title="上一级" @click="goUp"><AppIcon name="arrow-up" :size="13" /> 上级</button>
+      <button class="fm-btn" title="刷新" @click="refresh"><AppIcon name="refresh" :size="13" /> 刷新</button>
       <button class="fm-btn primary" title="上传文件到当前目录" @click="fileInput.click()" :disabled="uploading">
-        {{ uploading ? '上传中…' : '⬆ 上传文件' }}
+        <AppIcon v-if="!uploading" name="upload" :size="13" />
+        {{ uploading ? '上传中…' : '上传文件' }}
       </button>
       <input ref="fileInput" type="file" multiple class="hidden-input" @change="onUpload" />
       <input
@@ -249,7 +251,7 @@ onMounted(() => load(''))
         <tbody>
           <tr v-for="entry in entries" :key="entry.path" :class="{ dir: entry.type === 'directory' }" @dblclick="openEntry(entry)">
             <td>
-              <span class="fm-icon">{{ entry.type === 'directory' ? '📁' : '📄' }}</span>
+              <span class="fm-icon"><AppIcon :name="entry.type === 'directory' ? 'folder' : 'file-text'" :size="15" /></span>
               <span class="fm-name">{{ entry.name }}</span>
             </td>
             <td>{{ entry.type === 'directory' ? '-' : formatSize(entry.size) }}</td>
@@ -314,6 +316,9 @@ onMounted(() => load(''))
 }
 
 .fm-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   padding: 5px 12px;
   background: #21262d;
   border: 1px solid #2a3441;
@@ -424,7 +429,10 @@ onMounted(() => load(''))
 }
 
 .fm-icon {
+  display: inline-flex;
+  align-items: center;
   margin-right: 6px;
+  color: #8b949e;
 }
 
 .fm-name {

@@ -3,6 +3,7 @@
 // 纯前端处理：图片不上传；支持点击/拖拽/Ctrl+V 粘贴图片。
 import { nextTick, ref } from 'vue'
 import JSZip from 'jszip'
+import AppIcon from '../components/AppIcon.vue'
 
 const MAX_CROP = 400 // 单次裁切结果上限，防止误操作卡死
 
@@ -689,8 +690,8 @@ function clearAll() {
 
 <template>
   <div class="crop-tool">
-    <router-link to="/tools" class="back-link">← 返回工具箱</router-link>
-    <h1 class="page-title">✂️ 图片裁切</h1>
+    <router-link to="/tools" class="back-link"><AppIcon name="arrow-left" :size="13" /> 返回工具箱</router-link>
+    <h1 class="page-title"><AppIcon name="scissors" :size="21" /> 图片裁切</h1>
     <p class="sub">
       上传版图（多格图 / 精灵图），自动识别框线或拖动网格线划分格子，一键裁切成小图。
       自动识别支持<strong>不等分格子</strong>与<strong>粗细框线</strong>：有分隔线时生成切割线网格，
@@ -711,7 +712,7 @@ function clearAll() {
       @drop.prevent="onDrop"
       @paste="onPaste"
     >
-      <span class="dz-icon">🖼️</span>
+      <span class="dz-icon"><AppIcon name="image" :size="30" /></span>
       <span class="dz-text">点击选择图片<br />或拖拽 / Ctrl+V 粘贴到此处</span>
     </div>
 
@@ -733,19 +734,21 @@ function clearAll() {
         </div>
         <div class="ctrl-group">
           <span class="ctrl-label">切割线</span>
-          <button class="btn btn-sm" @click="addLine(vLines)">＋ 竖线</button>
-          <button class="btn btn-sm" @click="addLine(hLines)">＋ 横线</button>
-          <button class="btn btn-sm" :disabled="!vLines.length" @click="removeLastLine(vLines)">－ 竖线</button>
-          <button class="btn btn-sm" :disabled="!hLines.length" @click="removeLastLine(hLines)">－ 横线</button>
+          <button class="btn btn-sm" @click="addLine(vLines)"><AppIcon name="plus" :size="12" :stroke-width="2" /> 竖线</button>
+          <button class="btn btn-sm" @click="addLine(hLines)"><AppIcon name="plus" :size="12" :stroke-width="2" /> 横线</button>
+          <button class="btn btn-sm" :disabled="!vLines.length" @click="removeLastLine(vLines)"><AppIcon name="minus" :size="12" :stroke-width="2" /> 竖线</button>
+          <button class="btn btn-sm" :disabled="!hLines.length" @click="removeLastLine(hLines)"><AppIcon name="minus" :size="12" :stroke-width="2" /> 横线</button>
           <button class="btn btn-sm" @click="clearGrid">清空网格</button>
         </div>
         <div class="ctrl-group">
           <span class="ctrl-label">自动识别</span>
           <button class="btn btn-sm" :disabled="detecting" @click="detectBoxes">
-            {{ detecting ? '识别中…' : '🔍 识别框' }}
+            <template v-if="detecting">识别中…</template>
+            <template v-else><AppIcon name="scan" :size="13" /> 识别框</template>
           </button>
           <button class="btn btn-sm" :disabled="detecting" @click="detectAndCrop">
-            {{ detecting ? '识别中…' : '🔍 识别并裁切' }}
+            <template v-if="detecting">识别中…</template>
+            <template v-else><AppIcon name="scan" :size="13" /> 识别并裁切</template>
           </button>
           <label class="opt-label" title="版图中的虚线框/实线框（装饰框）不是裁切目标时开启">
             <input v-model="ignoreFrames" type="checkbox" />
@@ -754,7 +757,8 @@ function clearAll() {
         </div>
         <div class="ctrl-group">
           <button class="btn btn-sm btn-primary" :disabled="busy" @click="doCrop">
-            {{ busy ? '裁切中…' : '✂️ 裁切' }}
+            <template v-if="busy">裁切中…</template>
+            <template v-else><AppIcon name="scissors" :size="13" /> 裁切</template>
           </button>
           <button class="btn btn-sm" @click="fileInput.click()">重新选择</button>
           <button class="btn btn-sm" @click="clearAll">清除图片</button>
@@ -787,7 +791,7 @@ function clearAll() {
             @pointercancel="onLinePointerUp"
           >
             <span class="line-bar"></span>
-            <button class="line-x" @pointerdown.stop @click.stop="removeLine(vLines, l.id)">✕</button>
+            <button class="line-x" @pointerdown.stop @click.stop="removeLine(vLines, l.id)"><AppIcon name="x" :size="9" :stroke-width="2.4" /></button>
           </div>
           <!-- 水平切割线 -->
           <div
@@ -802,7 +806,7 @@ function clearAll() {
             @pointercancel="onLinePointerUp"
           >
             <span class="line-bar"></span>
-            <button class="line-x" @pointerdown.stop @click.stop="removeLine(hLines, l.id)">✕</button>
+            <button class="line-x" @pointerdown.stop @click.stop="removeLine(hLines, l.id)"><AppIcon name="x" :size="9" :stroke-width="2.4" /></button>
           </div>
         </div>
       </div>
@@ -812,7 +816,8 @@ function clearAll() {
         <div class="results-head">
           <span class="results-label">裁切结果（{{ crops.length }} 张）</span>
           <button class="btn btn-sm btn-primary" :disabled="zipBusy" @click="downloadAll">
-            {{ zipBusy ? '打包中…' : '⬇️ 全部下载 (zip)' }}
+            <template v-if="zipBusy">打包中…</template>
+            <template v-else><AppIcon name="download" :size="13" /> 全部下载 (zip)</template>
           </button>
         </div>
         <div class="crop-grid">
@@ -835,7 +840,9 @@ function clearAll() {
 }
 
 .back-link {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   margin-bottom: 10px;
   font-size: 13px;
   color: var(--muted);
@@ -847,6 +854,9 @@ function clearAll() {
 }
 
 .page-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0 0 6px;
   font-size: 24px;
 }
@@ -890,7 +900,10 @@ function clearAll() {
 }
 
 .dz-icon {
-  font-size: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
 }
 
 .dz-text {
@@ -1059,6 +1072,9 @@ function clearAll() {
 
 .line-x {
   position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 16px;
   height: 16px;
   padding: 0;
@@ -1066,8 +1082,6 @@ function clearAll() {
   border-radius: 50%;
   background: var(--overlay-panel);
   color: var(--muted);
-  font-size: 10px;
-  line-height: 1;
   cursor: pointer;
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.3);
   opacity: 0;

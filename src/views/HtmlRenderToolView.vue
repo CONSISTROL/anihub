@@ -3,6 +3,7 @@
 // 一次性语义：代码不经过服务器、不写入本地存储/localStorage；渲染成功后输入框立即清空，
 // Blob URL 短延时后释放、组件卸载时兜底释放——新标签页关闭后不留任何副本。
 import { onUnmounted, ref } from 'vue'
+import AppIcon from '../components/AppIcon.vue'
 
 const code = ref('')
 const error = ref('')
@@ -98,7 +99,7 @@ function clearCode() {
 
 <template>
   <div class="tool-page">
-    <h1 class="page-title">HTML 渲染</h1>
+    <h1 class="page-title"><AppIcon name="code" :size="21" /> HTML 渲染</h1>
     <p class="sub">
       粘贴 HTML 代码，点击「渲染」在新标签页中原样显示（样式与脚本都会生效）。
       <b>一次性渲染</b>：代码不经过服务器、不写入本地存储，渲染成功后输入框自动清空。
@@ -121,7 +122,8 @@ function clearCode() {
     ></textarea>
 
     <p class="tip">
-      💡 完整文档（&lt;!DOCTYPE html&gt; / &lt;html&gt; 开头）原样渲染；片段自动补全为最小页面骨架。
+      <AppIcon name="lightbulb" :size="14" />
+      完整文档（&lt;!DOCTYPE html&gt; / &lt;html&gt; 开头）原样渲染；片段自动补全为最小页面骨架。
       新标签页中的脚本会正常执行；相对路径资源（如图片）在新标签页中无法解析，请使用完整 URL 或 data: 图片。
       渲染是一次性的：新标签页关闭后内容即消失，本站不保存任何副本。
     </p>
@@ -136,6 +138,9 @@ function clearCode() {
 }
 
 .page-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0 0 6px;
   font-size: 24px;
 }
@@ -180,9 +185,17 @@ function clearCode() {
 }
 
 .tip {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
   margin: 12px 0 0;
   font-size: 12px;
   color: var(--muted);
   line-height: 1.7;
+}
+
+.tip .app-icon {
+  margin-top: 3px;
+  color: var(--accent);
 }
 </style>

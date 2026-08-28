@@ -3,6 +3,7 @@
 // 整体布局尽量压缩页面铬（标题栏一行、按钮并入列头），把视口高度让给文本框
 import { ref } from 'vue'
 import { parseJsonLike } from '../utils/jsonLike'
+import AppIcon from '../components/AppIcon.vue'
 
 const jsonInput = ref('')
 const jsonOutput = ref('')
@@ -95,8 +96,8 @@ async function copyJson() {
   <div class="json-tool">
     <!-- 单行头部：返回 + 标题 + 提示，尽量少占高度 -->
     <div class="tool-head">
-      <router-link to="/tools" class="back-link">← 工具箱</router-link>
-      <h1 class="page-title">🧾 JSON 格式化</h1>
+      <router-link to="/tools" class="back-link"><AppIcon name="arrow-left" :size="13" /> 工具箱</router-link>
+      <h1 class="page-title"><AppIcon name="braces" :size="21" /> JSON 格式化</h1>
       <span class="tool-hint" title="支持标准 JSON 与类 JSON：key = value、0x 十六进制、嵌套 {}（如 C 结构体转储）">
         支持标准 JSON 与类 JSON（key = value / 0x / 嵌套 {}）
       </span>
@@ -131,7 +132,8 @@ async function copyJson() {
             <span v-else-if="jsonMode === 'like'" class="mode-tag">类 JSON（已转换）</span>
           </span>
           <button class="btn btn-sm" :disabled="!jsonOutput" @click="copyJson">
-            {{ jsonCopied ? '已复制 ✓' : '复制' }}
+            <AppIcon :name="jsonCopied ? 'check' : 'copy'" :size="13" />
+            {{ jsonCopied ? '已复制' : '复制' }}
           </button>
         </div>
         <textarea
@@ -162,13 +164,16 @@ async function copyJson() {
 /* 单行头部 */
 .tool-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 12px;
   flex-wrap: wrap;
   padding-bottom: 8px;
 }
 
 .back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 13px;
   color: var(--muted);
   text-decoration: none;
@@ -180,6 +185,9 @@ async function copyJson() {
 }
 
 .page-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   margin: 0;
   font-size: 19px;
   line-height: 1.3;

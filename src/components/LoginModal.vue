@@ -3,6 +3,7 @@
 import { nextTick, onMounted, ref } from 'vue'
 import { api } from '../api/http'
 import { useAuth } from '../composables/useAuth'
+import AppIcon from './AppIcon.vue'
 
 const emit = defineEmits(['close'])
 const { setSession } = useAuth()
@@ -60,7 +61,7 @@ async function onSubmit() {
             :title="showPassword ? '隐藏密码' : '显示密码'"
             @click="showPassword = !showPassword"
           >
-            {{ showPassword ? '🙈' : '👁️' }}
+            <AppIcon :name="showPassword ? 'eye-off' : 'eye'" :size="16" />
           </button>
         </div>
       </label>
@@ -151,13 +152,14 @@ async function onSubmit() {
   position: absolute;
   right: 6px;
   top: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transform: translateY(-50%);
   padding: 4px;
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 15px;
-  line-height: 1;
   opacity: 0.55;
   transition:
     opacity var(--dur-ios-1) var(--ease-ios-expo),

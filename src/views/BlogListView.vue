@@ -1,11 +1,12 @@
 <script setup>
 // 博客列表页
 import PostList from '../components/PostList.vue'
+import AppIcon from '../components/AppIcon.vue'
 </script>
 
 <template>
   <div class="page">
-    <h1 class="page-title">📝 Blog</h1>
+    <h1 class="page-title"><AppIcon name="file-text" :size="22" /> Blog</h1>
     <PostList category="blog" />
   </div>
 </template>
@@ -18,6 +19,9 @@ import PostList from '../components/PostList.vue'
 }
 
 .page-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0 0 18px;
   font-size: 24px;
 }

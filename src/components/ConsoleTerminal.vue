@@ -7,6 +7,7 @@ import { Terminal } from 'xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import 'xterm/css/xterm.css'
+import AppIcon from './AppIcon.vue'
 
 const props = defineProps({
   active: { type: Boolean, default: false }, // 是否为当前激活标签页
@@ -205,7 +206,7 @@ onUnmounted(() => {
 <template>
   <p v-if="errMsg" class="tool-error">{{ errMsg }}</p>
   <div class="term-head">
-    <span>🖥️ 终端</span>
+    <span class="term-title"><AppIcon name="terminal" :size="15" /> 终端</span>
     <span class="head-actions">
       <input
         v-model="findQuery"
@@ -218,7 +219,7 @@ onUnmounted(() => {
         @keydown.shift.enter.prevent="findPrev"
       />
       <span v-if="findResult" class="find-result">{{ findResult }}</span>
-      <button v-if="termRunning" class="btn btn-sm btn-danger" @click="sendKill">⏹ 停止 (Ctrl+C)</button>
+      <button v-if="termRunning" class="btn btn-sm btn-danger" @click="sendKill"><AppIcon name="stop" :size="12" /> 停止 (Ctrl+C)</button>
       <button v-if="!termRunning" class="btn btn-sm" @click="restartTerm">重启会话</button>
       <button class="btn btn-sm" @click="clearTerm">清空</button>
     </span>
@@ -238,6 +239,12 @@ onUnmounted(() => {
   font-size: 12px;
   color: #9aa7b4;
   flex-shrink: 0;
+}
+
+.term-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .head-actions {

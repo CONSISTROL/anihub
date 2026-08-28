@@ -6,6 +6,7 @@ import { listPosts } from '../api/posts'
 import { searchAnime } from '../api/anilist'
 import { useAuth } from '../composables/useAuth'
 import { useSettings } from '../composables/useSettings'
+import AppIcon from '../components/AppIcon.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -84,10 +85,10 @@ function fmtDate(s) {
 
 <template>
   <div class="search-page">
-    <h1 class="page-title">站内搜索</h1>
+    <h1 class="page-title"><AppIcon name="search" :size="22" /> 站内搜索</h1>
     <form class="search-bar" @submit.prevent="onSearch">
       <input v-model.trim="q" placeholder="搜索博客 / Wiki / 动漫…" autofocus />
-      <button class="btn btn-primary" type="submit">搜索</button>
+      <button class="btn btn-primary" type="submit"><AppIcon name="search" :size="13" /> 搜索</button>
     </form>
 
     <p v-if="error" class="search-error">{{ error }}</p>
@@ -98,10 +99,10 @@ function fmtDate(s) {
     <template v-else-if="done && hasAny">
       <!-- 博客 -->
       <section v-if="canSee('blog') && blogPosts.length" class="result-section">
-        <h2 class="section-title">📝 博客 <span class="count">{{ blogPosts.length }}</span></h2>
+        <h2 class="section-title"><AppIcon name="file-text" :size="16" /> 博客 <span class="count">{{ blogPosts.length }}</span></h2>
         <router-link v-for="p in blogPosts" :key="'b' + p.id" :to="`/blog/${p.slug}`" class="result-item">
           <div class="result-main">
-            <span class="result-title"><span v-if="p.pinned" class="pin-tag">📌 公告</span>{{ p.title }}</span>
+            <span class="result-title"><span v-if="p.pinned" class="pin-tag"><AppIcon name="pin" :size="11" /> 公告</span>{{ p.title }}</span>
             <span v-if="p.summary" class="result-summary">{{ p.summary }}</span>
           </div>
           <span class="result-date">{{ fmtDate(p.createdAt) }}</span>
@@ -110,7 +111,7 @@ function fmtDate(s) {
 
       <!-- Wiki -->
       <section v-if="canSee('wiki') && wikiPosts.length" class="result-section">
-        <h2 class="section-title">📚 Wiki <span class="count">{{ wikiPosts.length }}</span></h2>
+        <h2 class="section-title"><AppIcon name="book-open" :size="16" /> Wiki <span class="count">{{ wikiPosts.length }}</span></h2>
         <router-link v-for="p in wikiPosts" :key="'w' + p.id" :to="`/wiki/${p.slug}`" class="result-item">
           <div class="result-main">
             <span class="result-title">{{ p.title }}</span>
@@ -122,7 +123,7 @@ function fmtDate(s) {
 
       <!-- 动漫（来自服务器已缓存的档期数据） -->
       <section v-if="canSee('anime') && anime.length" class="result-section">
-        <h2 class="section-title">🗓️ 动漫 <span class="count">{{ anime.length }}</span></h2>
+        <h2 class="section-title"><AppIcon name="calendar" :size="16" /> 动漫 <span class="count">{{ anime.length }}</span></h2>
         <div class="anime-grid">
           <router-link v-for="a in anime" :key="a.id" to="/anime" class="anime-item">
             <img v-if="a.cover" :src="a.cover" class="anime-cover" alt="" loading="lazy" />
@@ -145,6 +146,9 @@ function fmtDate(s) {
 }
 
 .page-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0 0 16px;
   font-size: 24px;
 }
@@ -188,6 +192,9 @@ function fmtDate(s) {
 }
 
 .section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: 0 0 10px;
   font-size: 16px;
 }
@@ -259,6 +266,9 @@ function fmtDate(s) {
 }
 
 .pin-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
   margin-right: 6px;
   font-size: 11px;
   color: var(--accent);

@@ -1,5 +1,7 @@
 <script setup>
 // Markdown 模式工具栏：命令通过 emit 交给编辑页执行（作用于选中文本）
+import AppIcon from './AppIcon.vue'
+
 const emit = defineEmits(['cmd'])
 
 const FONT_SIZES = [12, 14, 16, 18, 20, 24, 32]
@@ -12,22 +14,22 @@ function fire(type, value) {
 
 <template>
   <div class="md-toolbar">
-    <button type="button" class="md-btn" title="加粗" @click="fire('bold')"><b>B</b></button>
-    <button type="button" class="md-btn" title="斜体" @click="fire('italic')"><i>I</i></button>
-    <button type="button" class="md-btn" title="删除线" @click="fire('strike')"><s>S</s></button>
+    <button type="button" class="md-btn" title="加粗" @click="fire('bold')"><AppIcon name="bold" :size="14" /></button>
+    <button type="button" class="md-btn" title="斜体" @click="fire('italic')"><AppIcon name="italic" :size="14" /></button>
+    <button type="button" class="md-btn" title="删除线" @click="fire('strike')"><AppIcon name="strike" :size="14" /></button>
     <span class="md-sep" />
     <button type="button" class="md-btn" title="一级标题" @click="fire('h1')">H1</button>
     <button type="button" class="md-btn" title="二级标题" @click="fire('h2')">H2</button>
     <button type="button" class="md-btn" title="三级标题" @click="fire('h3')">H3</button>
     <span class="md-sep" />
-    <button type="button" class="md-btn" title="行内代码" @click="fire('code')">&lt;/&gt;</button>
-    <button type="button" class="md-btn" title="代码块" @click="fire('code-block')">{ }</button>
-    <button type="button" class="md-btn" title="引用" @click="fire('quote')">❝</button>
-    <button type="button" class="md-btn" title="无序列表" @click="fire('ul')">•</button>
-    <button type="button" class="md-btn" title="有序列表" @click="fire('ol')">1.</button>
+    <button type="button" class="md-btn" title="行内代码" @click="fire('code')"><AppIcon name="code" :size="14" /></button>
+    <button type="button" class="md-btn" title="代码块" @click="fire('code-block')"><AppIcon name="braces" :size="14" /></button>
+    <button type="button" class="md-btn" title="引用" @click="fire('quote')"><AppIcon name="quote" :size="14" /></button>
+    <button type="button" class="md-btn" title="无序列表" @click="fire('ul')"><AppIcon name="list" :size="14" /></button>
+    <button type="button" class="md-btn" title="有序列表" @click="fire('ol')"><AppIcon name="list-ordered" :size="14" /></button>
     <span class="md-sep" />
-    <button type="button" class="md-btn" title="链接" @click="fire('link')">🔗</button>
-    <button type="button" class="md-btn" title="插入图片" @click="fire('image')">🖼️</button>
+    <button type="button" class="md-btn" title="链接" @click="fire('link')"><AppIcon name="link" :size="14" /></button>
+    <button type="button" class="md-btn" title="插入图片" @click="fire('image')"><AppIcon name="image" :size="14" /></button>
     <span class="md-sep" />
     <select class="md-select" title="字号" @change="fire('font-size', $event.target.value)">
       <option value="">字号</option>
@@ -62,6 +64,9 @@ function fire(type, value) {
 }
 
 .md-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   min-width: 26px;
   height: 26px;
   padding: 0 5px;

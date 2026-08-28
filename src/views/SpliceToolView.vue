@@ -2,6 +2,7 @@
 // 图片拼接：把多张图片拼成一张（横向 / 纵向 / 网格）。
 // 纯前端处理：图片不上传；支持点击多选 / 拖拽 / Ctrl+V 粘贴图片。
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import AppIcon from '../components/AppIcon.vue'
 
 const MAX_DIM = 16000 // 浏览器 canvas 尺寸上限（超出给出提示）
 
@@ -218,7 +219,7 @@ function download() {
 
 <template>
   <div class="tool-page">
-    <h1 class="page-title">图片拼接</h1>
+    <h1 class="page-title"><AppIcon name="grid" :size="21" /> 图片拼接</h1>
     <p class="sub">把多张图片拼成一张：横向 / 纵向 / 网格，可设间距与背景。纯前端处理，图片不会上传。</p>
 
     <!-- 上传区 -->
@@ -228,9 +229,9 @@ function download() {
       @dragover.prevent
       @drop.prevent="onDrop"
     >
-      <span class="dz-icon">🖼️</span>
+      <span class="dz-icon"><AppIcon name="image" :size="30" /></span>
       <p class="dz-main">点击选择多张图片，或拖拽到此处，或 <b>Ctrl+V</b> 粘贴</p>
-      <p class="dz-sub">支持 png / jpg / webp 等；按列表顺序拼接，可用 ↑↓ 调整</p>
+      <p class="dz-sub">支持 png / jpg / webp 等；按列表顺序拼接，可用右侧按钮调整顺序</p>
       <input ref="fileInput" type="file" accept="image/*" multiple hidden @change="onPick" />
     </div>
 
@@ -253,9 +254,9 @@ function download() {
                 <p class="img-size">{{ it.w }} × {{ it.h }}</p>
               </div>
               <div class="img-ops">
-                <button class="btn btn-sm" :disabled="i === 0" @click="moveItem(i, -1)">↑</button>
-                <button class="btn btn-sm" :disabled="i === items.length - 1" @click="moveItem(i, 1)">↓</button>
-                <button class="btn btn-sm btn-danger" @click="removeItem(i)">✕</button>
+                <button class="btn btn-sm" :disabled="i === 0" @click="moveItem(i, -1)"><AppIcon name="arrow-up" :size="13" /></button>
+                <button class="btn btn-sm" :disabled="i === items.length - 1" @click="moveItem(i, 1)"><AppIcon name="arrow-down" :size="13" /></button>
+                <button class="btn btn-sm btn-danger" @click="removeItem(i)"><AppIcon name="x" :size="13" /></button>
               </div>
             </li>
           </ul>
@@ -336,6 +337,9 @@ function download() {
 }
 
 .page-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0 0 6px;
   font-size: 24px;
 }
@@ -369,7 +373,10 @@ function download() {
 }
 
 .dz-icon {
-  font-size: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
 }
 
 .dz-main {

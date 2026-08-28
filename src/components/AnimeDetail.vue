@@ -5,6 +5,7 @@ import { titleFor } from '../utils/titles'
 import { lang } from '../composables/useLanguage'
 import { ZH_DESCRIPTIONS } from '../data/zhDescriptions'
 import { ZH_GENRES } from '../data/zhGenres'
+import AppIcon from './AppIcon.vue'
 
 const props = defineProps({
   media: { type: Object, default: null },
@@ -81,7 +82,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     <Transition name="modal" :duration="{ enter: 360, leave: 160 }">
       <div v-if="media" class="modal-overlay" @click.self="emit('close')">
         <div class="modal">
-          <button class="close-btn" @click="emit('close')" aria-label="关闭">✕</button>
+          <button class="close-btn" @click="emit('close')" aria-label="关闭"><AppIcon name="x" :size="14" /></button>
 
           <div class="modal-body">
             <img v-if="media.coverImage?.large" :src="media.coverImage.large" class="cover" alt="封面" />
@@ -95,7 +96,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                 <span v-if="media.status" class="tag">{{ STATUS_LABELS[media.status] || media.status }}</span>
                 <span v-if="media.format" class="tag">{{ FORMAT_LABELS[media.format] || media.format }}</span>
                 <span v-if="media.episodes" class="tag">全 {{ media.episodes }} 话</span>
-                <span v-if="media.averageScore" class="tag score">★ {{ media.averageScore }}</span>
+                <span v-if="media.averageScore" class="tag score"><AppIcon name="star" :size="12" /> {{ media.averageScore }}</span>
                 <span v-if="studio" class="tag">{{ studio }}</span>
                 <span v-for="g in media.genres" :key="g" class="tag genre">{{ genreLabel(g) }}</span>
               </div>
@@ -103,7 +104,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               <div v-if="description" class="desc">{{ description }}</div>
 
               <a v-if="media.siteUrl" class="site-link" :href="media.siteUrl" target="_blank" rel="noreferrer">
-                查看 AniList 详情 ↗
+                查看 AniList 详情 <AppIcon name="external-link" :size="13" />
               </a>
             </div>
           </div>
@@ -156,9 +157,11 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   height: 30px;
   border: none;
   border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: var(--panel-2);
   color: var(--muted);
-  font-size: 14px;
   cursor: pointer;
 }
 
@@ -211,6 +214,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 .tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 12px;
   padding: 2px 8px;
   border-radius: 999px;
@@ -238,7 +244,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 .site-link {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   margin-top: 12px;
   font-size: 13px;
   color: var(--accent);

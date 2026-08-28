@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
 import { useSettings } from '../composables/useSettings'
 import ThemeSelector from './ThemeSelector.vue'
+import AppIcon from './AppIcon.vue'
 
 const { isLoggedIn, isInsider, user, clearSession, exitInsider } = useAuth()
 const settings = useSettings()
@@ -56,13 +57,14 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
       <router-link v-for="l in links" :key="l.to" :to="l.to">{{ l.label }}</router-link>
     </div>
     <form class="nav-search" @submit.prevent="onNavSearch">
+      <span class="nav-search-icon"><AppIcon name="search" :size="13" /></span>
       <input v-model.trim="navQ" placeholder="站内搜索…" title="站内搜索（回车）" />
     </form>
     <div class="user-area">
       <span v-if="isInsider && !isLoggedIn" class="insider-chip" title="内部人员模式（只读）">
         <img src="/insider.webp" class="insider-avatar" alt="" />
-        <span class="insider-label">⋆｡ﾟ☁︎｡⋆｡ ﾟ☾ ﾟ｡⋆</span>
-        <button class="chip-x" aria-label="退出内部模式" @click="exitInsider">✕</button>
+        <span class="insider-label"><AppIcon name="sparkles" :size="11" /> 内部模式</span>
+        <button class="chip-x" aria-label="退出内部模式" @click="exitInsider"><AppIcon name="x" :size="12" /></button>
       </span>
       <template v-if="isLoggedIn">
         <span class="username">{{ WELCOME }}</span>
@@ -138,9 +140,28 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
   font-weight: 600;
 }
 
+.nav-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.nav-search-icon {
+  position: absolute;
+  left: 10px;
+  display: flex;
+  color: var(--muted);
+  pointer-events: none;
+  transition: color var(--dur-ios-1) var(--ease-ios-expo);
+}
+
+.nav-search:focus-within .nav-search-icon {
+  color: var(--accent);
+}
+
 .nav-search input {
   width: 140px;
-  padding: 5px 12px;
+  padding: 5px 12px 5px 28px;
   font-size: 12px;
   color: var(--text);
   background: var(--panel-2);
@@ -191,14 +212,19 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
 }
 
 .insider-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   white-space: nowrap;
 }
 
 .chip-x {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: none;
   color: inherit;
-  font-size: 11px;
   cursor: pointer;
   padding: 0 2px;
   opacity: 0.7;

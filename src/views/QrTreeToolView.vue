@@ -5,6 +5,7 @@
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import * as THREE from 'three'
 import QRCode from 'qrcode-generator'
+import AppIcon from '../components/AppIcon.vue'
 
 const url = ref('https://anihub.example.com')
 const error = ref('')
@@ -403,8 +404,8 @@ onUnmounted(() => {
 
 <template>
   <div class="tool-page">
-    <router-link to="/tools" class="back-link">← 返回工具箱</router-link>
-    <h1 class="page-title">🌳 二维码生成</h1>
+    <router-link to="/tools" class="back-link"><AppIcon name="arrow-left" :size="13" /> 返回工具箱</router-link>
+    <h1 class="page-title"><AppIcon name="tree" :size="21" /> 二维码生成</h1>
     <p class="sub">
       输入 URL，生成 3D 二维码体素树；<strong>点击场景</strong>可在 3D 树和俯视二维码草坪之间切换。纯前端处理。
     </p>
@@ -442,7 +443,9 @@ onUnmounted(() => {
 }
 
 .back-link {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   margin-bottom: 10px;
   font-size: 13px;
   color: var(--muted);
@@ -454,6 +457,9 @@ onUnmounted(() => {
 }
 
 .page-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0 0 6px;
   font-size: 24px;
 }

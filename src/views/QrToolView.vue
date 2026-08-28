@@ -2,6 +2,7 @@
 // 二维码解析：纯前端识别图片中的二维码，提取链接 / 文本
 import { ref } from 'vue'
 import jsQR from 'jsqr'
+import AppIcon from '../components/AppIcon.vue'
 
 const qrFile = ref(null)
 const qrPreview = ref('') // 预览图 dataURL
@@ -110,8 +111,8 @@ function clearQr() {
 
 <template>
   <div class="qr-tool">
-    <router-link to="/tools" class="back-link">← 返回工具箱</router-link>
-    <h1 class="page-title">🔗 二维码解析</h1>
+    <router-link to="/tools" class="back-link"><AppIcon name="arrow-left" :size="13" /> 返回工具箱</router-link>
+    <h1 class="page-title"><AppIcon name="qrcode" :size="21" /> 二维码解析</h1>
     <p class="sub">上传或粘贴二维码图片，提取其中的链接 / 文本。纯前端解析，图片不会上传。</p>
 
     <div
@@ -126,7 +127,7 @@ function clearQr() {
     >
       <img v-if="qrPreview" :src="qrPreview" class="qr-preview" alt="二维码预览" />
       <template v-else>
-        <span class="dz-icon">📷</span>
+        <span class="dz-icon"><AppIcon name="camera" :size="30" /></span>
         <span class="dz-text">点击选择图片<br />或拖拽 / Ctrl+V 粘贴到此处</span>
       </template>
       <span v-if="qrBusy" class="dz-busy">识别中…</span>
@@ -143,11 +144,14 @@ function clearQr() {
     <div v-if="qrResult" class="output-wrap">
       <div class="output-head">
         <span class="output-label">解析结果</span>
-        <button class="btn btn-sm" @click="copyQr">{{ qrCopied ? '已复制 ✓' : '复制' }}</button>
+        <button class="btn btn-sm" @click="copyQr">
+          <AppIcon :name="qrCopied ? 'check' : 'copy'" :size="13" />
+          {{ qrCopied ? '已复制' : '复制' }}
+        </button>
       </div>
       <div class="qr-text">{{ qrResult }}</div>
       <a v-if="isUrl(qrResult)" class="qr-link" :href="qrResult" target="_blank" rel="noopener">
-        打开链接 ↗
+        打开链接 <AppIcon name="external-link" :size="13" />
       </a>
     </div>
   </div>
@@ -161,7 +165,9 @@ function clearQr() {
 }
 
 .back-link {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   margin-bottom: 10px;
   font-size: 13px;
   color: var(--muted);
@@ -173,6 +179,9 @@ function clearQr() {
 }
 
 .page-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0 0 6px;
   font-size: 24px;
 }
@@ -216,7 +225,10 @@ function clearQr() {
 }
 
 .dz-icon {
-  font-size: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
 }
 
 .dz-text {
@@ -280,6 +292,9 @@ function clearQr() {
 }
 
 .qr-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   align-self: flex-start;
   font-size: 13px;
   color: var(--accent);

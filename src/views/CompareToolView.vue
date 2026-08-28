@@ -3,6 +3,7 @@
 // 纯前端：diff 用 jsdiff 的 diffArrays 逐行 LCS；文件/文件夹全部在本地读取，不上传。
 import { computed, nextTick, ref } from 'vue'
 import { diffArrays } from 'diff'
+import AppIcon from '../components/AppIcon.vue'
 
 /* ================ 文本对比 ================ */
 const leftText = ref('')
@@ -227,10 +228,10 @@ async function openFileDiff(item) {
 }
 
 const STATUS_META = {
-  diff: { icon: '⚠️', cls: 'diff', label: '不同' },
-  'left-only': { icon: '←', cls: 'left-only', label: '仅左侧' },
-  'right-only': { icon: '→', cls: 'right-only', label: '仅右侧' },
-  same: { icon: '✓', cls: 'same', label: '相同' },
+  diff: { icon: 'alert', cls: 'diff', label: '不同' },
+  'left-only': { icon: 'arrow-left', cls: 'left-only', label: '仅左侧' },
+  'right-only': { icon: 'arrow-right', cls: 'right-only', label: '仅右侧' },
+  same: { icon: 'check', cls: 'same', label: '相同' },
 }
 
 function humanSize(n) {
@@ -242,12 +243,12 @@ function humanSize(n) {
 
 <template>
   <div class="tool-page">
-    <h1 class="page-title">🆚 文件对比</h1>
+    <h1 class="page-title"><AppIcon name="diff" :size="21" /> 文件对比</h1>
     <p class="sub">文本逐行对比 + 文件夹对比。纯前端处理，文件与文件夹全部在本地读取，不会上传。</p>
 
     <div class="tabs">
-      <button class="btn tab-btn" :class="{ active: tab === 'text' }" @click="tab = 'text'">📄 文本对比</button>
-      <button class="btn tab-btn" :class="{ active: tab === 'folder' }" @click="tab = 'folder'">📁 文件夹对比</button>
+      <button class="btn tab-btn" :class="{ active: tab === 'text' }" @click="tab = 'text'"><AppIcon name="file-text" :size="14" /> 文本对比</button>
+      <button class="btn tab-btn" :class="{ active: tab === 'folder' }" @click="tab = 'folder'"><AppIcon name="folder" :size="14" /> 文件夹对比</button>
     </div>
 
     <!-- ============ 文本对比 ============ -->
@@ -272,15 +273,15 @@ function humanSize(n) {
       </div>
 
       <div class="bar">
-        <button class="btn btn-sm btn-primary" @click="runTextDiff">🔍 对比</button>
-        <button class="btn btn-sm" @click="swapText">⇄ 交换左右</button>
+        <button class="btn btn-sm btn-primary" @click="runTextDiff"><AppIcon name="search" :size="13" /> 对比</button>
+        <button class="btn btn-sm" @click="swapText"><AppIcon name="swap" :size="13" /> 交换左右</button>
         <button class="btn btn-sm" @click="leftText = ''; rightText = ''; rows = []; leftFileName = ''; rightFileName = ''; changeIdx = -1">清空</button>
         <span v-if="rows.length" class="bar-stats">
           {{ stats.changes }} 处差异 · <span class="add">+{{ stats.add }}</span> / <span class="del">-{{ stats.del }}</span> 行
         </span>
         <span v-if="changeRows.length" class="bar-nav">
-          <button class="btn btn-sm" :disabled="changeIdx <= 0" @click="goChange(-1)">▲ 上一个差异</button>
-          <button class="btn btn-sm" :disabled="changeIdx >= changeRows.length - 1" @click="goChange(1)">▼ 下一个差异</button>
+          <button class="btn btn-sm" :disabled="changeIdx <= 0" @click="goChange(-1)"><AppIcon name="chevron-up" :size="13" /> 上一个差异</button>
+          <button class="btn btn-sm" :disabled="changeIdx >= changeRows.length - 1" @click="goChange(1)">下一个差异 <AppIcon name="chevron-down" :size="13" /></button>
           <span class="nav-pos">{{ changeIdx + 1 }} / {{ changeRows.length }}</span>
         </span>
       </div>
@@ -328,10 +329,10 @@ function humanSize(n) {
         <button class="btn btn-sm btn-primary" :disabled="!leftFiles.length && !rightFiles.length" @click="folderFilter = 'all'">刷新对比</button>
         <button class="btn btn-sm" @click="clearFolders">清空</button>
         <span v-if="folderItems.length" class="bar-stats">
-          <span class="f-same">✓ 相同 {{ folderStats.same }}</span> ·
-          <span class="f-diff">⚠ 不同 {{ folderStats.diff }}</span> ·
-          <span class="f-left">← 仅左 {{ folderStats['left-only'] }}</span> ·
-          <span class="f-right">→ 仅右 {{ folderStats['right-only'] }}</span>
+          <span class="f-same"><AppIcon name="check" :size="11" /> 相同 {{ folderStats.same }}</span> ·
+          <span class="f-diff"><AppIcon name="alert" :size="11" /> 不同 {{ folderStats.diff }}</span> ·
+          <span class="f-left"><AppIcon name="arrow-left" :size="11" /> 仅左 {{ folderStats['left-only'] }}</span> ·
+          <span class="f-right"><AppIcon name="arrow-right" :size="11" /> 仅右 {{ folderStats['right-only'] }}</span>
         </span>
       </div>
       <p v-if="folderErr" class="tool-error">{{ folderErr }}</p>
@@ -348,7 +349,7 @@ function humanSize(n) {
 
       <div v-if="filteredItems.length" class="folder-list">
         <button v-for="item in filteredItems" :key="item.rel" class="file-row" :class="STATUS_META[item.status].cls" @click="openFileDiff(item)">
-          <span class="f-icon">{{ STATUS_META[item.status].icon }}</span>
+          <span class="f-icon"><AppIcon :name="STATUS_META[item.status].icon" :size="13" /></span>
           <span class="f-status">{{ STATUS_META[item.status].label }}</span>
           <span class="f-path" :title="item.rel">{{ item.rel }}</span>
           <span class="f-meta">
@@ -370,6 +371,9 @@ function humanSize(n) {
 }
 
 .page-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0 0 6px;
   font-size: 24px;
 }
@@ -556,6 +560,11 @@ function humanSize(n) {
   padding: 24px 0;
 }
 
+.f-same, .f-diff, .f-left, .f-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
 .f-same { color: #9aa5b1; }
 .f-diff { color: #ffa94d; }
 .f-left { color: #66a3ff; }
@@ -610,9 +619,11 @@ function humanSize(n) {
 .file-row.right-only { border-color: color-mix(in srgb, #e599f7 45%, transparent); }
 
 .f-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
   width: 22px;
-  text-align: center;
 }
 
 .f-status {

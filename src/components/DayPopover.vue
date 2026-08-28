@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted } from 'vue'
 import { dayKey, fmtTime, weekdayCN } from '../utils/date'
 import { titleFor } from '../utils/titles'
+import AppIcon from './AppIcon.vue'
 
 const props = defineProps({
   date: { type: Date, required: true },
@@ -38,7 +39,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           <div class="popover-head">
             <h2>{{ dateLabel }}</h2>
             <span class="count">{{ entries.length }} 部</span>
-            <button class="close-btn" @click="emit('close')" aria-label="关闭">✕</button>
+            <button class="close-btn" @click="emit('close')" aria-label="关闭"><AppIcon name="x" :size="13" /></button>
           </div>
           <div class="popover-list">
             <button
@@ -48,7 +49,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               @click="emit('select', e.mediaId)"
             >
               <img v-if="coverOf(e.mediaId)" :src="coverOf(e.mediaId)" class="cover" alt="" />
-              <span v-else class="cover cover-placeholder">🎬</span>
+              <span v-else class="cover cover-placeholder"><AppIcon name="film" :size="15" /></span>
               <span class="row-title">{{ titleOf(e.mediaId) }}</span>
               <span class="row-ep">第{{ e.episode }}话</span>
               <span class="row-time">{{ fmtTime(e.airingAt) }}</span>

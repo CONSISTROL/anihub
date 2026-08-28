@@ -1,5 +1,6 @@
 <script setup>
 import { SEASONS } from '../utils/date'
+import AppIcon from './AppIcon.vue'
 
 defineProps({
   year: { type: Number, required: true },
@@ -12,11 +13,11 @@ const emit = defineEmits(['prev', 'current', 'next'])
 
 <template>
   <div class="season-switcher">
-    <button class="btn" :disabled="loading" @click="emit('prev')">‹ 上一档</button>
+    <button class="btn" :disabled="loading" @click="emit('prev')"><AppIcon name="chevron-left" :size="14" /> 上一档</button>
     <button class="btn season-btn" :disabled="loading" @click="emit('current')" title="回到当前档期">
       {{ year }} {{ SEASONS[season].label }}新番
     </button>
-    <button class="btn" :disabled="loading" @click="emit('next')">下一档 ›</button>
+    <button class="btn" :disabled="loading" @click="emit('next')">下一档 <AppIcon name="chevron-right" :size="14" /></button>
   </div>
 </template>
 

@@ -10,18 +10,18 @@ export const QUALITY = {
 }
 
 const ABILITIES = [
-  { id: 'dmg', icon: '⚔️', name: '攻击强化', desc: '伤害 +25%' },
-  { id: 'atkspd', icon: '🔥', name: '攻速提升', desc: '攻击间隔 -18%' },
-  { id: 'speed', icon: '💨', name: '移速提升', desc: '移动速度 +12%' },
-  { id: 'hp', icon: '❤️', name: '生命强化', desc: '最大生命 +30 并恢复 30' },
-  { id: 'regen', icon: '💚', name: '生命再生', desc: '每秒恢复 1 点生命' },
-  { id: 'multi', icon: '🔱', name: '多重弹幕', desc: '弹体数量 +1' },
-  { id: 'pierce', icon: '🎯', name: '贯穿弹', desc: '子弹可多穿透 1 个敌人' },
-  { id: 'crit', icon: '💥', name: '暴击强化', desc: '暴击率 +12%（2 倍伤害）' },
-  { id: 'dashcd', icon: '⚡', name: '冲刺精通', desc: '冲刺冷却 -20%' },
-  { id: 'magnet', icon: '🧲', name: '磁力核心', desc: '拾取范围 +45%' },
-  { id: 'lifesteal', icon: '🩸', name: '吸血', desc: '击杀回复 2 点生命' },
-  { id: 'orbital', icon: '🌀', name: '环绕刃', desc: '增加 1 把环绕飞刃' },
+  { id: 'dmg', icon: 'sword', name: '攻击强化', desc: '伤害 +25%' },
+  { id: 'atkspd', icon: 'flame', name: '攻速提升', desc: '攻击间隔 -18%' },
+  { id: 'speed', icon: 'wind', name: '移速提升', desc: '移动速度 +12%' },
+  { id: 'hp', icon: 'heart', name: '生命强化', desc: '最大生命 +30 并恢复 30' },
+  { id: 'regen', icon: 'heart-plus', name: '生命再生', desc: '每秒恢复 1 点生命' },
+  { id: 'multi', icon: 'fork', name: '多重弹幕', desc: '弹体数量 +1' },
+  { id: 'pierce', icon: 'crosshair', name: '贯穿弹', desc: '子弹可多穿透 1 个敌人' },
+  { id: 'crit', icon: 'star', name: '暴击强化', desc: '暴击率 +12%（2 倍伤害）' },
+  { id: 'dashcd', icon: 'zap', name: '冲刺精通', desc: '冲刺冷却 -20%' },
+  { id: 'magnet', icon: 'magnet', name: '磁力核心', desc: '拾取范围 +45%' },
+  { id: 'lifesteal', icon: 'droplet', name: '吸血', desc: '击杀回复 2 点生命' },
+  { id: 'orbital', icon: 'orbit', name: '环绕刃', desc: '增加 1 把环绕飞刃' },
 ]
 
 const ARENA = { w: 4800, h: 4800 }
@@ -273,6 +273,8 @@ export class MowGame {
   }
 
   onKeyDown(e) {
+    // 升级选卡界面由页面层处理键盘（←/→ 选择，Enter/空格 确认），引擎不再响应移动/冲刺键
+    if (this.state === 'levelup') return
     const k = e.key.toLowerCase()
     if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(k)) e.preventDefault()
     if (k === ' ' || k === 'shift') {
@@ -795,6 +797,84 @@ export class MowGame {
     }
     this.choices = null
     this.state = 'running'
+  }
+
+  /* ---------- 存档 / 读档 ---------- */
+  snapshot() {
+    const p = { ...this.player }
+    delete p.img
+    return {
+      version: 1,
+      state: this.state,
+      spawnRate: this.spawnRate,
+      time: this.time,
+      kills: this.kills,
+      score: this.score,
+      combo: this.combo,
+      comboT: this.comboT,
+      level: this.level,
+      xp: this.xp,
+      xpNext: this.xpNext,
+      spawnT: this.spawnT,
+      eliteT: this.eliteT,
+      bossT: this.bossT,
+      player: p,
+      enemies: this.enemies.map((e) => ({ ...e })),
+      bullets: this.bullets.map((b) => ({ ...b, hit: [] })),
+      enemyBullets: this.enemyBullets.map((b) => ({ ...b })),
+      items: this.items.map((i) => ({
+        x: i.x, y: i.y, quality: i.quality, color: i.color,
+        zone: i.zone, effectId: i.effectId, text: i.text,
+      })),
+      gems: this.gems.map((g) => ({ ...g })),
+      resources: this.resources.map((r) => ({ ...r })),
+      boss: this.boss ? { ...this.boss } : null,
+      choices: this.choices ? this.choices.map((c) => ({ ...c })) : null,
+    }
+  }
+
+  loadSnapshot(data) {
+    if (!data) return
+    // 从存档恢复时统一先进入暂停态；调用方再通过 start()/pause(false) 继续
+    this.state = data.state === 'levelup' ? 'levelup' : 'paused'
+    this.choices = data.screen === 'levelup' && Array.isArray(data.choices) ? data.choices.map((c) => ({ ...c })) : null
+    this.spawnRate = clamp(Number(data.spawnRate) || 1, 0.25, 4)
+    this.time = Number(data.time) || 0
+    this.kills = Number(data.kills) || 0
+    this.score = Number(data.score) || 0
+    this.combo = Number(data.combo) || 0
+    this.comboT = Number(data.comboT) || 0
+    this.level = Number(data.level) || 1
+    this.xp = Number(data.xp) || 0
+    this.xpNext = Number(data.xpNext) || 20
+    this.spawnT = Number.isFinite(data.spawnT) ? data.spawnT : 0.4
+    this.eliteT = Number.isFinite(data.eliteT) ? data.eliteT : 16
+    this.bossT = Number.isFinite(data.bossT) ? data.bossT : 45
+
+    const p = { ...this.player, ...(data.player || {}) }
+    delete p.img
+    p.img = this.pImg
+    this.player = p
+
+    this.enemies = Array.isArray(data.enemies) ? data.enemies.map((e) => ({ ...e })) : []
+    this.bullets = Array.isArray(data.bullets) ? data.bullets.map((b) => ({ ...b, hit: new Set() })) : []
+    this.enemyBullets = Array.isArray(data.enemyBullets) ? data.enemyBullets.map((b) => ({ ...b })) : []
+    this.items = Array.isArray(data.items) ? data.items.map((i) => ({
+      ...i,
+      bobT: Math.random() * 6,
+      fn: null,
+    })) : []
+    this.gems = Array.isArray(data.gems) ? data.gems.map((g) => ({ ...g })) : []
+    this.resources = Array.isArray(data.resources) ? data.resources.map((r) => ({ ...r })) : this.resources
+    this.boss = data.boss ? { ...data.boss } : null
+
+    this.particles = []
+    this.banner = null
+    this.transition = 0
+    this.shake = 0
+    this.dashKey = false
+    this.keys.clear()
+    this.currentZone = zoneAt(this.player.x, this.player.y)
   }
 
   spawnItem(x, y, quality, zoneId) {
@@ -1654,6 +1734,74 @@ export class MowGame {
     ctx.fillRect(0, 0, this.view.w, this.view.h)
   }
 
+  // 右侧 HUD：线性小图标 + 数字（替代 emoji，与全站 SF Symbols 风格一致）
+  hudLine(ctx, icon, text, x, y, color = 'rgba(226,232,240,0.85)') {
+    ctx.font = 'bold 14px sans-serif'
+    ctx.textAlign = 'right'
+    ctx.textBaseline = 'middle'
+    ctx.fillStyle = color
+    ctx.fillText(text, x, y)
+    const tw = ctx.measureText(text).width
+    this.hudIcon(ctx, icon, x - tw - 18, y, color)
+  }
+
+  hudIcon(ctx, icon, cx, cy, color) {
+    ctx.save()
+    ctx.strokeStyle = color
+    ctx.fillStyle = color
+    ctx.lineWidth = 1.6
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.translate(cx, cy)
+    ctx.beginPath()
+    switch (icon) {
+      case 'clock':
+        ctx.arc(0, 0, 6.5, 0, Math.PI * 2)
+        ctx.moveTo(0, 0)
+        ctx.lineTo(0, -4)
+        ctx.moveTo(0, 0)
+        ctx.lineTo(3, 1.5)
+        break
+      case 'skull':
+        ctx.arc(0, -1, 6, 0, Math.PI * 2)
+        ctx.moveTo(-4, 6)
+        ctx.lineTo(4, 6)
+        ctx.moveTo(-2, 6)
+        ctx.lineTo(-2, 8)
+        ctx.moveTo(2, 6)
+        ctx.lineTo(2, 8)
+        ctx.moveTo(-2.5, -1.5)
+        ctx.lineTo(-1.5, -1.5)
+        ctx.moveTo(1.5, -1.5)
+        ctx.lineTo(2.5, -1.5)
+        break
+      case 'star': {
+        for (let i = 0; i < 10; i++) {
+          const r = i % 2 === 0 ? 7 : 3
+          const a = -Math.PI / 2 + (i * Math.PI) / 5
+          const px = Math.cos(a) * r
+          const py = Math.sin(a) * r
+          if (i === 0) ctx.moveTo(px, py)
+          else ctx.lineTo(px, py)
+        }
+        ctx.closePath()
+        break
+      }
+      case 'flame':
+        ctx.moveTo(0, 7)
+        ctx.bezierCurveTo(-6, 3, -5, -3, 0, -6)
+        ctx.bezierCurveTo(5, -3, 6, 3, 0, 7)
+        ctx.moveTo(0, 7)
+        ctx.bezierCurveTo(-2.5, 4.5, -2, 1.5, 0, -1)
+        ctx.bezierCurveTo(2, 1.5, 2.5, 4.5, 0, 7)
+        break
+      default:
+        break
+    }
+    ctx.stroke()
+    ctx.restore()
+  }
+
   drawHud(ctx) {
     const { w } = this.view
     const p = this.player
@@ -1667,15 +1815,11 @@ export class MowGame {
     ctx.fillText(`${Math.ceil(p.hp)}/${p.maxHp}`, 126, 23)
     if (p.shield > 0) this.bar(ctx, 16, 34, 140, 8, p.shield / 150, '#fbbf24', '#78350f')
     this.bar(ctx, 16, 52, 220, 10, this.xp / this.xpNext, '#22d3ee', '#0e7490')
-    ctx.fillStyle = 'rgba(226,232,240,0.85)'
-    ctx.font = 'bold 14px sans-serif'
-    ctx.textAlign = 'right'
-    ctx.fillText(`⏱ ${Math.floor(this.time)}s`, w - 16, 22)
-    ctx.fillText(`💀 ${this.kills}`, w - 16, 44)
-    ctx.fillText(`⭐ ${this.score}`, w - 16, 66)
+    this.hudLine(ctx, 'clock', `${Math.floor(this.time)}s`, w - 16, 22)
+    this.hudLine(ctx, 'skull', `${this.kills}`, w - 16, 44)
+    this.hudLine(ctx, 'star', `${this.score}`, w - 16, 66)
     if (this.combo > 1) {
-      ctx.fillStyle = this.combo >= 20 ? '#fbbf24' : '#7dd3fc'
-      ctx.fillText(`🔥 x${this.combo}`, w - 16, 88)
+      this.hudLine(ctx, 'flame', `x${this.combo}`, w - 16, 88, this.combo >= 20 ? '#fbbf24' : '#7dd3fc')
     }
     ctx.restore()
   }

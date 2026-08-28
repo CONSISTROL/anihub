@@ -10,6 +10,7 @@ import MarkdownView from '../components/MarkdownView.vue'
 import RichTextEditor from '../components/RichTextEditor.vue'
 import MdToolbar from '../components/MdToolbar.vue'
 import HtmlDocView from '../components/HtmlDocView.vue'
+import AppIcon from '../components/AppIcon.vue'
 import { marked } from 'marked'
 import TurndownService from 'turndown'
 
@@ -272,7 +273,7 @@ async function onSubmit() {
 
 <template>
   <div class="edit-page">
-    <h1 class="page-title">{{ isEdit ? '编辑' : '新建' }}{{ category === 'blog' ? '文章' : 'Wiki 条目' }}</h1>
+    <h1 class="page-title"><AppIcon name="pen" :size="22" /> {{ isEdit ? '编辑' : '新建' }}{{ category === 'blog' ? '文章' : 'Wiki 条目' }}</h1>
     <p v-if="error" class="edit-error">{{ error }}</p>
     <p v-if="loading" class="edit-hint">加载中…</p>
 
@@ -390,6 +391,9 @@ async function onSubmit() {
 }
 
 .page-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0 0 18px;
   font-size: 24px;
 }

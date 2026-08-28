@@ -8,6 +8,7 @@ import { useAuth } from '../composables/useAuth'
 import MarkdownView from './MarkdownView.vue'
 import RichTextView from './RichTextView.vue'
 import HtmlDocView from './HtmlDocView.vue'
+import AppIcon from './AppIcon.vue'
 
 const props = defineProps({
   category: { type: String, required: true },
@@ -331,7 +332,7 @@ onMounted(() => window.addEventListener('message', onMessage))
           :aria-label="sideOpen ? '收起侧栏' : '展开侧栏'"
           @click="sideOpen = !sideOpen"
         >
-          {{ sideOpen ? '✕' : '☰' }}
+          <AppIcon :name="sideOpen ? 'x' : 'menu'" :size="15" />
         </button>
         <transition name="side">
           <aside v-show="sideOpen" class="wiki-side">

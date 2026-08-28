@@ -3,6 +3,7 @@
 import { ref, watch } from 'vue'
 import { listPosts, pinPost } from '../api/posts'
 import { useAuth } from '../composables/useAuth'
+import AppIcon from './AppIcon.vue'
 
 const props = defineProps({
   category: { type: String, required: true }, // 'blog' | 'wiki'
@@ -74,9 +75,10 @@ const VIS_LABEL = { insider: '仅内部可见', private: '仅管理员可见' }
     <div class="toolbar">
       <form class="search" @submit.prevent="onSearch">
         <input v-model.trim="q" placeholder="搜索标题 / 内容 / 标签…" />
-        <button class="btn" type="submit">搜索</button>
+        <button class="btn" type="submit"><AppIcon name="search" :size="13" /> 搜索</button>
       </form>
       <router-link v-if="isLoggedIn" :to="`/${category}/new`" class="btn btn-primary">
+        <AppIcon name="plus" :size="13" :stroke-width="2" />
         新建{{ category === 'blog' ? '文章' : '条目' }}
       </router-link>
     </div>
@@ -97,7 +99,7 @@ const VIS_LABEL = { insider: '仅内部可见', private: '仅管理员可见' }
           <router-link :to="`/${category}/${p.slug}`" class="post-body">
             <div class="post-main">
               <h3 class="post-title">
-                <span v-if="p.pinned" class="pin-badge">📌 公告</span>
+                <span v-if="p.pinned" class="pin-badge"><AppIcon name="pin" :size="12" /> 公告</span>
                 {{ p.title }}
               </h3>
               <p v-if="p.summary" class="post-summary">{{ p.summary }}</p>
@@ -108,7 +110,7 @@ const VIS_LABEL = { insider: '仅内部可见', private: '仅管理员可见' }
                 <span v-for="t in p.tags" :key="t" class="post-tag">#{{ t }}</span>
               </div>
             </div>
-            <span class="post-go">→</span>
+            <span class="post-go"><AppIcon name="chevron-right" :size="17" /></span>
           </router-link>
           <div v-if="isLoggedIn && category === 'blog'" class="post-actions">
             <button class="btn btn-sm" :disabled="pinningId === p.id" @click="togglePin(p)">
@@ -120,9 +122,9 @@ const VIS_LABEL = { insider: '仅内部可见', private: '仅管理员可见' }
     </template>
 
     <div v-if="totalPages() > 1" class="pager">
-      <button class="btn" :disabled="page <= 1" @click="page--; load()">‹ 上一页</button>
+      <button class="btn" :disabled="page <= 1" @click="page--; load()"><AppIcon name="chevron-left" :size="13" /> 上一页</button>
       <span class="pager-info">{{ page }} / {{ totalPages() }} · 共 {{ total }} 篇</span>
-      <button class="btn" :disabled="page >= totalPages()" @click="page++; load()">下一页 ›</button>
+      <button class="btn" :disabled="page >= totalPages()" @click="page++; load()">下一页 <AppIcon name="chevron-right" :size="13" /></button>
     </div>
   </div>
 </template>
@@ -249,14 +251,16 @@ const VIS_LABEL = { insider: '仅内部可见', private: '仅管理员可见' }
 }
 
 .pin-badge {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   margin-right: 6px;
   font-size: 11px;
   color: var(--accent);
   border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
   border-radius: 4px;
-  padding: 0 6px;
+  padding: 1px 6px;
   vertical-align: 2px;
 }
 
@@ -291,8 +295,9 @@ const VIS_LABEL = { insider: '仅内部可见', private: '仅管理员可见' }
 }
 
 .post-go {
+  display: flex;
+  align-items: center;
   color: var(--accent);
-  font-size: 16px;
 }
 
 .post-actions {

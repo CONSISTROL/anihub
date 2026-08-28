@@ -4,6 +4,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { getSettings, updateSettings, getMonitor, getMonitorHistory, getWallpapersManage, saveWallpaperSelection } from '../api/settings'
 import { useSettings } from '../composables/useSettings'
 import LineChart from '../components/LineChart.vue'
+import AppIcon from '../components/AppIcon.vue'
 
 const settings = useSettings()
 
@@ -269,7 +270,7 @@ onUnmounted(() => {
 
 <template>
   <div class="settings-page">
-    <h1 class="page-title">设置</h1>
+    <h1 class="page-title"><AppIcon name="gear" :size="22" /> 设置</h1>
     <p class="sub">页面访问权限：配置不同身份的可见范围（游客 &lt; 内部人员 &lt; 管理员）</p>
 
     <p v-if="error" class="settings-error">{{ error }}</p>
@@ -336,7 +337,7 @@ onUnmounted(() => {
             @click="toggleWp(img)"
           >
             <img :src="img.url" :alt="img.name" loading="lazy" />
-            <span class="wp-check">{{ img.selected ? '✓' : '' }}</span>
+            <span class="wp-check"><AppIcon v-if="img.selected" name="check" :size="12" :stroke-width="2.4" /></span>
             <span class="wp-name">{{ img.name }}</span>
           </div>
           <p v-if="!wpImages.length" class="settings-hint">壁纸目录为空（public/wallpapers/ 或 WALLPAPER_DIR）</p>
@@ -487,6 +488,9 @@ onUnmounted(() => {
 }
 
 .page-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0 0 6px;
   font-size: 24px;
 }
@@ -592,14 +596,14 @@ onUnmounted(() => {
   position: absolute;
   top: 6px;
   right: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 20px;
   height: 20px;
   border-radius: 50%;
   background: var(--accent);
   color: #fff;
-  font-size: 12px;
-  line-height: 20px;
-  text-align: center;
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.35);
   animation: ios-pop-in var(--dur-ios-2) var(--ease-ios-spring) both;
 }

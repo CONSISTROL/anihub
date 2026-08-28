@@ -4,6 +4,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useAuth } from '../composables/useAuth'
 import { useSettings } from '../composables/useSettings'
 import { getAnnouncement } from '../api/posts'
+import AppIcon from '../components/AppIcon.vue'
 
 const { isLoggedIn, isInsider } = useAuth()
 const settings = useSettings()
@@ -64,7 +65,7 @@ const visibleSections = computed(() =>
     </section>
 
     <section v-if="announcement" class="announcement">
-      <span class="ann-label">📢 公告</span>
+      <span class="ann-label"><AppIcon name="megaphone" :size="15" /> 公告</span>
       <router-link :to="`/${announcement.category}/${announcement.slug}`" class="ann-body">
         <span class="ann-title">{{ announcement.title }}</span>
         <span v-if="announcement.summary" class="ann-summary">{{ announcement.summary }}</span>
@@ -81,7 +82,7 @@ const visibleSections = computed(() =>
       >
         <img :src="s.img" class="card-img" :alt="s.title" loading="lazy" />
         <h2 class="card-title">{{ s.title }}</h2>
-        <span class="card-go">进入 →</span>
+        <span class="card-go">进入 <AppIcon name="arrow-right" :size="14" /></span>
       </router-link>
     </section>
   </div>
@@ -124,6 +125,9 @@ const visibleSections = computed(() =>
 }
 
 .ann-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 13px;
   font-weight: 700;
   color: var(--accent);
@@ -213,6 +217,9 @@ const visibleSections = computed(() =>
 }
 
 .card-go {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 13px;
   color: var(--accent);
   font-weight: 600;

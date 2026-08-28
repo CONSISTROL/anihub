@@ -8,6 +8,7 @@
 // 自动行为：待机呼吸、随机眨眼/张望、偶尔思考/扫地、沿底部散步一段。
 // 可见性由设置页「桌宠」权限控制（默认内部人员可见，游客需管理员开放）。
 import { onMounted, onUnmounted, ref } from 'vue'
+import AppIcon from './AppIcon.vue'
 
 const B = (p) => `/pet/${p}`
 
@@ -214,7 +215,7 @@ function finishWalk() {
     clearTimeout(foodTimer)
     foodX.value = null
     playHold('happy')
-    say('好吃！🐟 谢谢～')
+    say('好吃！谢谢～')
   } else {
     play('walkStop')
   }
@@ -425,15 +426,15 @@ onUnmounted(() => {
   </div>
 
   <!-- 食物（喂食） -->
-  <div v-if="!hidden && foodX !== null" class="mascot-food" :style="{ left: foodX + 'px' }">🐟</div>
+  <div v-if="!hidden && foodX !== null" class="mascot-food" :style="{ left: foodX + 'px' }"><AppIcon name="fish" :size="22" /></div>
 
   <!-- 右键菜单 -->
   <div v-if="!hidden && menuOpen" class="mascot-menu" :style="{ left: menuX + 'px', top: menuY + 'px' }">
-    <button type="button" @click="menuAction('feed')">🐟 喂食</button>
-    <button type="button" @click="menuAction('play')">✨ 逗一逗</button>
-    <button type="button" @click="menuAction('home')">🏠 回到角落</button>
-    <button type="button" @click="menuAction('bubble')">💬 状态气泡：{{ bubbleOn ? '开' : '关' }}</button>
-    <button type="button" @click="menuAction('hide')">🙈 隐藏（本次会话）</button>
+    <button type="button" @click="menuAction('feed')"><AppIcon name="fish" :size="14" /> 喂食</button>
+    <button type="button" @click="menuAction('play')"><AppIcon name="sparkles" :size="14" /> 逗一逗</button>
+    <button type="button" @click="menuAction('home')"><AppIcon name="house" :size="14" /> 回到角落</button>
+    <button type="button" @click="menuAction('bubble')"><AppIcon name="message" :size="14" /> 状态气泡：{{ bubbleOn ? '开' : '关' }}</button>
+    <button type="button" @click="menuAction('hide')"><AppIcon name="eye-off" :size="14" /> 隐藏（本次会话）</button>
   </div>
 </template>
 
@@ -500,8 +501,7 @@ onUnmounted(() => {
   position: fixed;
   bottom: 14px;
   z-index: 54;
-  font-size: 44px;
-  line-height: 1;
+  color: var(--accent);
   pointer-events: none;
   animation: food-drop 0.5s ease-out;
   filter: drop-shadow(0 3px 6px rgb(0 0 0 / 0.25));
@@ -537,6 +537,9 @@ onUnmounted(() => {
 }
 
 .mascot-menu button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   padding: 7px 10px;
   font-size: 13px;
   text-align: left;

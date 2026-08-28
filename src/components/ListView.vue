@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { dayKey, fmtTime, weekdayCN } from '../utils/date'
 import { titleFor } from '../utils/titles'
+import AppIcon from './AppIcon.vue'
 
 const props = defineProps({
   month: { type: Object, required: true }, // { y, m }
@@ -62,7 +63,7 @@ function weekdayOf(key) {
           @click="emit('select', e.mediaId)"
         >
           <img v-if="coverOf(e.mediaId)" :src="coverOf(e.mediaId)" class="cover" alt="" />
-          <span v-else class="cover cover-placeholder">🎬</span>
+          <span v-else class="cover cover-placeholder"><AppIcon name="film" :size="15" /></span>
           <span class="row-title">{{ titleOf(e.mediaId) }}</span>
           <span class="row-ep">第{{ e.episode }}话</span>
           <span class="row-time">{{ fmtTime(e.airingAt) }}</span>

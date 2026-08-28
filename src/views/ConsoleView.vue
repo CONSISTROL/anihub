@@ -5,6 +5,7 @@
 import { ref } from 'vue'
 import ConsoleTerminal from '../components/ConsoleTerminal.vue'
 import FileManager from '../components/FileManager.vue'
+import AppIcon from '../components/AppIcon.vue'
 
 // 供 <KeepAlive> 按组件名缓存，离开控制台再回来时保留终端会话和文件管理器状态
 defineOptions({ name: 'ConsoleView' })
@@ -47,15 +48,15 @@ function openFiles() {
         @mousedown.prevent
       >
         {{ t.title }}
-        <span v-if="tabs.length > 1" class="tab-close" title="关闭" @click.stop="closeTab(t.id)">✕</span>
+        <span v-if="tabs.length > 1" class="tab-close" title="关闭" @click.stop="closeTab(t.id)"><AppIcon name="x" :size="11" :stroke-width="2" /></span>
       </button>
-      <button class="tab tab-add" title="新建终端" @click="addTab">＋</button>
+      <button class="tab tab-add" title="新建终端" @click="addTab"><AppIcon name="plus" :size="14" :stroke-width="2" /></button>
       <button
         class="tab file-tab"
         :class="{ active: mode === 'files' }"
         title="文件管理"
         @click="openFiles"
-      >📁 文件管理</button>
+      ><AppIcon name="folder" :size="14" /> 文件管理</button>
     </div>
 
     <!-- v-show 而非 v-if：切换视图时终端组件保持挂载，会话不被释放 -->
@@ -95,6 +96,9 @@ function openFiles() {
 }
 
 .tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 6px 14px;
   background: transparent;
   border: 1px solid transparent;
@@ -119,9 +123,10 @@ function openFiles() {
 }
 
 .tab-close {
+  display: inline-flex;
+  align-items: center;
   margin-left: 8px;
   color: #6e7681;
-  font-size: 11px;
 }
 
 .tab-close:hover {

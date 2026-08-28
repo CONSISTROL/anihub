@@ -8,6 +8,7 @@ import SeasonSwitcher from '../components/SeasonSwitcher.vue'
 import LanguageSelector from '../components/LanguageSelector.vue'
 import AnimeBackground from '../components/AnimeBackground.vue'
 import AnimeDetail from '../components/AnimeDetail.vue'
+import AppIcon from '../components/AppIcon.vue'
 import { useSeason } from '../composables/useSeason'
 import { titleFor } from '../utils/titles'
 import { addDays, mondayOf, weekBounds, weekRangeLabel } from '../utils/date'
@@ -76,7 +77,7 @@ const selectedEpisodes = computed(() =>
   <div class="app">
     <AnimeBackground :media-map="mediaMap" />
     <header class="header">
-      <h1 class="logo">🗓️ Anime</h1>
+      <h1 class="logo"><AppIcon name="calendar" :size="24" /> Anime</h1>
       <div class="header-actions">
         <SeasonSwitcher
           :year="year"
@@ -106,7 +107,7 @@ const selectedEpisodes = computed(() =>
           class="btn"
           :disabled="view === 'week' ? !canPrevWeek : !canPrevMonth"
           @click="view === 'week' ? goWeek(-1) : goMonth(-1)"
-        >‹</button>
+        ><AppIcon name="chevron-left" :size="15" /></button>
         <span class="month-label">
           {{ view === 'week' ? weekLabel : `${month.y}年${month.m + 1}月` }}
         </span>
@@ -114,7 +115,7 @@ const selectedEpisodes = computed(() =>
           class="btn"
           :disabled="view === 'week' ? !canNextWeek : !canNextMonth"
           @click="view === 'week' ? goWeek(1) : goMonth(1)"
-        >›</button>
+        ><AppIcon name="chevron-right" :size="15" /></button>
         <span class="month-count">{{ schedules.length }} 条放送记录</span>
         <div class="view-toggle">
           <button
@@ -204,6 +205,9 @@ const selectedEpisodes = computed(() =>
 }
 
 .logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0;
   font-size: 22px;
 }

@@ -1,6 +1,7 @@
 <script setup>
 // 一键回到顶部：页面滚动超过阈值后右下角显示圆形按钮，点击平滑回到顶部
 import { onMounted, onUnmounted, ref } from 'vue'
+import AppIcon from './AppIcon.vue'
 
 const SHOW_AFTER = 300 // 滚动超过该距离（px）才显示
 const visible = ref(false)
@@ -29,7 +30,7 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
       aria-label="回到顶部"
       @click="toTop"
     >
-      ↑
+      <AppIcon name="arrow-up" :size="17" :stroke-width="1.9" />
     </button>
   </Transition>
 </template>
@@ -42,12 +43,13 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
   z-index: 60; /* 低于登录弹窗（100），高于导航栏（50） */
   width: 42px;
   height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: 1px solid var(--border);
   border-radius: 50%;
   background: var(--panel);
   color: var(--text);
-  font-size: 18px;
-  line-height: 1;
   cursor: pointer;
   box-shadow: 0 4px 14px rgb(0 0 0 / 0.18);
   backdrop-filter: blur(6px);

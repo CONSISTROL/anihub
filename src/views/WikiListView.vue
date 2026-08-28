@@ -1,11 +1,12 @@
 <script setup>
 // Wiki 条目列表页
 import PostList from '../components/PostList.vue'
+import AppIcon from '../components/AppIcon.vue'
 </script>
 
 <template>
   <div class="page">
-    <h1 class="page-title">📚 Wiki</h1>
+    <h1 class="page-title"><AppIcon name="book-open" :size="22" /> Wiki</h1>
     <PostList category="wiki" />
   </div>
 </template>
@@ -19,6 +20,9 @@ import PostList from '../components/PostList.vue'
 }
 
 .page-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0 0 18px;
   font-size: 24px;
 }
