@@ -27,7 +27,12 @@ function repairMermaid(src) {
     .replace(/<p><\/pre><\/p>/gi, '')
 }
 
-const height = ref(600)
+// 初始高度尽量占满当前视口剩余空间，避免加载期间 body 下方出现随分辨率变化的空白；
+// 加载完成后会被 iframe 上报的真实内容高度替换。
+const navHeight = typeof document !== 'undefined'
+  ? (document.querySelector('.navbar')?.getBoundingClientRect().height || 54)
+  : 54
+const height = ref(typeof window !== 'undefined' ? Math.max(600, window.innerHeight - navHeight) : 600)
 const frameEl = ref(null)
 // 完整文档用 iframe 独立渲染，可能包含外部 CDN / 脚本，加载耗时较长；
 // 在 iframe 内容真正可用前显示加载占位，避免看起来像“白屏/没反应”。
