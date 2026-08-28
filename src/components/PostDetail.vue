@@ -564,10 +564,14 @@ onMounted(() => window.addEventListener('message', onMessage))
   font-size: 13px;
   line-height: 1.45;
   word-break: break-all;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition:
+    background-color var(--dur-ios-1) var(--ease-ios-expo),
+    color var(--dur-ios-1) var(--ease-ios-expo),
+    transform var(--dur-ios-1) var(--ease-ios-spring);
 }
 
 .side-toc a:hover {
+  transform: translateX(2px);
   background: var(--panel);
   color: var(--accent);
 }
@@ -658,9 +662,12 @@ onMounted(() => window.addEventListener('message', onMessage))
   display: none;
 }
 
-.side-enter-active,
+.side-enter-active {
+  transition: transform var(--dur-ios-3) var(--ease-ios-expo);
+}
+
 .side-leave-active {
-  transition: transform 0.25s ease;
+  transition: transform var(--dur-ios-2) var(--ease-ios);
 }
 
 .side-enter-from,

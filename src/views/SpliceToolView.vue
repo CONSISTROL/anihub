@@ -352,8 +352,15 @@ function download() {
   padding: 30px 20px;
   text-align: center;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
+  transition:
+    border-color var(--dur-ios-2) var(--ease-ios-expo),
+    background-color var(--dur-ios-2) var(--ease-ios-expo),
+    box-shadow var(--dur-ios-2) var(--ease-ios-expo);
   background: var(--panel);
+}
+
+.drop-zone:hover {
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 .drop-zone:hover {

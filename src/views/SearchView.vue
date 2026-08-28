@@ -168,6 +168,7 @@ function fmtDate(s) {
 
 .search-bar input:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 .search-error {
@@ -209,12 +210,36 @@ function fmtDate(s) {
   border-radius: 10px;
   text-decoration: none;
   color: var(--text);
-  transition: border-color 0.15s, transform 0.15s;
+  transition:
+    transform var(--dur-ios-2) var(--ease-ios-spring),
+    border-color var(--dur-ios-1) var(--ease-ios-expo),
+    box-shadow var(--dur-ios-2) var(--ease-ios-expo);
+  animation: ios-rise-in var(--dur-ios-3) var(--ease-ios-expo) backwards;
+}
+
+.result-section .result-item:nth-child(2) {
+  animation-delay: 60ms;
+}
+.result-section .result-item:nth-child(3) {
+  animation-delay: 110ms;
+}
+.result-section .result-item:nth-child(4) {
+  animation-delay: 160ms;
+}
+.result-section .result-item:nth-child(n + 5) {
+  animation-delay: 210ms;
 }
 
 .result-item:hover {
   border-color: var(--accent);
-  transform: translateX(3px);
+  transform: translateX(4px);
+  box-shadow: 0 8px 22px rgb(0 0 0 / 0.1);
+}
+
+.result-item:active {
+  transform: translateX(2px) scale(0.995);
+  transition-duration: 70ms;
+  transition-timing-function: var(--ease-ios);
 }
 
 .result-main {
@@ -269,12 +294,33 @@ function fmtDate(s) {
   border-radius: 10px;
   text-decoration: none;
   color: var(--text);
-  transition: border-color 0.15s, transform 0.15s;
+  transition:
+    transform var(--dur-ios-2) var(--ease-ios-spring),
+    border-color var(--dur-ios-1) var(--ease-ios-expo),
+    box-shadow var(--dur-ios-2) var(--ease-ios-expo);
+  animation: ios-rise-in var(--dur-ios-3) var(--ease-ios-expo) backwards;
+}
+
+.anime-grid .anime-item:nth-child(1) {
+  animation-delay: 40ms;
+}
+.anime-grid .anime-item:nth-child(2) {
+  animation-delay: 90ms;
+}
+.anime-grid .anime-item:nth-child(3) {
+  animation-delay: 140ms;
+}
+.anime-grid .anime-item:nth-child(4) {
+  animation-delay: 190ms;
+}
+.anime-grid .anime-item:nth-child(n + 5) {
+  animation-delay: 240ms;
 }
 
 .anime-item:hover {
   border-color: var(--accent);
-  transform: translateY(-2px);
+  transform: translateY(-3px) scale(1.01);
+  box-shadow: 0 8px 22px rgb(0 0 0 / 0.1);
 }
 
 .anime-cover {

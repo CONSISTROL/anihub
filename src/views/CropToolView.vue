@@ -869,7 +869,14 @@ function clearAll() {
   border-radius: 12px;
   cursor: pointer;
   text-align: center;
-  transition: border-color 0.15s, background 0.15s;
+  transition:
+    border-color var(--dur-ios-2) var(--ease-ios-expo),
+    background-color var(--dur-ios-2) var(--ease-ios-expo),
+    box-shadow var(--dur-ios-2) var(--ease-ios-expo);
+}
+
+.dropzone:hover {
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 .dropzone:hover {
@@ -1064,7 +1071,9 @@ function clearAll() {
   cursor: pointer;
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.3);
   opacity: 0;
-  transition: opacity 0.12s;
+  transition:
+    opacity var(--dur-ios-1) var(--ease-ios-expo),
+    transform var(--dur-ios-1) var(--ease-ios-spring);
 }
 
 .line.v .line-x {

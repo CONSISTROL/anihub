@@ -72,7 +72,13 @@ const visibleSections = computed(() =>
     </section>
 
     <section class="cards">
-      <router-link v-for="s in visibleSections" :key="s.to" :to="s.to" class="card">
+      <router-link
+        v-for="(s, i) in visibleSections"
+        :key="s.to"
+        :to="s.to"
+        class="card"
+        :style="{ '--i': i }"
+      >
         <img :src="s.img" class="card-img" :alt="s.title" loading="lazy" />
         <h2 class="card-title">{{ s.title }}</h2>
         <span class="card-go">进入 →</span>
@@ -101,6 +107,7 @@ const visibleSections = computed(() =>
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  animation: ios-rise-in var(--dur-ios-3) var(--ease-ios-expo) both;
 }
 
 .announcement {
@@ -113,6 +120,7 @@ const visibleSections = computed(() =>
   border: 1px solid var(--border);
   border-left: 4px solid var(--accent);
   border-radius: 12px;
+  animation: ios-rise-in var(--dur-ios-3) var(--ease-ios-expo) 70ms both;
 }
 
 .ann-label {
@@ -134,6 +142,7 @@ const visibleSections = computed(() =>
 .ann-title {
   font-size: 15px;
   font-weight: 600;
+  transition: color var(--dur-ios-1) var(--ease-ios-expo);
 }
 
 .ann-title:hover {
@@ -165,13 +174,25 @@ const visibleSections = computed(() =>
   border-radius: 14px;
   text-decoration: none;
   color: var(--text);
-  transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+  transition:
+    transform var(--dur-ios-2) var(--ease-ios-spring),
+    border-color var(--dur-ios-2) var(--ease-ios-expo),
+    box-shadow var(--dur-ios-2) var(--ease-ios-expo);
+  animation: ios-rise-in var(--dur-ios-3) var(--ease-ios-expo)
+    calc(140ms + var(--i, 0) * 70ms) backwards;
+  will-change: transform;
 }
 
 .card:hover {
-  transform: translateY(-3px);
+  transform: translateY(-4px) scale(1.012);
   border-color: var(--accent);
-  box-shadow: 0 10px 30px rgb(0 0 0 / 0.12);
+  box-shadow: 0 14px 36px rgb(0 0 0 / 0.14);
+}
+
+.card:active {
+  transform: translateY(-1px) scale(0.985);
+  transition-duration: 70ms;
+  transition-timing-function: var(--ease-ios);
 }
 
 .card-img {
@@ -179,6 +200,11 @@ const visibleSections = computed(() =>
   height: 170px;
   object-fit: contain; /* 透明底插图，随卡片背景显示 */
   border-radius: 10px;
+  transition: transform var(--dur-ios-2) var(--ease-ios-spring);
+}
+
+.card:hover .card-img {
+  transform: scale(1.04);
 }
 
 .card-title {

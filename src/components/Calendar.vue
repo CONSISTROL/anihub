@@ -205,7 +205,7 @@ onUnmounted(() => window.removeEventListener('scroll', hideTooltip))
   gap: 4px;
   border-right: 1px solid var(--border);
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background-color var(--dur-ios-2) var(--ease-ios-expo);
 }
 
 .day:last-child {
@@ -259,12 +259,20 @@ onUnmounted(() => window.removeEventListener('scroll', hideTooltip))
   font-size: 12px;
   cursor: pointer;
   text-align: left;
-  transition: filter 0.15s, transform 0.1s;
+  transition:
+    filter var(--dur-ios-1) var(--ease-ios-expo),
+    transform var(--dur-ios-1) var(--ease-ios-spring);
 }
 
 .chip:hover {
   filter: brightness(1.25);
-  transform: translateX(1px);
+  transform: translateX(2px) scale(1.02);
+}
+
+.chip:active {
+  transform: scale(0.97);
+  transition-duration: 70ms;
+  transition-timing-function: var(--ease-ios);
 }
 
 .chip-cover {
@@ -345,9 +353,12 @@ onUnmounted(() => window.removeEventListener('scroll', hideTooltip))
   color: var(--muted);
 }
 
-.fade-enter-active,
+.fade-enter-active {
+  transition: opacity var(--dur-ios-2) var(--ease-ios-expo);
+}
+
 .fade-leave-active {
-  transition: opacity 0.12s ease;
+  transition: opacity var(--dur-ios-1) var(--ease-ios);
 }
 
 .fade-enter-from,

@@ -108,6 +108,7 @@ async function onSubmit() {
   background: color-mix(in srgb, #ff5c5c 12%, var(--panel));
   border: 1px solid color-mix(in srgb, #ff5c5c 40%, transparent);
   border-radius: 8px;
+  animation: ios-pop-in var(--dur-ios-2) var(--ease-ios-spring) both;
 }
 
 .field {
@@ -126,10 +127,14 @@ async function onSubmit() {
   border: 1px solid var(--border);
   border-radius: 8px;
   outline: none;
+  transition:
+    border-color var(--dur-ios-1) var(--ease-ios-expo),
+    box-shadow var(--dur-ios-1) var(--ease-ios-expo);
 }
 
 .field input:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 /* 密码明文切换：眼睛按钮固定在输入框右侧 */
@@ -154,10 +159,19 @@ async function onSubmit() {
   font-size: 15px;
   line-height: 1;
   opacity: 0.55;
+  transition:
+    opacity var(--dur-ios-1) var(--ease-ios-expo),
+    transform var(--dur-ios-1) var(--ease-ios-spring);
 }
 
 .pwd-toggle:hover {
   opacity: 1;
+  transform: translateY(-50%) scale(1.15);
+}
+
+.pwd-toggle:active {
+  transform: translateY(-50%) scale(0.9);
+  transition-duration: 70ms;
 }
 
 .btn-block {

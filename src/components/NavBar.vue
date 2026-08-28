@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
 import { useSettings } from '../composables/useSettings'
@@ -35,10 +35,21 @@ const links = computed(() => {
 })
 
 const WELCOME = 'Ciallo ～(∠・ω< )⌒★!'
+
+// 滚动后导航栏浮起（iOS 式阴影渐进），轻微滚动即可触发
+const scrolled = ref(false)
+function onScroll() {
+  scrolled.value = (window.scrollY || document.documentElement.scrollTop || 0) > 8
+}
+onMounted(() => {
+  onScroll()
+  window.addEventListener('scroll', onScroll, { passive: true })
+})
+onUnmounted(() => window.removeEventListener('scroll', onScroll))
 </script>
 
 <template>
-  <nav class="navbar">
+  <nav class="navbar" :class="{ scrolled }">
     <router-link to="/" class="brand">AniHub</router-link>
     <div class="links">
       <router-link v-for="l in links" :key="l.to" :to="l.to">{{ l.label }}</router-link>
@@ -75,6 +86,14 @@ const WELCOME = 'Ciallo ～(∠・ω< )⌒★!'
   background: color-mix(in srgb, var(--panel) 85%, transparent);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border);
+  transition:
+    box-shadow var(--dur-ios-2) var(--ease-ios-expo),
+    background-color var(--dur-ios-2) var(--ease-ios-expo),
+    border-color var(--dur-ios-2) var(--ease-ios-expo);
+}
+
+.navbar.scrolled {
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.14);
 }
 
 .brand {
@@ -95,12 +114,22 @@ const WELCOME = 'Ciallo ～(∠・ω< )⌒★!'
   font-size: 14px;
   color: var(--muted);
   text-decoration: none;
-  transition: color 0.15s, background 0.15s;
+  transition:
+    color var(--dur-ios-1) var(--ease-ios-expo),
+    background-color var(--dur-ios-1) var(--ease-ios-expo),
+    transform var(--dur-ios-1) var(--ease-ios-spring);
 }
 
 .links a:hover {
   color: var(--text);
   background: var(--panel-2);
+  transform: translateY(-1px);
+}
+
+.links a:active {
+  transform: scale(0.94);
+  transition-duration: 70ms;
+  transition-timing-function: var(--ease-ios);
 }
 
 .links a.router-link-active {
@@ -117,7 +146,10 @@ const WELCOME = 'Ciallo ～(∠・ω< )⌒★!'
   border: 1px solid var(--border);
   border-radius: 999px;
   outline: none;
-  transition: width 0.15s, border-color 0.15s;
+  transition:
+    width var(--dur-ios-2) var(--ease-ios-spring),
+    border-color var(--dur-ios-1) var(--ease-ios-expo),
+    box-shadow var(--dur-ios-1) var(--ease-ios-expo);
 }
 
 .nav-search input:focus {
@@ -178,15 +210,5 @@ const WELCOME = 'Ciallo ～(∠・ω< )⌒★!'
 .btn-sm {
   padding: 5px 10px;
   font-size: 13px;
-}
-
-.btn-primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
-.btn-primary:hover {
-  background: var(--accent-hover);
 }
 </style>

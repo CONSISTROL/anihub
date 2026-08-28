@@ -195,7 +195,14 @@ function clearQr() {
   border-radius: 12px;
   cursor: pointer;
   text-align: center;
-  transition: border-color 0.15s, background 0.15s;
+  transition:
+    border-color var(--dur-ios-2) var(--ease-ios-expo),
+    background-color var(--dur-ios-2) var(--ease-ios-expo),
+    box-shadow var(--dur-ios-2) var(--ease-ios-expo);
+}
+
+.dropzone:hover {
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 .dropzone:hover {

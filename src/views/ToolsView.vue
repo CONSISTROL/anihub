@@ -52,7 +52,13 @@ const TOOLS = [
     <p class="sub">小工具集合，选择一项开始</p>
 
     <div class="tools-grid">
-      <router-link v-for="t in TOOLS" :key="t.to" :to="t.to" class="tool-card">
+      <router-link
+        v-for="(t, i) in TOOLS"
+        :key="t.to"
+        :to="t.to"
+        class="tool-card"
+        :style="{ '--i': i }"
+      >
         <span class="tool-icon">{{ t.icon }}</span>
         <h2 class="tool-title">{{ t.title }}</h2>
         <p class="tool-desc">{{ t.desc }}</p>
@@ -96,17 +102,34 @@ const TOOLS = [
   border-radius: 14px;
   text-decoration: none;
   color: var(--text);
-  transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+  transition:
+    transform var(--dur-ios-2) var(--ease-ios-spring),
+    border-color var(--dur-ios-2) var(--ease-ios-expo),
+    box-shadow var(--dur-ios-2) var(--ease-ios-expo);
+  animation: ios-rise-in var(--dur-ios-3) var(--ease-ios-expo)
+    calc(120ms + var(--i, 0) * 60ms) backwards;
+  will-change: transform;
 }
 
 .tool-card:hover {
-  transform: translateY(-3px);
+  transform: translateY(-4px) scale(1.012);
   border-color: var(--accent);
-  box-shadow: 0 10px 30px rgb(0 0 0 / 0.12);
+  box-shadow: 0 14px 36px rgb(0 0 0 / 0.14);
+}
+
+.tool-card:active {
+  transform: translateY(-1px) scale(0.985);
+  transition-duration: 70ms;
+  transition-timing-function: var(--ease-ios);
 }
 
 .tool-icon {
   font-size: 30px;
+  transition: transform var(--dur-ios-2) var(--ease-ios-spring);
+}
+
+.tool-card:hover .tool-icon {
+  transform: scale(1.12) rotate(-3deg);
 }
 
 .tool-title {

@@ -32,7 +32,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 <template>
   <Teleport to="body">
-    <Transition name="modal">
+    <Transition name="modal" :duration="{ enter: 360, leave: 160 }">
       <div class="popover-overlay" @click.self="emit('close')">
         <div class="popover">
           <div class="popover-head">
@@ -140,10 +140,20 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   font-size: 13px;
   cursor: pointer;
   text-align: left;
+  transition:
+    background-color var(--dur-ios-1) var(--ease-ios-expo),
+    transform var(--dur-ios-1) var(--ease-ios-spring);
 }
 
 .row:hover {
   background: var(--panel-2);
+  transform: translateX(3px);
+}
+
+.row:active {
+  transform: scale(0.985);
+  transition-duration: 70ms;
+  transition-timing-function: var(--ease-ios);
 }
 
 .cover {
@@ -184,15 +194,21 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   font-variant-numeric: tabular-nums;
 }
 
-/* 弹窗动画 */
-.modal-enter-active,
-.modal-leave-active {
-  transition: opacity 0.18s ease;
+/* 弹窗动画：遮罩快速淡入，面板沿 Expo 减速上浮并带轻微弹簧 */
+.modal-enter-active {
+  transition: opacity var(--dur-ios-2) var(--ease-ios-expo);
 }
 
-.modal-enter-active .popover,
+.modal-leave-active {
+  transition: opacity var(--dur-ios-1) var(--ease-ios);
+}
+
+.modal-enter-active .popover {
+  transition: transform 360ms var(--ease-ios-spring);
+}
+
 .modal-leave-active .popover {
-  transition: transform 0.18s ease;
+  transition: transform var(--dur-ios-1) var(--ease-ios);
 }
 
 .modal-enter-from,
@@ -202,6 +218,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 .modal-enter-from .popover,
 .modal-leave-to .popover {
-  transform: translateY(12px) scale(0.98);
+  transform: translateY(18px) scale(0.94);
 }
 </style>

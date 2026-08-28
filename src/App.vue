@@ -93,12 +93,18 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       <div class="page-progress-bar"></div>
     </div>
     <NavBar />
+    <!-- 页面切换：iOS 式非线性入场（轻微上移 + 呼吸缩放，沿 Expo 曲线滑停） -->
     <router-view v-slot="{ Component }">
-      <keep-alive :include="['ConsoleView']">
-        <component :is="Component" />
-      </keep-alive>
+      <Transition name="page" mode="out-in" appear>
+        <keep-alive :include="['ConsoleView']">
+          <component :is="Component" :key="route.path" />
+        </keep-alive>
+      </Transition>
     </router-view>
-    <LoginModal v-if="showLogin" @close="showLogin = false" />
+    <!-- 隐藏登录弹窗：遮罩淡入 + 弹层弹簧缩放 -->
+    <Transition name="login" appear>
+      <LoginModal v-if="showLogin" @close="showLogin = false" />
+    </Transition>
     <!-- 全站壁纸背景（组件内部按身份自检：管理员恒可见，游客/内部人员按设置开关） -->
     <InsiderBackground v-if="!isGame" />
     <!-- 一键回到顶部 -->
@@ -123,7 +129,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   z-index: 9999;
   pointer-events: none;
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transition: opacity var(--dur-ios-2) var(--ease-ios-expo);
 }
 
 .page-progress.visible {
@@ -144,5 +150,54 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   to {
     transform: translateX(350%);
   }
+}
+
+/* ---- iOS 式页面切换 ---- */
+.page-enter-active {
+  transition:
+    opacity var(--dur-ios-3) var(--ease-ios-expo),
+    transform var(--dur-ios-3) var(--ease-ios-expo);
+}
+
+.page-leave-active {
+  transition:
+    opacity var(--dur-ios-1) var(--ease-ios),
+    transform var(--dur-ios-1) var(--ease-ios);
+}
+
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(16px) scale(0.992);
+}
+
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(-8px) scale(0.996);
+}
+
+/* ---- iOS 式登录弹窗 ---- */
+.login-enter-active {
+  transition:
+    opacity var(--dur-ios-2) var(--ease-ios-expo),
+    transform var(--dur-ios-3) var(--ease-ios-spring);
+}
+
+.login-leave-active {
+  transition:
+    opacity var(--dur-ios-1) var(--ease-ios-expo),
+    transform var(--dur-ios-1) var(--ease-ios);
+}
+
+.login-enter-from,
+.login-leave-to {
+  opacity: 0;
+}
+
+.login-enter-from {
+  transform: scale(0.94) translateY(12px);
+}
+
+.login-leave-to {
+  transform: scale(0.97) translateY(6px);
 }
 </style>

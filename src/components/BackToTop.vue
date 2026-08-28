@@ -21,15 +21,17 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
 </script>
 
 <template>
-  <button
-    v-show="visible"
-    class="back-to-top"
-    title="回到顶部"
-    aria-label="回到顶部"
-    @click="toTop"
-  >
-    ↑
-  </button>
+  <Transition name="pop">
+    <button
+      v-if="visible"
+      class="back-to-top"
+      title="回到顶部"
+      aria-label="回到顶部"
+      @click="toTop"
+    >
+      ↑
+    </button>
+  </Transition>
 </template>
 
 <style scoped>
@@ -49,12 +51,42 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
   cursor: pointer;
   box-shadow: 0 4px 14px rgb(0 0 0 / 0.18);
   backdrop-filter: blur(6px);
-  transition: border-color 0.15s, color 0.15s, transform 0.15s;
+  transition:
+    border-color var(--dur-ios-1) var(--ease-ios-expo),
+    color var(--dur-ios-1) var(--ease-ios-expo),
+    box-shadow var(--dur-ios-1) var(--ease-ios-expo),
+    transform var(--dur-ios-1) var(--ease-ios-spring);
 }
 
 .back-to-top:hover {
   border-color: var(--accent);
   color: var(--accent);
-  transform: translateY(-2px);
+  transform: translateY(-3px) scale(1.05);
+  box-shadow: 0 8px 20px rgb(0 0 0 / 0.22);
+}
+
+.back-to-top:active {
+  transform: scale(0.9);
+  transition-duration: 70ms;
+  transition-timing-function: var(--ease-ios);
+}
+
+/* 出现/消失：弹簧缩放入场，iOS 减速退场 */
+.pop-enter-active {
+  transition:
+    transform var(--dur-ios-2) var(--ease-ios-spring),
+    opacity var(--dur-ios-1) var(--ease-ios-expo);
+}
+
+.pop-leave-active {
+  transition:
+    transform var(--dur-ios-1) var(--ease-ios),
+    opacity var(--dur-ios-1) var(--ease-ios);
+}
+
+.pop-enter-from,
+.pop-leave-to {
+  opacity: 0;
+  transform: translateY(12px) scale(0.75);
 }
 </style>

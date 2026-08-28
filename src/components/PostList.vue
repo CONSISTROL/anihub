@@ -184,12 +184,39 @@ const VIS_LABEL = { insider: '仅内部可见', private: '仅管理员可见' }
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 12px;
-  transition: border-color 0.15s, transform 0.15s;
+  transition:
+    transform var(--dur-ios-2) var(--ease-ios-spring),
+    border-color var(--dur-ios-1) var(--ease-ios-expo),
+    box-shadow var(--dur-ios-2) var(--ease-ios-expo);
+  animation: ios-rise-in var(--dur-ios-3) var(--ease-ios-expo) backwards;
+}
+
+.post-items .post-item:nth-child(1) {
+  animation-delay: 40ms;
+}
+.post-items .post-item:nth-child(2) {
+  animation-delay: 90ms;
+}
+.post-items .post-item:nth-child(3) {
+  animation-delay: 140ms;
+}
+.post-items .post-item:nth-child(4) {
+  animation-delay: 190ms;
+}
+.post-items .post-item:nth-child(n + 5) {
+  animation-delay: 240ms;
 }
 
 .post-item:hover {
   border-color: var(--accent);
-  transform: translateX(3px);
+  transform: translateX(4px);
+  box-shadow: 0 8px 22px rgb(0 0 0 / 0.1);
+}
+
+.post-item:active {
+  transform: translateX(2px) scale(0.995);
+  transition-duration: 70ms;
+  transition-timing-function: var(--ease-ios);
 }
 
 /* 置顶公告条目高亮 */

@@ -299,13 +299,36 @@ onUnmounted(() => {
   border: 2px solid var(--border);
   border-radius: 14px;
   cursor: pointer;
-  transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+  transition:
+    transform var(--dur-ios-2) var(--ease-ios-spring),
+    border-color var(--dur-ios-1) var(--ease-ios-expo),
+    box-shadow var(--dur-ios-2) var(--ease-ios-expo);
+  animation: ios-rise-in var(--dur-ios-3) var(--ease-ios-expo) backwards;
+}
+
+.cards .card:nth-child(1) {
+  animation-delay: 60ms;
+}
+.cards .card:nth-child(2) {
+  animation-delay: 120ms;
+}
+.cards .card:nth-child(3) {
+  animation-delay: 180ms;
+}
+.cards .card:nth-child(n + 4) {
+  animation-delay: 240ms;
 }
 
 .card:hover {
-  transform: translateY(-4px);
+  transform: translateY(-5px) scale(1.03);
   border-color: var(--accent);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+  box-shadow: 0 10px 26px rgb(0 0 0 / 0.25);
+}
+
+.card:active {
+  transform: translateY(-2px) scale(0.97);
+  transition-duration: 70ms;
+  transition-timing-function: var(--ease-ios);
 }
 
 .card-icon {

@@ -297,7 +297,9 @@ const selectedEpisodes = computed(() =>
   background: transparent;
   border: none;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background-color var(--dur-ios-2) var(--ease-ios-expo),
+    color var(--dur-ios-1) var(--ease-ios-expo);
 }
 
 .toggle-btn + .toggle-btn {

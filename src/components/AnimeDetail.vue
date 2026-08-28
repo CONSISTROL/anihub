@@ -78,7 +78,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 <template>
   <Teleport to="body">
-    <Transition name="modal">
+    <Transition name="modal" :duration="{ enter: 360, leave: 160 }">
       <div v-if="media" class="modal-overlay" @click.self="emit('close')">
         <div class="modal">
           <button class="close-btn" @click="emit('close')" aria-label="关闭">✕</button>
@@ -285,15 +285,21 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   color: var(--text);
 }
 
-/* 弹窗动画 */
-.modal-enter-active,
-.modal-leave-active {
-  transition: opacity 0.18s ease;
+/* 弹窗动画：遮罩快速淡入，详情面板沿 Expo 减速上浮并带轻微弹簧 */
+.modal-enter-active {
+  transition: opacity var(--dur-ios-2) var(--ease-ios-expo);
 }
 
-.modal-enter-active .modal,
+.modal-leave-active {
+  transition: opacity var(--dur-ios-1) var(--ease-ios);
+}
+
+.modal-enter-active .modal {
+  transition: transform 360ms var(--ease-ios-spring);
+}
+
 .modal-leave-active .modal {
-  transition: transform 0.18s ease;
+  transition: transform var(--dur-ios-1) var(--ease-ios);
 }
 
 .modal-enter-from,
@@ -303,6 +309,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 .modal-enter-from .modal,
 .modal-leave-to .modal {
-  transform: translateY(12px) scale(0.98);
+  transform: translateY(18px) scale(0.94);
 }
 </style>

@@ -558,11 +558,22 @@ onUnmounted(() => {
   overflow: hidden;
   aspect-ratio: 16 / 10;
   cursor: pointer;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    transform var(--dur-ios-2) var(--ease-ios-spring),
+    border-color var(--dur-ios-2) var(--ease-ios-expo),
+    box-shadow var(--dur-ios-2) var(--ease-ios-expo);
 }
 
 .wp-item:hover {
   border-color: var(--accent);
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 10px 26px rgb(0 0 0 / 0.18);
+}
+
+.wp-item:active {
+  transform: scale(0.97);
+  transition-duration: 70ms;
+  transition-timing-function: var(--ease-ios);
 }
 
 .wp-item.on {
@@ -590,6 +601,7 @@ onUnmounted(() => {
   line-height: 20px;
   text-align: center;
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.35);
+  animation: ios-pop-in var(--dur-ios-2) var(--ease-ios-spring) both;
 }
 
 .wp-item .wp-name {
@@ -730,7 +742,7 @@ onUnmounted(() => {
   height: 100%;
   border-radius: 5px;
   background: linear-gradient(90deg, #37b24d, #66bb6a);
-  transition: width 0.6s ease;
+  transition: width var(--dur-ios-4) var(--ease-ios-expo);
 }
 
 .mon-bar-fill.rss {
