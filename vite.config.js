@@ -1,7 +1,26 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import { execSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+
+// 站点版本与提交 ID：构建时注入，导航栏登录后显示为「版本号.提交ID」
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
+function getCommitId() {
+  try {
+    return execSync('git rev-parse --short HEAD', {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+  } catch {
+    return 'unknown'
+  }
+}
 
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+    __APP_COMMIT__: JSON.stringify(getCommitId()),
+  },
   plugins: [vue()],
   server: {
     proxy: {

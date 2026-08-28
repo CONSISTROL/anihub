@@ -34,7 +34,8 @@ const links = computed(() => {
   return ALL_LINKS.filter((l) => settings.canAccess(l.page, isInsider.value))
 })
 
-const WELCOME = 'Ciallo ～(∠・ω< )⌒★!'
+// 登录后右上角显示当前站点版本号 + 构建时注入的提交 ID
+const WELCOME = `${__APP_VERSION__}.${__APP_COMMIT__}`
 
 // 滚动后导航栏浮起（iOS 式阴影渐进），轻微滚动即可触发
 const scrolled = ref(false)
