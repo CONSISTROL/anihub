@@ -10,9 +10,7 @@ import 'xterm/css/xterm.css'
 
 const props = defineProps({
   active: { type: Boolean, default: false }, // 是否为当前激活标签页
-  tabId: { type: Number, default: 0 }, // 标签页 id（用于向父级上报 cwd）
 })
-const emit = defineEmits(['cwd'])
 
 const TERM_CMD = /win/i.test(navigator.platform || '') ? 'cmd' : 'bash' // 会话 shell（服务端包装 stty 尺寸）
 
@@ -82,38 +80,6 @@ function findPrev() {
 
 /* —— WebSocket —— */
 
-// 解析终端当前工作目录，供文件管理器同步；解析不到则保持上次值。
-// 主来源：OSC 7（\x1b]7;file://host/path\x07）——服务端 PROMPT_COMMAND 每次
-// 提示符前输出，xterm 不可见，不依赖 PS1 显示格式；
-// 回退：可见提示符（bash user@host:/path$/#、Windows cmd D:\path>）。
-let lastCwd = ''
-function parsePromptPath(text) {
-  const raw = String(text || '')
-  if (!raw || raw.length > 400) return null
-  // OSC 7：当前目录（shell 自身报告，最可靠）
-  const osc7 = raw.match(/\x1b\]7;file:\/\/([^/]*)([^\x07]*)\x07/)
-  if (osc7 && osc7[2]) {
-    try {
-      const p = decodeURIComponent(osc7[2])
-      if (p && !p.startsWith('~')) return p
-    } catch {
-      /* 路径含非法转义时忽略，走提示符回退 */
-    }
-  }
-  // 回退：可见提示符（先剥离 ANSI/OSC，Ubuntu PS1 带颜色和终端标题序列）
-  const t = raw
-    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
-    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '')
-    .replace(/\x1b[@-_][0-9]*/g, '')
-    .replace(/\s+$/, '')
-  if (!t || t.length > 200) return null
-  const bash = t.match(/^[\w.-]+@[\w.-]+:(.+?)[#$%]$/)
-  if (bash) return bash[1].startsWith('~') ? null : bash[1]
-  const win = t.match(/^([A-Za-z]:\\.+?)[>]$/)
-  if (win) return win[1]
-  return null
-}
-
 function connectWs() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   const token = localStorage.getItem('anihub.token') || ''
@@ -129,11 +95,6 @@ function connectWs() {
       if (!termRunning.value) startTerminal()
     } else if (m.type === 'out') {
       termWrite(m.text)
-      const p = parsePromptPath(m.text)
-      if (p && p !== lastCwd) {
-        lastCwd = p
-        emit('cwd', props.tabId, p)
-      }
     } else if (m.type === 'err') {
       termWrite(m.text)
     } else if (m.type === 'exit') {

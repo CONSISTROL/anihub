@@ -19,7 +19,6 @@ export function createSession(initialDir = CONSOLE_HOME) {
     resetTimer: null, // startStream 内部超时定时器的重置函数（供 writeInput 调用）
     softKillCount: 0, // 软中断（\x03）连续次数
     softKillTimer: null,
-    inputBuf: '', // 交互终端输入缓冲，用于识别 cd 命令并同步工作目录
   }
 }
 
@@ -204,9 +203,6 @@ export function startStream(sess, cmd, { onOut, onErr, onCwd, onExit, noTimeout 
         PYTHONIOENCODING: 'utf-8',
         PYTHONUTF8: '1',
         PYTHONUNBUFFERED: '1', // 管道下 Python 默认块缓冲，print 不实时输出；强制无缓冲（等价 python -u）
-        // 终端会话：每次提示符前输出 OSC 7（当前目录，xterm 不可见），
-        // 前端据此同步文件管理器——不依赖 PS1 的显示格式
-        PROMPT_COMMAND: String.raw`printf '\033]7;file://%s%s\033\\' "$HOSTNAME" "$(pwd)"`,
       },
       windowsHide: true,
       detached: true, // 独立进程组，便于整组终止
