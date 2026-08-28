@@ -1,7 +1,7 @@
 <script setup>
 // HTML 渲染：完整 HTML 文档（含 <!DOCTYPE html> / <html> 的独立页面，可带 <style>/<script>）
 // 用独立 iframe 渲染，保留全部样式与脚本；普通 HTML 片段走 DOMPurify 消毒渲染。
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import RichTextView from './RichTextView.vue'
 
 const props = defineProps({ source: { type: String, default: '' } })
@@ -28,14 +28,66 @@ function repairMermaid(src) {
 }
 
 const height = ref(600)
+const frameEl = ref(null)
+// 完整文档用 iframe 独立渲染，可能包含外部 CDN / 脚本，加载耗时较长；
+// 在 iframe 内容真正可用前显示加载占位，避免看起来像“白屏/没反应”。
+const ready = ref(false)
+let readyTimer = null
+let frameLoaded = false
+let heightReceived = false
+
+function markReady() {
+  if (ready.value) return
+  ready.value = true
+  clearTimeout(readyTimer)
+}
+
+function requestHeight() {
+  const f = frameEl.value
+  if (f && f.contentWindow) f.contentWindow.postMessage({ __anihubGetH: true }, '*')
+}
+
+function onFrameLoad() {
+  frameLoaded = true
+  // load 之前收到的高度可能来自 body 尚未解析时的早期上报（例如外部 CDN 阻塞解析时
+  // 定时器上报的 0/200px），不能作为最终高度；这里作废并主动向 iframe 要一次最终高度。
+  heightReceived = false
+  requestHeight()
+}
+
 function onMessage(e) {
   const d = e.data
   if (d && typeof d === 'object' && typeof d.__anihubDocH === 'number') {
+    // load 前的高度不可信：外部 CDN 阻塞解析时，documentElement.scrollHeight
+    // 会等于视口高度，导致 iframe 高度随分辨率变化。这里一律忽略，只用 load 后的真实高度。
+    if (!frameLoaded) return
+    heightReceived = true
     height.value = Math.max(200, Math.min(20000, d.__anihubDocH))
+    markReady()
   }
 }
-onMounted(() => window.addEventListener('message', onMessage))
-onUnmounted(() => window.removeEventListener('message', onMessage))
+
+onMounted(() => {
+  window.addEventListener('message', onMessage)
+  // 兜底：外部资源长时间挂起/永不触发 load 时不至于让占位永远挡住页面
+  readyTimer = setTimeout(markReady, 20000)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('message', onMessage)
+  clearTimeout(readyTimer)
+})
+
+watch(
+  () => props.source,
+  () => {
+    ready.value = false
+    frameLoaded = false
+    heightReceived = false
+    clearTimeout(readyTimer)
+    readyTimer = setTimeout(markReady, 20000)
+  }
+)
 
 // 注入高度上报 + 标题定位脚本（插入 <head> 之后，先于文档自身的外部脚本解析）：
 // 文档内若有加载缓慢/挂起的外部 <script src>（如 CDN），HTML 解析器会停在原地，
@@ -76,7 +128,9 @@ const REPORT_JS = `<script>
   })
   window.addEventListener('message', function (e) {
     var d = e.data
-    if (d && typeof d === 'object' && d.__anihubScroll) {
+    if (!d || typeof d !== 'object') return
+    if (d.__anihubGetH) { P(); return }
+    if (d.__anihubScroll) {
       var txt = String(d.__anihubScroll), hs = document.querySelectorAll('h1,h2,h3,h4,h5,h6'), el = null
       for (var i = 0; i < hs.length; i++) {
         if (hs[i].textContent.trim() === txt) { el = hs[i]; break }
@@ -100,22 +154,65 @@ const srcdoc = computed(() => {
 
 <template>
   <RichTextView v-if="!isFullDoc" :source="source" />
-  <iframe
-    v-else
-    class="doc-frame"
-    :srcdoc="srcdoc"
-    :style="{ height: height + 'px' }"
-    sandbox="allow-scripts"
-    loading="lazy"
-    title="HTML 文档"
-  ></iframe>
+  <div v-else class="doc-frame-wrap">
+    <iframe
+      ref="frameEl"
+      class="doc-frame"
+      :srcdoc="srcdoc"
+      :style="{ height: height + 'px' }"
+      sandbox="allow-scripts"
+      loading="lazy"
+      title="HTML 文档"
+      @load="onFrameLoad"
+    ></iframe>
+    <div v-if="!ready" class="doc-loading" role="status" aria-live="polite">
+      <span class="doc-spinner"></span>
+      <span>HTML 文档加载中…</span>
+    </div>
+  </div>
 </template>
 
 <style scoped>
+.doc-frame-wrap {
+  position: relative;
+  width: 100%;
+}
+
 .doc-frame {
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: #fff; /* 独立文档自带样式，白底兜底 */
+}
+
+.doc-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 13px;
+  z-index: 1;
+}
+
+.doc-spinner {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 3px solid var(--panel-2);
+  border-top-color: var(--accent);
+  animation: doc-spin 0.8s linear infinite;
+}
+
+@keyframes doc-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

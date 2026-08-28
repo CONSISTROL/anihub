@@ -2,61 +2,44 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
 import { useSettings } from '../composables/useSettings'
+import { finishPageLoading, startPageLoading } from '../composables/usePageProgress'
 
-import HomeView from '../views/HomeView.vue'
-import CalendarView from '../views/CalendarView.vue'
-import BlogListView from '../views/BlogListView.vue'
-import BlogPostView from '../views/BlogPostView.vue'
-import WikiListView from '../views/WikiListView.vue'
-import WikiPostView from '../views/WikiPostView.vue'
-import EditView from '../views/EditView.vue'
-import LoginView from '../views/LoginView.vue'
-import SettingsView from '../views/SettingsView.vue'
-import ToolsView from '../views/ToolsView.vue'
-import JsonToolView from '../views/JsonToolView.vue'
-import QrToolView from '../views/QrToolView.vue'
-import CropToolView from '../views/CropToolView.vue'
-import SpliceToolView from '../views/SpliceToolView.vue'
-import HtmlRenderToolView from '../views/HtmlRenderToolView.vue'
-import CompareToolView from '../views/CompareToolView.vue'
-import SearchView from '../views/SearchView.vue'
-import HttpErrorView from '../views/HttpErrorView.vue'
-import GameView from '../views/GameView.vue'
-
+// 所有页面路由懒加载：首次访问对应页面时才下载代码块，
+// 配合全局顶部进度条（usePageProgress）显示加载状态，而不是白屏。
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', name: 'home', component: HomeView },
-    { path: '/anime', name: 'anime', component: CalendarView },
-    { path: '/blog', name: 'blog', component: BlogListView },
-    { path: '/blog/new', name: 'blog-new', component: EditView, props: { category: 'blog' }, meta: { auth: true } },
-    { path: '/blog/:slug', name: 'blog-post', component: BlogPostView, props: true },
-    { path: '/blog/:slug/edit', name: 'blog-edit', component: EditView, props: { category: 'blog' }, meta: { auth: true } },
-    { path: '/wiki', name: 'wiki', component: WikiListView },
-    { path: '/wiki/new', name: 'wiki-new', component: EditView, props: { category: 'wiki' }, meta: { auth: true } },
-    { path: '/wiki/:slug', name: 'wiki-post', component: WikiPostView, props: true },
-    { path: '/wiki/:slug/edit', name: 'wiki-edit', component: EditView, props: { category: 'wiki' }, meta: { auth: true } },
-    { path: '/login', name: 'login', component: LoginView },
-    { path: '/settings', name: 'settings', component: SettingsView, meta: { auth: true } },
+    { path: '/', name: 'home', component: () => import('../views/HomeView.vue') },
+    { path: '/anime', name: 'anime', component: () => import('../views/CalendarView.vue') },
+    { path: '/blog', name: 'blog', component: () => import('../views/BlogListView.vue') },
+    { path: '/blog/new', name: 'blog-new', component: () => import('../views/EditView.vue'), props: { category: 'blog' }, meta: { auth: true } },
+    { path: '/blog/:slug', name: 'blog-post', component: () => import('../views/BlogPostView.vue'), props: true },
+    { path: '/blog/:slug/edit', name: 'blog-edit', component: () => import('../views/EditView.vue'), props: { category: 'blog' }, meta: { auth: true } },
+    { path: '/wiki', name: 'wiki', component: () => import('../views/WikiListView.vue') },
+    { path: '/wiki/new', name: 'wiki-new', component: () => import('../views/EditView.vue'), props: { category: 'wiki' }, meta: { auth: true } },
+    { path: '/wiki/:slug', name: 'wiki-post', component: () => import('../views/WikiPostView.vue'), props: true },
+    { path: '/wiki/:slug/edit', name: 'wiki-edit', component: () => import('../views/EditView.vue'), props: { category: 'wiki' }, meta: { auth: true } },
+    { path: '/login', name: 'login', component: () => import('../views/LoginView.vue') },
+    { path: '/settings', name: 'settings', component: () => import('../views/SettingsView.vue'), meta: { auth: true } },
     { path: '/console', name: 'console', component: () => import('../views/ConsoleView.vue'), meta: { auth: true } },
-    { path: '/tools', name: 'tools', component: ToolsView },
-    { path: '/tools/json', name: 'tools-json', component: JsonToolView },
-    { path: '/tools/qr', name: 'tools-qr', component: QrToolView },
-    { path: '/tools/crop', name: 'tools-crop', component: CropToolView },
-    { path: '/tools/splice', name: 'tools-splice', component: SpliceToolView },
-    { path: '/tools/html-render', name: 'tools-html-render', component: HtmlRenderToolView },
-    { path: '/tools/compare', name: 'tools-compare', component: CompareToolView },
+    { path: '/tools', name: 'tools', component: () => import('../views/ToolsView.vue') },
+    { path: '/tools/json', name: 'tools-json', component: () => import('../views/JsonToolView.vue') },
+    { path: '/tools/qr', name: 'tools-qr', component: () => import('../views/QrToolView.vue') },
+    { path: '/tools/crop', name: 'tools-crop', component: () => import('../views/CropToolView.vue') },
+    { path: '/tools/splice', name: 'tools-splice', component: () => import('../views/SpliceToolView.vue') },
+    { path: '/tools/html-render', name: 'tools-html-render', component: () => import('../views/HtmlRenderToolView.vue') },
+    { path: '/tools/compare', name: 'tools-compare', component: () => import('../views/CompareToolView.vue') },
     // 二维码生成（3D 树）：three.js 较重，路由懒加载，只在打开该工具时下载
     {
       path: '/tools/qr-tree',
       name: 'tools-qr-tree',
       component: () => import('../views/QrTreeToolView.vue'),
     },
-    { path: '/search', name: 'search', component: SearchView },
-    { path: '/game', name: 'game', component: GameView },
-    { path: '/error/:code', name: 'error', component: HttpErrorView },
+    { path: '/search', name: 'search', component: () => import('../views/SearchView.vue') },
+    { path: '/game', name: 'game', component: () => import('../views/GameView.vue') },
+    { path: '/error/:code', name: 'error', component: () => import('../views/HttpErrorView.vue') },
     // 兜底：未知路径显示 404 错误码页（不再静默回主页）
-    { path: '/:pathMatch(.*)*', component: HttpErrorView, props: { code: 404 } },
+    { path: '/:pathMatch(.*)*', component: () => import('../views/HttpErrorView.vue'), props: { code: 404 } },
   ],
 })
 
@@ -76,7 +59,9 @@ const GUEST_PAGES = {
   game: 'game',
 }
 
+// 路由开始切换时立即显示顶部进度条（懒加载页面耗时较长时避免“点了没反应”）
 router.beforeEach(async (to) => {
+  startPageLoading()
   const auth = useAuth()
   // 需登录的页面（设置/编辑页等）：游客与内部人员访问时展示 401 错误码页（替代原登录跳转）
   if (to.meta.auth && !auth.isLoggedIn.value) {
@@ -89,6 +74,14 @@ router.beforeEach(async (to) => {
     await settings.load()
     if (!settings.canAccess(page, auth.isInsider.value)) return { name: 'home' }
   }
+})
+
+router.afterEach(() => {
+  finishPageLoading()
+})
+
+router.onError(() => {
+  finishPageLoading()
 })
 
 export default router

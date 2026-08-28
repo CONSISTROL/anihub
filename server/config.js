@@ -17,3 +17,9 @@ export const INSIDER_KEYWORD = process.env.INSIDER_KEYWORD || 'inside'
 // 默认 public/wallpapers，可用 WALLPAPER_DIR 指向其他目录（绝对路径）
 export const WALLPAPER_DIR =
   process.env.WALLPAPER_DIR || path.join(import.meta.dirname, '..', 'public', 'wallpapers')
+
+// 控制台/文件管理默认起始目录：默认项目根目录（server/ 的上级），
+// 可用 CONSOLE_HOME 覆盖为其他绝对路径（如 /opt/anihub）
+export const CONSOLE_HOME = process.env.CONSOLE_HOME
+  ? path.resolve(process.env.CONSOLE_HOME)
+  : path.join(import.meta.dirname, '..')

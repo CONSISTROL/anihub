@@ -36,11 +36,15 @@ async function api(url, options = {}) {
   const res = await fetch(url, { ...options, headers })
   if (!res.ok) {
     let msg = res.statusText
+    let path = ''
     try {
       const data = await res.json()
       msg = data?.error?.message || msg
+      path = data?.error?.path || ''
     } catch {}
-    throw new Error(msg)
+    const err = new Error(msg)
+    err.path = path
+    throw err
   }
   return res
 }
@@ -63,6 +67,9 @@ async function load(dir) {
     entries.value = data.entries || []
   } catch (e) {
     error.value = e.message
+    // 加载失败时也把尝试访问的路径显示到顶部输入框，方便看到/修改出错路径
+    const failedPath = e.path || dir
+    if (failedPath) pathInput.value = failedPath
   } finally {
     loading.value = false
   }

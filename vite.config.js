@@ -23,6 +23,14 @@ export default defineConfig({
       output: {
         // 分包：富文本编辑器（TipTap/ProseMirror）与 Markdown 渲染各自独立成块，主包更小、缓存更优
         manualChunks(id) {
+          // Vue 全家桶单独成块，避免被卷入 editor 等特性 chunk，导致首屏加载整个编辑器
+          if (
+            id.includes('node_modules/vue') ||
+            id.includes('node_modules/@vue') ||
+            id.includes('node_modules/vue-router')
+          ) {
+            return 'vue-vendor'
+          }
           if (id.includes('node_modules/@tiptap') || id.includes('node_modules/prosemirror')) return 'editor'
           if (
             id.includes('node_modules/marked') ||

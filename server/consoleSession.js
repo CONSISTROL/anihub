@@ -6,12 +6,12 @@
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import { CONSOLE_HOME } from './config.js'
 
-const PROJECT_ROOT = path.join(import.meta.dirname, '..') // 项目根目录（server/ 的上级）
 const STREAM_TIMEOUT_MS = 600000 // 一次性命令最长 10 分钟（有输出/输入则顺延；终端会话不设超时）
 
 /** 新建一个会话（多终端：每连接一个，互不影响） */
-export function createSession(initialDir = PROJECT_ROOT) {
+export function createSession(initialDir = CONSOLE_HOME) {
   return {
     dir: initialDir, // 会话工作目录
     proc: null, // 当前运行的子进程

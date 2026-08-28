@@ -5,7 +5,7 @@
 import { WebSocketServer } from 'ws'
 import jwt from 'jsonwebtoken'
 import { JWT_SECRET } from './config.js'
-import { createSession, startStream, killCurrent, writeInput, tryCd, session } from './consoleSession.js'
+import { createSession, startStream, killCurrent, writeInput, tryCd } from './consoleSession.js'
 
 /** 终端会话启动命令：设置 PTY 尺寸后进入交互 shell（stty 静默、无回显污染） */
 function terminalCommand(cols, rows) {
@@ -16,7 +16,7 @@ function terminalCommand(cols, rows) {
   return `stty rows ${r} cols ${c}; exec ${shell}`
 }
 
-/** 尽力识别交互终端里的 cd 命令，让文件管理器/控制台目录跟随当前终端路径 */
+/** 尽力识别交互终端里的 cd 命令，更新当前终端会话目录（前端再通过 OSC 7 同步文件管理器） */
 function trackCdInput(sess, data) {
   sess.inputBuf = (sess.inputBuf || '') + data
   let idx
@@ -29,7 +29,6 @@ function trackCdInput(sess, data) {
     if (/^cd(?:\s|$)/i.test(line)) {
       const cd = tryCd(sess, line)
       if (cd?.ok) {
-        session.dir = sess.dir
         console.log(`[console] 终端工作目录 -> ${sess.dir}`)
       }
     }
@@ -67,8 +66,9 @@ export function attachConsoleSocket(server) {
   })
 
   wss.on('connection', (ws) => {
-    // 每个连接独立会话（多终端互不影响），初始目录跟随控制台当前目录
-    const sess = createSession(session.dir)
+    // 每个连接独立会话（多终端互不影响），初始目录固定为项目根目录，
+    // 避免上一次终端 cd 的全局副作用把新终端/文件管理器默认目录带走
+    const sess = createSession()
     ws.send(JSON.stringify({ type: 'ready', cwd: sess.dir, pty: sess.pty }))
     ws.on('message', (raw) => {
       let msg

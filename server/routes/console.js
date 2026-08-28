@@ -6,14 +6,15 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { authRequired } from '../middleware/auth.js'
 import { getConsoleLines } from '../logger.js'
+import { CONSOLE_HOME } from '../config.js'
 import { session, tryCd, decodeLine } from '../consoleSession.js'
 
 const router = Router()
 const TIMEOUT_MS = 15000
 
-/** 解析文件管理路径：相对路径基于当前控制台会话目录，绝对路径直接使用 */
+/** 解析文件管理路径：绝对路径直接使用；相对路径基于当前控制台会话目录；未传路径默认项目根目录 */
 function resolveFsPath(p) {
-  if (!p) return session.dir
+  if (!p) return CONSOLE_HOME
   const target = path.isAbsolute(p) ? p : path.resolve(session.dir, p)
   return path.normalize(target)
 }
@@ -136,16 +137,16 @@ router.get('/files', authRequired, (req, res) => {
   try {
     st = fs.statSync(dir)
   } catch {
-    return res.status(400).json({ error: { code: 'INVALID_PATH', message: '目录不存在' } })
+    return res.status(400).json({ error: { code: 'INVALID_PATH', message: '目录不存在', path: dir } })
   }
   if (!st.isDirectory()) {
-    return res.status(400).json({ error: { code: 'INVALID_PATH', message: '路径不是目录' } })
+    return res.status(400).json({ error: { code: 'INVALID_PATH', message: '路径不是目录', path: dir } })
   }
   let names = []
   try {
     names = fs.readdirSync(dir)
   } catch (e) {
-    return res.status(500).json({ error: { code: 'READ_DIR_FAILED', message: e.message } })
+    return res.status(500).json({ error: { code: 'READ_DIR_FAILED', message: e.message, path: dir } })
   }
   const entries = names
     .map((name) => {

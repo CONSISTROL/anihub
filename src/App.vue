@@ -1,7 +1,7 @@
 <script setup>
 // 全局布局壳：导航栏 + 页面内容；键盘监听呼出隐藏的登录框 / 获取内部人员身份
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import NavBar from './components/NavBar.vue'
 import LoginModal from './components/LoginModal.vue'
 import InsiderBackground from './components/InsiderBackground.vue'
@@ -10,11 +10,14 @@ import Mascot from './components/Mascot.vue'
 import { api } from './api/http'
 import { useAuth } from './composables/useAuth'
 import { useSettings } from './composables/useSettings'
+import { finishPageLoading, usePageProgress } from './composables/usePageProgress'
 
 const { isLoggedIn, isInsider } = useAuth()
 const settings = useSettings()
 if (!isLoggedIn.value) settings.load() // 加载可见性设置（桌宠权限依赖）
 const route = useRoute()
+const router = useRouter()
+const { loading: pageLoading } = usePageProgress()
 const showLogin = ref(false)
 const insiderBusy = ref(false)
 
@@ -76,12 +79,19 @@ function onKeydown(e) {
   }
 }
 
-onMounted(() => window.addEventListener('keydown', onKeydown))
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+  router.isReady().then(finishPageLoading, finishPageLoading)
+})
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
   <div class="app-shell">
+    <!-- 路由懒加载 / 页面切换时的顶部进度条 -->
+    <div class="page-progress" :class="{ visible: pageLoading }" aria-hidden="true">
+      <div class="page-progress-bar"></div>
+    </div>
     <NavBar />
     <router-view v-slot="{ Component }">
       <keep-alive :include="['ConsoleView']">
@@ -101,5 +111,38 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 <style scoped>
 .app-shell {
   min-height: 100vh;
+}
+
+/* 页面切换顶部进度条：懒加载资源期间保持可见，避免用户以为点击无效 */
+.page-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.page-progress.visible {
+  opacity: 1;
+}
+
+.page-progress-bar {
+  height: 100%;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, var(--accent), #a78bfa, transparent);
+  animation: page-progress-slide 1s ease-in-out infinite;
+}
+
+@keyframes page-progress-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(350%);
+  }
 }
 </style>
