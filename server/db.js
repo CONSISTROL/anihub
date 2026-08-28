@@ -40,6 +40,19 @@ db.exec(`
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS anime_cache (
+    season_key       TEXT PRIMARY KEY,
+    year             INTEGER NOT NULL,
+    season           TEXT NOT NULL,
+    media            TEXT NOT NULL,
+    schedules        TEXT NOT NULL,
+    media_fetched_at INTEGER NOT NULL,
+    sched_fetched_at INTEGER NOT NULL,
+    updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_anime_cache_season ON anime_cache(year, season);
 `)
 
 // 兼容旧库：posts 表新增 hidden / visibility / content_html / format / pinned 列（CREATE TABLE IF NOT EXISTS 不会补列）

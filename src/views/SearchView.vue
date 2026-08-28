@@ -1,12 +1,11 @@
 <script setup>
-// 站内搜索：一次搜索博客 / Wiki 文章（服务端过滤可见性）与已缓存的档期动漫（本地标题匹配）
+// 站内搜索：一次搜索博客 / Wiki 文章（服务端过滤可见性）与服务器已缓存的档期动漫
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { listPosts } from '../api/posts'
-import { CACHE_PREFIX } from '../api/anilist'
+import { searchAnime } from '../api/anilist'
 import { useAuth } from '../composables/useAuth'
 import { useSettings } from '../composables/useSettings'
-import { ZH_TITLES } from '../data/zhTitles'
 
 const route = useRoute()
 const router = useRouter()
@@ -20,8 +19,6 @@ const done = ref(false)
 const posts = ref([])
 const anime = ref([])
 const error = ref('')
-
-const SEASON_ZH = { WINTER: '冬', SPRING: '春', SUMMER: '夏', FALL: '秋' }
 
 function canSee(page) {
   return isLoggedIn.value || settings.canAccess(page, isInsider.value)
@@ -58,53 +55,21 @@ async function runSearch(kw) {
         .catch((e) => { error.value = e.message })
     )
   }
-  if (canSee('anime')) anime.value = searchAnime(kw) // 本地缓存同步搜索
+  if (canSee('anime')) {
+    tasks.push(
+      searchAnime(kw)
+        .then((items) => {
+          // 成人内容按身份过滤；服务端只搜索已缓存档期，不会回源 AniList
+          anime.value = items
+            .filter((a) => !a.isAdult || settings.canSeeAdult(isLoggedIn.value, isInsider.value))
+            .slice(0, 30)
+        })
+        .catch((e) => { error.value = e.message })
+    )
+  }
   await Promise.all(tasks)
   loading.value = false
   done.value = true
-}
-
-// 在 localStorage 的各档期缓存中按标题匹配（罗马音/日文/英文/中文译名）
-function searchAnime(kw) {
-  const needle = kw.toLowerCase()
-  const out = []
-  try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i)
-      if (!key || !key.startsWith(CACHE_PREFIX)) continue
-      const m = /^anime-calendar:v3:(\d{4})-(\w+)$/.exec(key)
-      if (!m) continue
-      const year = m[1]
-      const seasonEn = m[2]
-      let data
-      try {
-        data = JSON.parse(localStorage.getItem(key))
-      } catch {
-        continue
-      }
-      if (!data || !Array.isArray(data.media)) continue
-      for (const media of data.media) {
-        if (media.isAdult && !settings.canSeeAdult(isLoggedIn.value, isInsider.value)) continue // 成人内容按身份隐藏
-        const t = media.title || {}
-        const zh = ZH_TITLES[media.id]
-        const haystack = [t.romaji, t.native, t.english, zh].filter(Boolean).join(' ').toLowerCase()
-        if (!haystack.includes(needle)) continue
-        out.push({
-          id: media.id,
-          cover: media.coverImage?.medium || media.coverImage?.large || '',
-          title: zh || t.romaji || t.native || t.english || '',
-          season: `${year} ${SEASON_ZH[seasonEn] || seasonEn}`,
-        })
-      }
-    }
-  } catch {
-    /* localStorage 不可用 */
-  }
-  // 同一动漫可能出现在多个已缓存档期，按 id 去重
-  const seen = new Set()
-  const unique = out.filter((a) => (seen.has(a.id) ? false : (seen.add(a.id), true)))
-  unique.sort((a, b) => a.title.localeCompare(b.title, 'zh'))
-  return unique.slice(0, 30)
 }
 
 const blogPosts = computed(() => posts.value.filter((p) => p.category === 'blog'))
@@ -155,7 +120,7 @@ function fmtDate(s) {
         </router-link>
       </section>
 
-      <!-- 动漫（来自已缓存的档期数据） -->
+      <!-- 动漫（来自服务器已缓存的档期数据） -->
       <section v-if="canSee('anime') && anime.length" class="result-section">
         <h2 class="section-title">🗓️ 动漫 <span class="count">{{ anime.length }}</span></h2>
         <div class="anime-grid">

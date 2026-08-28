@@ -8,6 +8,7 @@ import postsRouter from './routes/posts.js'
 import settingsRouter from './routes/settings.js'
 import uploadRouter from './routes/upload.js'
 import wallpapersRouter from './routes/wallpapers.js'
+import animeRouter from './routes/anime.js'
 import monitorRouter, { serverStats } from './routes/monitor.js'
 import consoleRouter from './routes/console.js'
 import { attachConsoleSocket } from './consoleSocket.js'
@@ -32,6 +33,7 @@ app.use('/api/posts', postsRouter)
 app.use('/api/settings', settingsRouter)
 app.use('/api/upload', uploadRouter)
 app.use('/api/wallpapers', wallpapersRouter)
+app.use('/api/anime', animeRouter)
 app.use('/api/monitor', monitorRouter)
 app.use('/api/console', consoleRouter)
 

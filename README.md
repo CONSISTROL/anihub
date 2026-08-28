@@ -18,7 +18,7 @@
 - **动漫详情**：点击任意条目弹出详情——封面、多语言标题（中文模式下只显示中文标题，不显示英日副标题）、连载状态、类型（中文模式译为中文）、集数、评分、制作公司、中文简介（未收录时回退英文），以及按日期分组的完整放送时间表
 - **悬浮提示**：鼠标悬停日历标签显示完整标题 + **大封面预览**（72×102）+ 精确时间
 - **当日弹层**：月历视图点击日期格弹出当天完整放送列表（大封面 + 完整标题）
-- **数据缓存**：档期数据分两部分缓存（localStorage）——媒体列表（标题/封面/简介，几乎不变）7 天、排期（每集放送时间，当前档期会随新集公布更新）当前档期 12 小时 / 过去档期 30 天；只重拉过期的部分，重复打开/切换档期不再请求 API，秒开
+- **数据缓存（服务端）**：档期数据由服务器持久化到 SQLite（`anime_cache` 表）——媒体列表（标题/封面/简介，几乎不变）7 天、排期（每集放送时间，当前档期会随新集公布更新）当前档期 12 小时 / 过去档期 30 天；只重拉过期的部分。浏览器不再直连 AniList，重复打开/切换档期直接读服务器缓存，秒开且不重复请求源站
 
 ### 📝 博客（`/blog`）与 📚 Wiki（`/wiki`）
 
@@ -39,7 +39,7 @@
 
 - 导航栏右侧搜索框（或直接访问 `/search`）输入关键词回车，一次搜索博客 / Wiki 文章与动漫
 - **文章**：按标题 / 摘要 / 正文 / 标签匹配（复用文章搜索，按身份过滤可见性），结果按 博客 / Wiki 分组展示，置顶公告带 📌 标识
-- **动漫**：在已缓存的各档期数据中按标题匹配（罗马音 / 日文 / 英文 / 中文译名），显示封面与所属档期；未访问过动漫页（无缓存）时该部分为空
+- **动漫**：在服务器已缓存的各档期数据中按标题匹配（罗马音 / 日文 / 英文 / 中文译名），显示封面与所属档期；未访问过动漫页（服务器无缓存）时该部分为空
 - 搜索结果按当前身份过滤：游客看不到无权限的文章与动漫（与各页面可见性设置一致）
 
 ### 🎮 游戏（`/game`，游客公开）
@@ -180,11 +180,12 @@ sudo -i                       # 或直接进 root shell（su 需 root 密码，s
 ├── deploy/                       # 云端部署（轻量服务器）：setup.sh / systemd / nginx / 备份
 ├── server/                       # Node + Express + SQLite 后端
 │   ├── index.js                  # 装配：JSON → API 路由 → 静态托管 dist/ → SPA fallback
-│   ├── db.js                     # node:sqlite 连接 + users/posts 建表（WAL，含 visibility / content_html / format 迁移）
+│   ├── db.js                     # node:sqlite 连接 + users/posts/anime_cache 建表（WAL，含 visibility / content_html / format 迁移）
 │   ├── config.js                 # PORT / JWT_SECRET / INSIDER_KEYWORD（读环境变量）
 │   ├── routes/auth.js            # 登录 / 内部人员口令 / 获取当前用户
 │   ├── routes/posts.js           # 文章 CRUD（列表/详情/新建/编辑/删除，作者校验，md/html 双格式，三档可见性，置顶公告）
 │   ├── routes/settings.js        # 站点设置（页面可见性 / 壁纸 / 成人内容开关）
+│   ├── routes/anime.js           # Anime 档期数据：SQLite 缓存 + 回源 AniList + 已缓存数据搜索
 │   ├── routes/upload.js          # 图片上传（PNG/JPG/WebP/GIF → server/uploads/）
 │   ├── routes/wallpapers.js      # 壁纸目录扫描（GET /api/wallpapers → 图片 URL 列表）
 │   ├── routes/monitor.js         # 服务器监控（实时状态 + 历史图表分桶查询）
@@ -203,7 +204,7 @@ sudo -i                       # 或直接进 root shell（su 需 root 密码，s
     │   ├── http.js               # fetch 封装（/api 前缀、Bearer、401 自动登出）
     │   ├── posts.js              # 文章接口（含置顶 / 公告）
     │   ├── settings.js           # 设置接口
-    │   └── anilist.js            # AniList GraphQL 封装与缓存
+    │   └── anilist.js            # Anime 服务端缓存接口封装（/api/anime）
     ├── composables/
     │   ├── useAuth.js            # 登录状态（管理员 token + 内部人员 token，localStorage 持久化）
     │   ├── useSeason.js          # 档期状态：加载数据、切档、翻月
@@ -268,12 +269,12 @@ sudo -i                       # 或直接进 root shell（su 需 root 密码，s
 1. 按当前日期计算所在档期（冬 1–3 月 / 春 4–6 月 / 夏 7–9 月 / 秋 10–12 月）
 2. 查询 AniList 获取该档期全部动画（`season` + `seasonYear`，按热度排序）
 3. 再用这批动画的 ID 查询 `airingSchedules`，得到**每集**的精确放送时间（Unix 时间戳）
-4. 结果按档期缓存到 localStorage（媒体列表 7 天 / 排期当前档期 12 小时、过去档期 30 天，分开缓存只重拉过期部分），期间重复加载/切换档期直接读缓存，不重复请求
+4. 结果按档期缓存到服务器 SQLite（媒体列表 7 天 / 排期当前档期 12 小时、过去档期 30 天，分开缓存只重拉过期部分），期间重复加载/切换档期直接读服务器缓存，不重复请求源站
 5. 时间戳转本地时区后填入周历 / 月历网格
 
 ## 已知说明
 
 - **中文标题与中文简介为人工维护的映射表**（AniList 不提供中文标题/简介字段）：标题见 [src/data/zhTitles.js](src/data/zhTitles.js)、简介见 [src/data/zhDescriptions.js](src/data/zhDescriptions.js)、类型标签中文翻译见 [src/data/zhGenres.js](src/data/zhGenres.js)，均完整覆盖 2026 夏季档全部正常向作品（成人向除外）；语言为中文时点开详情会优先显示中文简介，未收录的动画回退显示罗马音标题与英文简介。新增条目时在文件中按 `AniList id: '内容'` 追加即可（id 可在动画详情弹窗的 AniList 链接中查到）
 - 档期内已完结 / 未开播 / 缺排期的动画不出现在日历上，会列在日历下方
-- 日历数据来自浏览器直连 AniList（外网需可达）；AniList 官方故障时日历会显示错误提示，其余页面不受影响
+- 日历数据由服务器按需回源 AniList 并缓存（外网需可达）；首次请求或缓存过期时服务器拉取，之后页面只读服务器缓存。AniList 官方故障时若服务器已有缓存仍可正常显示，无缓存时日历会显示错误提示，其余页面不受影响
 - 后端使用 Node 内置 `node:sqlite`（Node 24+ 稳定，20/22 为实验特性）；若 Node 版本过低请升级
