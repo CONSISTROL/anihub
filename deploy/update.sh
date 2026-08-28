@@ -18,7 +18,23 @@ BRANCH="${2:-master}"
 echo "==> 拉取 $REMOTE/$BRANCH"
 git config --global --add safe.directory "$APP_DIR" >/dev/null 2>&1 || true
 git fetch "$REMOTE" "$BRANCH"
-git merge --ff-only FETCH_HEAD
+
+if git merge-base --is-ancestor HEAD FETCH_HEAD >/dev/null 2>&1 \
+   && git diff --quiet && git diff --cached --quiet; then
+  echo "==> 本地历史可快进且工作区干净，执行 git merge --ff-only"
+  if git merge --ff-only FETCH_HEAD; then
+    :
+  else
+    echo "==> 快进失败（可能被未跟踪文件阻塞），按远程为准强制同步"
+    git clean -fd
+    git reset --hard FETCH_HEAD
+  fi
+else
+  echo "==> 本地提交记录/工作区与远程不一致，按远程为准强制同步"
+  echo "    即将丢弃本地独有提交与未提交改动（.env/数据库/上传图片等 ignored 文件不受影响）"
+  git clean -fd
+  git reset --hard FETCH_HEAD
+fi
 
 echo "==> 安装依赖并构建前端"
 npm ci
