@@ -11,6 +11,7 @@ import wallpapersRouter from './routes/wallpapers.js'
 import animeRouter from './routes/anime.js'
 import monitorRouter, { serverStats } from './routes/monitor.js'
 import consoleRouter from './routes/console.js'
+import upgradeRouter from './routes/upgrade.js'
 import { attachConsoleSocket } from './consoleSocket.js'
 import { startMonitor } from './monitorCollector.js'
 import { captureConsole } from './logger.js'
@@ -36,6 +37,7 @@ app.use('/api/wallpapers', wallpapersRouter)
 app.use('/api/anime', animeRouter)
 app.use('/api/monitor', monitorRouter)
 app.use('/api/console', consoleRouter)
+app.use('/api/upgrade', upgradeRouter)
 
 // 上传的图片静态托管（dev 模式由 vite 代理 /uploads 到本服务）
 const uploads = path.join(import.meta.dirname, 'uploads')

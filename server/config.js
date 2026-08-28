@@ -23,3 +23,12 @@ export const WALLPAPER_DIR =
 export const CONSOLE_HOME = process.env.CONSOLE_HOME
   ? path.resolve(process.env.CONSOLE_HOME)
   : path.join(import.meta.dirname, '..')
+
+// 应用根目录：升级功能从这里读取 git 状态并执行 deploy/update.sh
+export const APP_DIR = process.env.APP_DIR
+  ? path.resolve(process.env.APP_DIR)
+  : path.join(import.meta.dirname, '..')
+
+// 升级默认拉取的 git remote 与分支（与 deploy/update.sh 保持一致）
+export const GIT_REMOTE = process.env.GIT_REMOTE || 'origin'
+export const GIT_BRANCH = process.env.GIT_BRANCH || 'master'

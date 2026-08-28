@@ -169,6 +169,9 @@ bash /opt/anihub/deploy/update.sh
 
 `update.sh` 的同步策略：本地历史可快进且工作区干净时用 `git merge --ff-only`；如果本地提交记录与远程不一致（分叉）或存在未提交改动，会以远程为准执行 `git clean -fd && git reset --hard FETCH_HEAD`，因此服务器上的本地独有提交会被丢弃。`.env`、数据库、上传图片等被 `.gitignore` 排除的文件不受影响。
 
+管理员也可以在**设置页 → 网站升级**中查看当前版本、远程最新版本、落后多少个提交，并输入 su/root 密码一键触发升级。
+
+
 **在网页控制台里更新网站**：部署脚本已给运行用户（默认 `anihub`）配免密 sudo，控制台内执行：
 
 ```bash

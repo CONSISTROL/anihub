@@ -2,6 +2,7 @@
 // 设置页：配置哪些页面对游客可见、哪些页面对内部人员额外可见 + 壁纸/成人内容身份控制 + 服务器监控（图表）
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { getSettings, updateSettings, getMonitor, getMonitorHistory, getWallpapersManage, saveWallpaperSelection } from '../api/settings'
+import { getUpgradeStatus, runUpgrade } from '../api/upgrade'
 import { useSettings } from '../composables/useSettings'
 import LineChart from '../components/LineChart.vue'
 import AppIcon from '../components/AppIcon.vue'
@@ -28,6 +29,15 @@ const saving = ref(false)
 const message = ref('')
 const error = ref('')
 
+
+/* —— 网站升级 —— */
+const upg = ref(null)
+const upgLoading = ref(false)
+const upgError = ref('')
+const upgModal = ref(false)
+const upgPassword = ref('')
+const upgBusy = ref(false)
+const upgMessage = ref('')
 /* —— 壁纸管理（选择参与展示的壁纸） —— */
 const wpImages = ref([]) // [{ name, url, selected }]
 const wpSaving = ref(false)
@@ -65,6 +75,46 @@ async function saveWp() {
   }
 }
 
+/* —— 网站升级 —— */
+async function loadUpgradeStatus() {
+  upgLoading.value = true
+  upgError.value = ''
+  try {
+    upg.value = await getUpgradeStatus()
+  } catch (e) {
+    upgError.value = e.message
+  } finally {
+    upgLoading.value = false
+  }
+}
+
+function openUpgradeModal() {
+  upgPassword.value = ''
+  upgMessage.value = ''
+  upgModal.value = true
+}
+
+async function confirmUpgrade() {
+  if (!upgPassword.value) {
+    upgMessage.value = '请输入 su/root 密码'
+    return
+  }
+  upgBusy.value = true
+  upgMessage.value = ''
+  try {
+    const r = await runUpgrade(upgPassword.value)
+    upgMessage.value = r.message || '升级已触发'
+    upgModal.value = false
+    // 升级后服务会重启，稍后重新检查版本状态
+    setTimeout(loadUpgradeStatus, 3000)
+  } catch (e) {
+    upgMessage.value = e.message
+  } finally {
+    upgBusy.value = false
+  }
+}
+
+
 onMounted(async () => {
   try {
     const d = await getSettings()
@@ -80,6 +130,7 @@ onMounted(async () => {
     loading.value = false
   }
   loadWallpapers()
+  loadUpgradeStatus()
 })
 
 // 内部人员额外可见的选项：已对游客可见的页面自动包含在内部可见内，不再重复勾选
@@ -277,6 +328,78 @@ onUnmounted(() => {
     <p v-if="loading" class="settings-hint">加载中…</p>
 
     <div v-else class="settings-stack">
+      <section class="settings-card">
+        <h2 class="section-title">网站升级</h2>
+        <p class="section-sub">检查服务器代码与远程仓库的版本差异；升级需要 su/root 权限</p>
+
+        <p v-if="upgLoading" class="settings-hint">正在检查更新…</p>
+        <p v-else-if="upgError" class="settings-error">{{ upgError }}</p>
+
+        <template v-else-if="upg">
+          <p v-if="upg.git === false" class="settings-hint">{{ upg.message }}</p>
+          <template v-else>
+            <div class="upg-row">
+              <span>当前版本</span>
+              <b>{{ upg.currentCommitShort || '—' }}</b>
+            </div>
+
+            <p v-if="upg.fetchError" class="settings-error">{{ upg.fetchError }}</p>
+
+            <template v-if="upg.updateAvailable !== null">
+              <div class="upg-row">
+                <span>远程最新</span>
+                <b>{{ upg.remoteCommitShort || '—' }}</b>
+              </div>
+              <div class="upg-row">
+                <span>提交差异</span>
+                <b :class="upg.behind > 0 ? 'upg-behind' : 'upg-ok'">
+                  {{ upg.ahead > 0 ? `领先 ${upg.ahead} 个提交 · ` : '' }}{{ upg.behind > 0 ? `落后 ${upg.behind} 个提交` : '已是最新' }}
+                </b>
+              </div>
+
+              <div v-if="upg.remoteCommits?.length" class="upg-commits">
+                <p class="upg-commits-title">远程新增提交：</p>
+                <div v-for="c in upg.remoteCommits" :key="c.hash" class="upg-commit">
+                  <code>{{ c.hash }}</code>
+                  <span>{{ c.subject }}</span>
+                </div>
+              </div>
+
+              <div class="upg-actions">
+                <button
+                  class="btn btn-primary"
+                  :disabled="!upg.updateAvailable || upgBusy"
+                  @click="openUpgradeModal"
+                >{{ upg.updateAvailable ? '立即升级' : upg.fetchError ? '检查失败' : '无需升级' }}</button>
+                <span v-if="upg.updateAvailable === false" class="upg-ok-text">当前已是最新版本</span>
+              </div>
+            </template>
+          </template>
+        </template>
+
+        <!-- su/root 密码确认弹窗 -->
+        <div v-if="upgModal" class="upg-modal-mask" @click.self="upgModal = false">
+          <div class="upg-modal">
+            <h3 class="upg-modal-title">确认升级</h3>
+            <p class="upg-modal-desc">升级将执行 <code>deploy/update.sh</code>，需要 su/root 权限，请输入 root 密码。</p>
+            <input
+              v-model="upgPassword"
+              type="password"
+              placeholder="su / root 密码"
+              autocomplete="current-password"
+              @keyup.enter="confirmUpgrade"
+            />
+            <p v-if="upgMessage" class="settings-error">{{ upgMessage }}</p>
+            <div class="upg-modal-actions">
+              <button class="btn" :disabled="upgBusy" @click="upgModal = false">取消</button>
+              <button class="btn btn-primary" :disabled="upgBusy" @click="confirmUpgrade">
+                {{ upgBusy ? '升级中…' : '确认升级' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section class="settings-card">
         <h2 class="section-title">游客可见页面</h2>
         <p class="section-sub">未勾选的页面，游客与内部人员都看不到（内部人员需额外授权）</p>
@@ -823,4 +946,131 @@ onUnmounted(() => {
   font-size: 13px;
   color: var(--accent);
 }
+
+/* —— 网站升级 —— */
+.upg-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--border);
+}
+
+.upg-row span {
+  color: var(--muted);
+}
+
+.upg-row b {
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+}
+
+.upg-behind {
+  color: #ffb35c;
+}
+
+.upg-ok {
+  color: var(--accent);
+}
+
+.upg-ok-text {
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.upg-commits {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.upg-commits-title {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.upg-commit {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  padding: 3px 0;
+  color: var(--text);
+}
+
+.upg-commit code {
+  font-size: 11px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.upg-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.upg-modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 0.4);
+  backdrop-filter: blur(3px);
+}
+
+.upg-modal {
+  width: min(420px, 92vw);
+  padding: 22px;
+  background: var(--overlay-panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.upg-modal-title {
+  margin: 0;
+  font-size: 17px;
+}
+
+.upg-modal-desc {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.upg-modal input {
+  padding: 9px 12px;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  outline: none;
+}
+
+.upg-modal input:focus {
+  border-color: var(--accent);
+}
+
+.upg-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
 </style>

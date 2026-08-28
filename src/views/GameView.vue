@@ -19,6 +19,7 @@ const wallpaperHolder = ref(null) // 开始/暂停等界面背景显示壁纸（
 const screen = ref('start') // start | playing | levelup | paused | dead
 const choices = ref([])
 const selected = ref(0)
+const keyboardSelected = ref(0)
 const stats = ref(null)
 const spawnRate = ref(1)
 const hasSave = ref(false)
@@ -31,6 +32,7 @@ function onSpawnRateInput() {
 function onLevelUp(c) {
   choices.value = c
   selected.value = 0
+  keyboardSelected.value = 0
   screen.value = 'levelup'
 }
 
@@ -65,6 +67,7 @@ function pickAbility(i) {
 function moveSelection(delta) {
   if (!choices.value.length) return
   selected.value = (selected.value + delta + choices.value.length) % choices.value.length
+  keyboardSelected.value = selected.value
 }
 
 function confirmSelection() {
@@ -148,6 +151,7 @@ function continueGame() {
     if (data.screen === 'levelup') {
       choices.value = data.choices || []
       selected.value = 0
+      keyboardSelected.value = 0
       screen.value = 'levelup'
     } else {
       choices.value = []
@@ -239,7 +243,7 @@ onUnmounted(() => {
     <div v-if="screen === 'levelup'" class="overlay">
       <div class="levelup">
         <h2 class="lu-title"><AppIcon name="star" :size="18" /> 升级了！选择一项能力</h2>
-        <div class="cards">
+        <div class="cards" @mouseleave="selected = keyboardSelected">
           <button
             v-for="(c, i) in choices"
             :key="c.id"
@@ -456,7 +460,6 @@ onUnmounted(() => {
   animation-delay: 240ms;
 }
 
-.card:hover,
 .card.selected {
   transform: translateY(-5px) scale(1.03);
   border-color: var(--accent);
