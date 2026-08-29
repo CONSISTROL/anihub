@@ -1,8 +1,9 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
 import { useSettings } from '../composables/useSettings'
+import { getUpgradeVersion } from '../api/upgrade'
 import ThemeSelector from './ThemeSelector.vue'
 import AppIcon from './AppIcon.vue'
 
@@ -35,8 +36,28 @@ const links = computed(() => {
   return ALL_LINKS.filter((l) => settings.canAccess(l.page, isInsider.value))
 })
 
-// 登录后右上角显示当前站点版本号 + 构建时注入的提交 ID
-const WELCOME = `${__APP_VERSION__}.${__APP_COMMIT__}`
+// 登录后右上角显示当前站点版本号 + 提交 ID。
+// 初始不显示旧 bundle 的构建 commit，避免先闪旧值再被服务端最新 commit 替换；
+// 先显示“版本号…”占位，接口返回后更新为“版本号.commit”。
+const WELCOME = ref(__APP_VERSION__ ? `${__APP_VERSION__}…` : '')
+
+async function refreshVersion() {
+  try {
+    const data = await getUpgradeVersion()
+    if (data?.currentCommitShort) {
+      WELCOME.value = `${__APP_VERSION__}.${data.currentCommitShort}`
+    } else {
+      WELCOME.value = `${__APP_VERSION__}.${__APP_COMMIT__}`
+    }
+  } catch {
+    // 接口不可用时回退到构建时注入的版本/commit
+    WELCOME.value = `${__APP_VERSION__}.${__APP_COMMIT__}`
+  }
+}
+
+watch(isLoggedIn, (v) => {
+  if (v) refreshVersion()
+}, { immediate: true })
 
 // 滚动后导航栏浮起（iOS 式阴影渐进），轻微滚动即可触发
 const scrolled = ref(false)

@@ -27,6 +27,8 @@
     "jsonwebtoken": "^9.0.3",
     "jsqr": "^1.4.0",
     "jszip": "^3.10.1",
+    "leaflet": "^1.9.4",
+    "leaflet.heat": "^0.2.0",
     "marked": "^18.0.9",
     "qrcode-generator": "^2.0.4",
     "three": "^0.185.1",

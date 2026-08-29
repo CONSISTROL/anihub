@@ -12,6 +12,7 @@ import animeRouter from './routes/anime.js'
 import monitorRouter, { serverStats } from './routes/monitor.js'
 import consoleRouter from './routes/console.js'
 import upgradeRouter from './routes/upgrade.js'
+import visitsRouter, { recordPageVisit } from './routes/visits.js'
 import { attachConsoleSocket } from './consoleSocket.js'
 import { startMonitor } from './monitorCollector.js'
 import { captureConsole } from './logger.js'
@@ -29,6 +30,9 @@ app.use((req, res, next) => {
   next()
 })
 
+// 访问记录（仅记录页面文档请求，跳过 API / 静态资源）
+app.use(recordPageVisit)
+
 app.use('/api/auth', authRouter)
 app.use('/api/posts', postsRouter)
 app.use('/api/settings', settingsRouter)
@@ -38,6 +42,7 @@ app.use('/api/anime', animeRouter)
 app.use('/api/monitor', monitorRouter)
 app.use('/api/console', consoleRouter)
 app.use('/api/upgrade', upgradeRouter)
+app.use('/api/visits', visitsRouter)
 
 // 上传的图片静态托管（dev 模式由 vite 代理 /uploads 到本服务）
 const uploads = path.join(import.meta.dirname, 'uploads')

@@ -53,6 +53,32 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_anime_cache_season ON anime_cache(year, season);
+
+  CREATE TABLE IF NOT EXISTS visits (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts         INTEGER NOT NULL,
+    ip         TEXT NOT NULL DEFAULT '',
+    path       TEXT NOT NULL DEFAULT '',
+    user_agent TEXT NOT NULL DEFAULT '',
+    referer    TEXT NOT NULL DEFAULT '',
+    source     TEXT NOT NULL DEFAULT 'page' CHECK (source IN ('page', 'spa'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_visits_ts ON visits(ts DESC);
+  CREATE INDEX IF NOT EXISTS idx_visits_ip ON visits(ip);
+  CREATE INDEX IF NOT EXISTS idx_visits_path ON visits(path);
+
+  CREATE TABLE IF NOT EXISTS ip_locations (
+    ip          TEXT PRIMARY KEY,
+    country     TEXT NOT NULL DEFAULT '',
+    region      TEXT NOT NULL DEFAULT '',
+    city        TEXT NOT NULL DEFAULT '',
+    isp         TEXT NOT NULL DEFAULT '',
+    lat         REAL,
+    lon         REAL,
+    status      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'ok', 'failed', 'skipped')),
+    resolved_at INTEGER
+  );
 `)
 
 // 兼容旧库：posts 表新增 hidden / visibility / content_html / format / pinned 列（CREATE TABLE IF NOT EXISTS 不会补列）
@@ -74,6 +100,16 @@ if (!hasCol('format')) {
 }
 if (!hasCol('pinned')) {
   db.exec('ALTER TABLE posts ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0') // 置顶公告（仅 blog 使用，全局唯一）
+}
+
+// 兼容旧库：ip_locations 表补充经纬度列（地图热点需要）
+const ipCols = db.prepare('PRAGMA table_info(ip_locations)').all()
+const hasIpCol = (n) => ipCols.some((c) => c.name === n)
+if (!hasIpCol('lat')) {
+  db.exec('ALTER TABLE ip_locations ADD COLUMN lat REAL')
+}
+if (!hasIpCol('lon')) {
+  db.exec('ALTER TABLE ip_locations ADD COLUMN lon REAL')
 }
 
 // 个人站：启动时确保站长账号存在，密码以 .env 为准（改动后重启即生效）

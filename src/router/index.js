@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
 import { useSettings } from '../composables/useSettings'
 import { finishPageLoading, startPageLoading } from '../composables/usePageProgress'
+import { trackVisit } from '../api/visits'
 
 // 所有页面路由懒加载：首次访问对应页面时才下载代码块，
 // 配合全局顶部进度条（usePageProgress）显示加载状态，而不是白屏。
@@ -59,6 +60,9 @@ const GUEST_PAGES = {
   game: 'game',
 }
 
+// 首次整页加载由服务端中间件记录（source=page），SPA 内部路由切换才在此上报（source=spa），避免重复计数
+let firstNavigation = true
+
 // 路由开始切换时立即显示顶部进度条（懒加载页面耗时较长时避免“点了没反应”）
 router.beforeEach(async (to) => {
   startPageLoading()
@@ -76,8 +80,14 @@ router.beforeEach(async (to) => {
   }
 })
 
-router.afterEach(() => {
+router.afterEach((to) => {
   finishPageLoading()
+  if (firstNavigation) {
+    firstNavigation = false
+    // 生产模式首屏由服务端中间件记录（source=page），避免重复；开发模式 Vite 不经过 Express 页面中间件，因此也上报一次
+    if (!import.meta.env.DEV) return
+  }
+  trackVisit(to.fullPath).catch(() => {}) // 静默上报，不影响页面跳转
 })
 
 router.onError(() => {

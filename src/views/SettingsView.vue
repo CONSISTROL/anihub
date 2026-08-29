@@ -2,6 +2,8 @@
 // 设置页：配置哪些页面对游客可见、哪些页面对内部人员额外可见 + 壁纸/成人内容身份控制 + 服务器监控（图表）
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { getSettings, updateSettings, getMonitor, getMonitorHistory, getWallpapersManage, saveWallpaperSelection } from '../api/settings'
+import { getVisitSummary, getVisitMap, getVisitRecords } from '../api/visits'
+import VisitMap from '../components/VisitMap.vue'
 import { getUpgradeStatus, runUpgrade } from '../api/upgrade'
 import { useSettings } from '../composables/useSettings'
 import LineChart from '../components/LineChart.vue'
@@ -306,12 +308,77 @@ function setCustomNow() {
   customTo.value = fmt(now)
 }
 
+/* —— 访问统计（仅管理员） —— */
+const visitSummary = ref(null)
+const visitMap = ref(null)
+const visitRecords = ref(null)
+const visitPage = ref(1)
+const visitPageSize = ref(20)
+const visitQ = ref('')
+const visitLoading = ref(false)
+const visitError = ref('')
+const VISIT_COLOR = '#4a7de0'
+
+function fmtVisitTime(ts) {
+  const d = new Date(ts * 1000)
+  const p = (x) => String(x).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
+function visitChart() {
+  if (!visitSummary.value?.byDay?.length) return null
+  return {
+    xLabels: visitSummary.value.byDay.map((d) => d.d.slice(5)),
+    trend: [
+      { name: '访问量', color: VISIT_COLOR, data: visitSummary.value.byDay.map((d) => d.c) },
+      { name: '独立 IP', color: '#37b24d', data: visitSummary.value.byDay.map((d) => d.u) },
+    ],
+  }
+}
+
+async function loadVisits() {
+  visitLoading.value = true
+  visitError.value = ''
+  try {
+    const [summary, records, mapData] = await Promise.all([
+      getVisitSummary(),
+      getVisitRecords({ page: visitPage.value, pageSize: visitPageSize.value, q: visitQ.value || undefined }),
+      getVisitMap({ days: 30 }),
+    ])
+    visitSummary.value = summary
+    visitRecords.value = records
+    visitMap.value = mapData
+  } catch (e) {
+    visitError.value = e.message
+  } finally {
+    visitLoading.value = false
+  }
+}
+
+function searchVisits() {
+  visitPage.value = 1
+  loadVisits()
+}
+
+function changeVisitPage(delta) {
+  const next = visitPage.value + delta
+  if (next < 1 || (visitRecords.value && next > Math.max(1, Math.ceil(visitRecords.value.total / visitPageSize.value)))) return
+  visitPage.value = next
+  loadVisits()
+}
+
+const visitTotalPages = computed(() => {
+  if (!visitRecords.value) return 0
+  return Math.max(1, Math.ceil(visitRecords.value.total / visitPageSize.value))
+})
+
 onMounted(() => {
   refreshMonitor()
   monTimer = setInterval(refreshMonitor, 5000)
   setCustomNow()
   loadHistory()
   histTimer = setInterval(loadHistory, 15000)
+  loadVisits()
 })
 onUnmounted(() => {
   clearInterval(monTimer)
@@ -493,6 +560,125 @@ onUnmounted(() => {
           </span>
         </label>
       </section>
+
+      <section class="settings-card">
+        <h2 class="section-title">访问统计</h2>
+        <p class="section-sub">网站访问量、访问记录与 IP 来源（仅管理员可见；IP 归属地由 ip-api.com 按需解析）</p>
+        <p v-if="visitError" class="settings-error">{{ visitError }}</p>
+
+        <div v-if="visitSummary" class="visit-summary-grid">
+          <div class="mon-item">
+            <span class="mon-label">总访问量</span>
+            <b>{{ visitSummary.total.toLocaleString() }}</b>
+          </div>
+          <div class="mon-item">
+            <span class="mon-label">今日</span>
+            <b>{{ visitSummary.today.toLocaleString() }}</b>
+          </div>
+          <div class="mon-item">
+            <span class="mon-label">昨日</span>
+            <b>{{ visitSummary.yesterday.toLocaleString() }}</b>
+          </div>
+          <div class="mon-item">
+            <span class="mon-label">独立 IP（累计）</span>
+            <b>{{ visitSummary.uniqueIps.toLocaleString() }}</b>
+          </div>
+          <div class="mon-item">
+            <span class="mon-label">今日独立 IP</span>
+            <b>{{ visitSummary.uniqueIpsToday.toLocaleString() }}</b>
+          </div>
+          <div class="mon-item">
+            <span class="mon-label">近 30 天独立 IP</span>
+            <b>{{ visitSummary.uniqueIps30d.toLocaleString() }}</b>
+          </div>
+          <div class="mon-item">
+            <span class="mon-label">最后访问</span>
+            <b>{{ visitSummary.lastRecordAt ? fmtVisitTime(visitSummary.lastRecordAt) : '暂无' }}</b>
+          </div>
+        </div>
+
+        <div v-if="visitChart()" class="visit-chart">
+          <LineChart title="近 30 天访问趋势" :series="visitChart().trend" :x-labels="visitChart().xLabels" y-type="plain" height="160" />
+        </div>
+        <p v-else-if="visitSummary" class="settings-hint">暂无访问数据</p>
+
+        <div v-if="visitMap" class="visit-map-section">
+          <h3 class="sub-title">IP 来源地图</h3>
+          <p class="section-sub">
+            近 30 天已解析到经纬度的 IP 分布：{{ visitMap.points.length }} 个热点位置，覆盖
+            {{ visitMap.mappedIps }} 个 IP / {{ visitMap.mappedVisits }} 次访问
+            <template v-if="visitMap.unresolvedIps">；另有 {{ visitMap.unresolvedIps }} 个 IP 暂无坐标</template>
+          </p>
+          <VisitMap :points="visitMap.points || []" />
+        </div>
+
+
+        <div v-if="visitSummary?.topPaths?.length" class="visit-cols">
+          <div class="visit-panel">
+            <h3 class="sub-title">热门页面（近 30 天）</h3>
+            <div v-for="p in visitSummary.topPaths" :key="p.path" class="visit-rank">
+              <span class="visit-rank-path" :title="p.path">{{ p.path || '/' }}</span>
+              <span class="visit-rank-count">{{ p.c }}</span>
+            </div>
+          </div>
+          <div class="visit-panel">
+            <h3 class="sub-title">热门 IP（近 30 天）</h3>
+            <div v-for="p in visitSummary.topIps" :key="p.ip" class="visit-rank">
+              <span class="visit-rank-path" :title="[p.country, p.region, p.city].filter(Boolean).join(' · ')">{{ p.ip }}</span>
+              <span class="visit-rank-loc">{{ [p.country, p.region, p.city].filter(Boolean).join(' · ') || (p.status === 'pending' ? '解析中…' : p.status === 'skipped' ? '内网 / 本机' : '未知') }}</span>
+              <span class="visit-rank-count">{{ p.c }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="visit-table-wrap">
+          <div class="visit-toolbar">
+            <input
+              v-model="visitQ"
+              class="range-inp"
+              placeholder="搜索 IP / 路径 / UA / 来源"
+              @keyup.enter="searchVisits"
+            />
+            <button class="btn btn-sm" :disabled="visitLoading" @click="searchVisits">搜索</button>
+            <button class="btn btn-sm" :disabled="visitLoading" @click="loadVisits">刷新</button>
+            <span v-if="visitRecords" class="visit-total">共 {{ visitRecords.total.toLocaleString() }} 条</span>
+          </div>
+          <table class="visit-table">
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>IP</th>
+                <th>IP 来源</th>
+                <th>访问路径</th>
+                <th>来源页 / UA</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in visitRecords?.items || []" :key="r.id">
+                <td class="visit-td-time">{{ fmtVisitTime(r.ts) }}</td>
+                <td class="visit-td-ip"><code>{{ r.ip || '—' }}</code></td>
+                <td class="visit-td-loc">{{ r.location }}<span v-if="r.isp" class="visit-isp"> · {{ r.isp }}</span></td>
+                <td class="visit-td-path" :title="r.path">{{ r.path }}</td>
+                <td class="visit-td-ua" :title="`${r.referer || ''}${r.referer ? ' ' : ''}${r.userAgent || ''}`">
+                  {{ r.referer || '直达' }}<span v-if="r.userAgent" class="visit-ua">{{ r.userAgent }}</span>
+                </td>
+              </tr>
+              <tr v-if="visitLoading">
+                <td colspan="5" class="visit-empty">加载中…</td>
+              </tr>
+              <tr v-else-if="!visitRecords?.items?.length">
+                <td colspan="5" class="visit-empty">暂无匹配记录</td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-if="visitRecords && visitTotalPages > 1" class="visit-pager">
+            <button class="btn btn-sm" :disabled="visitPage <= 1 || visitLoading" @click="changeVisitPage(-1)">上一页</button>
+            <span>{{ visitPage }} / {{ visitTotalPages }}</span>
+            <button class="btn btn-sm" :disabled="visitPage >= visitTotalPages || visitLoading" @click="changeVisitPage(1)">下一页</button>
+          </div>
+        </div>
+      </section>
+
 
       <section class="settings-card">
         <h2 class="section-title">服务器监控</h2>
@@ -932,6 +1118,215 @@ onUnmounted(() => {
 @media (max-width: 860px) {
   .chart-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* —— 访问统计 —— */
+.visit-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px 16px;
+}
+
+.visit-chart {
+  margin-top: 14px;
+}
+
+.visit-map-section {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.visit-map-section .section-sub {
+  margin: 0;
+}
+
+.visit-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.visit-panel {
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.visit-panel .sub-title {
+  margin: 0;
+}
+
+.visit-rank {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12px;
+  padding: 3px 0;
+  border-bottom: 1px dashed var(--border);
+}
+
+.visit-rank:last-child {
+  border-bottom: none;
+}
+
+.visit-rank-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.visit-rank-loc {
+  grid-column: 1;
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visit-rank-count {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.visit-table-wrap {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-x: auto;
+}
+
+.visit-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.visit-toolbar .range-inp {
+  min-width: 240px;
+  flex: 1;
+}
+
+.visit-total {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.visit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.visit-table th,
+.visit-table td {
+  text-align: left;
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.visit-table th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.visit-table td {
+  color: var(--text);
+}
+
+.visit-table code {
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.visit-td-time {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.visit-td-ip {
+  white-space: nowrap;
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.visit-td-loc {
+  white-space: nowrap;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+}
+
+.visit-isp {
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+.visit-td-path {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.visit-td-ua {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.visit-ua {
+  display: inline-block;
+  margin-left: 6px;
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+.visit-empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 20px 0;
+}
+
+.visit-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+@media (max-width: 760px) {
+  .visit-table th:nth-child(5),
+  .visit-table td:nth-child(5) {
+    display: none;
   }
 }
 
