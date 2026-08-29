@@ -498,6 +498,16 @@ onMounted(() => window.addEventListener('message', onMessage))
   bottom: 0;
   width: 18px;
   z-index: 45;
+  /* 进场动画结束（transform 移除）后淡入，避免"先出现在卡片上再跳右缘" */
+  transition: opacity var(--dur-ios-2) var(--ease-ios-expo);
+}
+
+/* 页面进场动画会给路由根加 transform（iOS 式上移缩放），
+   transform 容器内 position:fixed 会退化为相对容器定位——
+   进场期间隐藏侧栏与遮罩，动画结束自动显示在视口右缘 */
+.post-detail.page-enter-active .side-wrap,
+.post-detail.page-enter-active .side-backdrop {
+  opacity: 0;
 }
 
 .side-toggle {
