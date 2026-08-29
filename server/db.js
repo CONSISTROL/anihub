@@ -47,6 +47,7 @@ db.exec(`
     season           TEXT NOT NULL,
     media            TEXT NOT NULL,
     schedules        TEXT NOT NULL,
+    base_media       TEXT NOT NULL DEFAULT '',
     media_fetched_at INTEGER NOT NULL,
     sched_fetched_at INTEGER NOT NULL,
     updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
@@ -80,6 +81,12 @@ db.exec(`
     resolved_at INTEGER
   );
 `)
+
+// 兼容旧库：anime_cache 新增 base_media 列（跨季合并用到的原始档期列表，避免重启后重复请求 AniList）
+const animeCacheCols = db.prepare('PRAGMA table_info(anime_cache)').all()
+if (!animeCacheCols.some((c) => c.name === 'base_media')) {
+  db.exec("ALTER TABLE anime_cache ADD COLUMN base_media TEXT NOT NULL DEFAULT ''")
+}
 
 // 兼容旧库：posts 表新增 hidden / visibility / content_html / format / pinned 列（CREATE TABLE IF NOT EXISTS 不会补列）
 const postCols = db.prepare('PRAGMA table_info(posts)').all()

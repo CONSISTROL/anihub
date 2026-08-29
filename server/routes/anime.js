@@ -71,7 +71,13 @@ async function fetchSeasonAnimeCached(season, year) {
 async function fetchCarryoverAnime(season, year) {
   try {
     const prev = previousSeason(season, year)
-    const prevMedia = await fetchSeasonAnimeCached(prev.season, prev.year)
+    const prevKey = cacheKey(prev.year, prev.season)
+    const cachedPrev = readCache(prevKey)
+    // 优先使用数据库里已持久化的上一档原始列表，避免每次服务重启后都重新请求 AniList
+    let prevMedia = cachedPrev?.baseMedia || null
+    if (!prevMedia) {
+      prevMedia = await fetchSeasonAnimeCached(prev.season, prev.year)
+    }
     return prevMedia.filter((m) => m.status === 'RELEASING')
   } catch (e) {
     // 跨季拉取是增强逻辑，失败时不应影响当前档期主数据
@@ -133,9 +139,20 @@ function readCache(key) {
     const media = JSON.parse(row.media)
     const schedules = JSON.parse(row.schedules)
     if (!Array.isArray(media) || !Array.isArray(schedules)) return null
+    let baseMedia = null
+    if (row.base_media) {
+      try {
+        baseMedia = JSON.parse(row.base_media)
+        if (!Array.isArray(baseMedia)) baseMedia = null
+      } catch {
+        baseMedia = null
+      }
+    }
+    if (!baseMedia) baseMedia = media // 旧缓存没有 base_media 时回退用 media
     return {
       media,
       schedules,
+      baseMedia,
       mediaFetchedAt: row.media_fetched_at,
       schedFetchedAt: row.sched_fetched_at,
     }
@@ -144,13 +161,14 @@ function readCache(key) {
   }
 }
 
-function writeCache(key, year, season, media, schedules, { mediaFetchedAt, schedFetchedAt }) {
+function writeCache(key, year, season, media, schedules, { mediaFetchedAt, schedFetchedAt, baseMedia = media }) {
   db.prepare(
-    `INSERT INTO anime_cache (season_key, year, season, media, schedules, media_fetched_at, sched_fetched_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    `INSERT INTO anime_cache (season_key, year, season, media, schedules, base_media, media_fetched_at, sched_fetched_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
      ON CONFLICT(season_key) DO UPDATE SET
        media = excluded.media,
        schedules = excluded.schedules,
+       base_media = excluded.base_media,
        media_fetched_at = excluded.media_fetched_at,
        sched_fetched_at = excluded.sched_fetched_at,
        updated_at = excluded.updated_at`
@@ -160,6 +178,7 @@ function writeCache(key, year, season, media, schedules, { mediaFetchedAt, sched
     season,
     JSON.stringify(media),
     JSON.stringify(schedules),
+    JSON.stringify(baseMedia),
     mediaFetchedAt,
     schedFetchedAt
   )
@@ -304,8 +323,10 @@ async function loadSeasonData(season, year) {
     mediaFetchedAt = Date.now()
   }
 
+  // baseMedia 是“原始档期列表”，跨季合并前保存/复用，避免重启后为了跨季作品重新请求 AniList
+  const baseMedia = mediaFresh && cached.baseMedia ? cached.baseMedia : media
+
   // 跨季合并：把上一档仍在放送的作品并入当前档期（如 Re:Zero S4 春季开播、夏季继续播）
-  const baseMedia = media
   const carryover = await fetchCarryoverAnime(season, year)
   media = mergeMedia(baseMedia, carryover)
   const mediaChanged =
@@ -325,7 +346,7 @@ async function loadSeasonData(season, year) {
   }
 
   if (!mediaFresh || !schedFresh || mediaChanged) {
-    writeCache(key, year, season, media, schedules, { mediaFetchedAt, schedFetchedAt })
+    writeCache(key, year, season, media, schedules, { mediaFetchedAt, schedFetchedAt, baseMedia })
   }
 
   return { media, schedules }
@@ -351,10 +372,8 @@ async function refreshSeasonData(season, year) {
   const key = cacheKey(year, season)
   if (refreshInFlight.has(key)) return refreshInFlight.get(key)
   const p = (async () => {
-    const media = mergeMedia(
-      await fetchSeasonAnime(season, year),
-      await fetchCarryoverAnime(season, year)
-    )
+    const baseMedia = await fetchSeasonAnime(season, year)
+    const media = mergeMedia(baseMedia, await fetchCarryoverAnime(season, year))
     const ids = media.map((m) => m.id)
     const { start, end } = seasonWindow(season, year)
     const schedules = ids.length ? await fetchSchedules(ids, start, end) : []
@@ -362,6 +381,7 @@ async function refreshSeasonData(season, year) {
     writeCache(key, year, season, media, schedules, {
       mediaFetchedAt: now,
       schedFetchedAt: now,
+      baseMedia,
     })
     return { media, schedules }
   })().finally(() => refreshInFlight.delete(key))
