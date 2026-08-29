@@ -40,7 +40,7 @@ const upgModal = ref(false)
 const upgPassword = ref('')
 const upgBusy = ref(false)
 const upgMessage = ref('')
-const upgProgress = ref(null)
+const upgProgress = ref({ state: 'idle', phase: '', running: false, updatedAt: null, log: '' })
 let upgPollTimer = null
 /* —— 壁纸管理（选择参与展示的壁纸） —— */
 const wpImages = ref([]) // [{ name, url, selected }]
@@ -109,6 +109,7 @@ const upgProgressLabel = computed(() =>
 
 const upgProgressPercent = computed(() => {
   if (!upgProgress.value) return 0
+  if (upgProgress.value.state === 'idle') return 0
   if (upgProgress.value.state === 'done') return 100
   if (upgProgress.value.state === 'failed') return 100
   const p = {
@@ -127,7 +128,8 @@ async function loadUpgradeProgress() {
     if (upgProgress.value?.running) startUpgradePolling()
     else stopUpgradePolling()
   } catch {
-    // 服务重启期间可能短暂连不上，保持当前显示
+    // 服务重启期间可能短暂连不上，保持当前显示；接口不可用时回退为空闲状态
+    upgProgress.value = { state: 'idle', phase: '', running: false, updatedAt: null, log: '' }
   }
 }
 
@@ -506,22 +508,23 @@ onUnmounted(() => {
                 <span v-if="upg.updateAvailable === false" class="upg-ok-text">当前已是最新版本</span>
               </div>
 
-              <div v-if="upgProgress" class="upg-progress">
-                <div class="upg-progress-head">
-                  <span class="upg-progress-label">{{ upgProgressLabel }}</span>
-                  <span v-if="upgProgress.running" class="upg-progress-spinner"></span>
-                  <span v-else-if="upgProgress.state === 'done'" class="upg-ok-text">升级完成</span>
-                  <span v-else-if="upgProgress.state === 'failed'" class="upg-behind">升级失败</span>
-                </div>
-                <div class="upg-progress-track">
-                  <div class="upg-progress-bar" :style="{ width: upgProgressPercent + '%' }"></div>
-                </div>
-                <pre v-if="upgProgress.log" class="upg-log">{{ upgProgress.log }}</pre>
-              </div>
-
             </template>
           </template>
         </template>
+
+        <!-- 升级进度：独立于版本检查结果，只要存在状态就展示 -->
+        <div v-if="upgProgress" class="upg-progress">
+          <div class="upg-progress-head">
+            <span class="upg-progress-label">{{ upgProgressLabel }}</span>
+            <span v-if="upgProgress.running" class="upg-progress-spinner"></span>
+            <span v-else-if="upgProgress.state === 'done'" class="upg-ok-text">升级完成</span>
+            <span v-else-if="upgProgress.state === 'failed'" class="upg-behind">升级失败</span>
+          </div>
+          <div class="upg-progress-track">
+            <div class="upg-progress-bar" :style="{ width: upgProgressPercent + '%' }"></div>
+          </div>
+          <pre v-if="upgProgress.log" class="upg-log">{{ upgProgress.log }}</pre>
+        </div>
 
         <!-- su/root 密码确认弹窗 -->
         <div v-if="upgModal" class="upg-modal-mask" @click.self="upgModal = false">
