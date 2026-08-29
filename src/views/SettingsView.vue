@@ -4,7 +4,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { getSettings, updateSettings, getMonitor, getMonitorHistory, getWallpapersManage, saveWallpaperSelection } from '../api/settings'
 import { getVisitSummary, getVisitMap, getVisitRecords } from '../api/visits'
 import VisitMap from '../components/VisitMap.vue'
-import { getUpgradeStatus, runUpgrade } from '../api/upgrade'
+import { getUpgradeProgress, getUpgradeStatus, runUpgrade } from '../api/upgrade'
 import { useSettings } from '../composables/useSettings'
 import LineChart from '../components/LineChart.vue'
 import AppIcon from '../components/AppIcon.vue'
@@ -40,6 +40,8 @@ const upgModal = ref(false)
 const upgPassword = ref('')
 const upgBusy = ref(false)
 const upgMessage = ref('')
+const upgProgress = ref(null)
+let upgPollTimer = null
 /* —— 壁纸管理（选择参与展示的壁纸） —— */
 const wpImages = ref([]) // [{ name, url, selected }]
 const wpSaving = ref(false)
@@ -90,6 +92,66 @@ async function loadUpgradeStatus() {
   }
 }
 
+const UPGRADE_PHASE_LABEL = {
+  fetch: '拉取代码',
+  install: '安装依赖',
+  build: '构建前端',
+  nginx: '同步 Nginx',
+  restart: '重启服务',
+  done: '升级完成',
+  failed: '升级失败',
+  idle: '等待升级',
+}
+
+const upgProgressLabel = computed(() =>
+  upgProgress.value ? UPGRADE_PHASE_LABEL[upgProgress.value.phase] || upgProgress.value.phase || '' : ''
+)
+
+const upgProgressPercent = computed(() => {
+  if (!upgProgress.value) return 0
+  if (upgProgress.value.state === 'done') return 100
+  if (upgProgress.value.state === 'failed') return 100
+  const p = {
+    fetch: 10,
+    install: 35,
+    build: 70,
+    nginx: 85,
+    restart: 95,
+  }
+  return p[upgProgress.value.phase] ?? 5
+})
+
+async function loadUpgradeProgress() {
+  try {
+    upgProgress.value = await getUpgradeProgress()
+    if (upgProgress.value?.running) startUpgradePolling()
+    else stopUpgradePolling()
+  } catch {
+    // 服务重启期间可能短暂连不上，保持当前显示
+  }
+}
+
+function startUpgradePolling() {
+  if (upgPollTimer) return
+  upgPollTimer = setInterval(async () => {
+    try {
+      const p = await getUpgradeProgress()
+      upgProgress.value = p
+      if (!p.running) {
+        stopUpgradePolling()
+        loadUpgradeStatus()
+      }
+    } catch {
+      // 服务重启中，等待下次轮询
+    }
+  }, 1500)
+}
+
+function stopUpgradePolling() {
+  clearInterval(upgPollTimer)
+  upgPollTimer = null
+}
+
 function openUpgradeModal() {
   upgPassword.value = ''
   upgMessage.value = ''
@@ -107,8 +169,9 @@ async function confirmUpgrade() {
     const r = await runUpgrade(upgPassword.value)
     upgMessage.value = r.message || '升级已触发'
     upgModal.value = false
-    // 升级后服务会重启，稍后重新检查版本状态
-    setTimeout(loadUpgradeStatus, 3000)
+    // 开始轮询升级进度与日志
+    upgProgress.value = { state: 'running', phase: 'fetch', running: true, log: '正在触发升级…' }
+    startUpgradePolling()
   } catch (e) {
     upgMessage.value = e.message
   } finally {
@@ -133,6 +196,7 @@ onMounted(async () => {
   }
   loadWallpapers()
   loadUpgradeStatus()
+  loadUpgradeProgress()
 })
 
 // 内部人员额外可见的选项：已对游客可见的页面自动包含在内部可见内，不再重复勾选
@@ -383,6 +447,7 @@ onMounted(() => {
 onUnmounted(() => {
   clearInterval(monTimer)
   clearInterval(histTimer)
+  stopUpgradePolling()
 })
 </script>
 
@@ -440,6 +505,20 @@ onUnmounted(() => {
                 >{{ upg.updateAvailable ? '立即升级' : upg.fetchError ? '检查失败' : '无需升级' }}</button>
                 <span v-if="upg.updateAvailable === false" class="upg-ok-text">当前已是最新版本</span>
               </div>
+
+              <div v-if="upgProgress" class="upg-progress">
+                <div class="upg-progress-head">
+                  <span class="upg-progress-label">{{ upgProgressLabel }}</span>
+                  <span v-if="upgProgress.running" class="upg-progress-spinner"></span>
+                  <span v-else-if="upgProgress.state === 'done'" class="upg-ok-text">升级完成</span>
+                  <span v-else-if="upgProgress.state === 'failed'" class="upg-behind">升级失败</span>
+                </div>
+                <div class="upg-progress-track">
+                  <div class="upg-progress-bar" :style="{ width: upgProgressPercent + '%' }"></div>
+                </div>
+                <pre v-if="upgProgress.log" class="upg-log">{{ upgProgress.log }}</pre>
+              </div>
+
             </template>
           </template>
         </template>
@@ -1412,6 +1491,75 @@ onUnmounted(() => {
   gap: 12px;
   margin-top: 12px;
 }
+
+.upg-progress {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.upg-progress-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.upg-progress-label {
+  font-weight: 600;
+}
+
+.upg-progress-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--panel);
+  border-top-color: var(--accent);
+  animation: upg-spin 0.8s linear infinite;
+}
+
+@keyframes upg-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.upg-progress-track {
+  height: 6px;
+  border-radius: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.upg-progress-bar {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--accent), #a78bfa);
+  transition: width 0.4s var(--ease-ios-expo);
+}
+
+.upg-log {
+  margin: 0;
+  max-height: 200px;
+  overflow: auto;
+  padding: 8px 10px;
+  background: #0d1117;
+  color: #c9d1d9;
+  border-radius: 8px;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 
 .upg-modal-mask {
   position: fixed;

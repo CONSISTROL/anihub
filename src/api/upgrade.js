@@ -3,6 +3,8 @@ import { api } from './http'
 
 export const getUpgradeStatus = () => api('/upgrade/status')
 
+export const getUpgradeProgress = () => api('/upgrade/progress')
+
 export const getUpgradeVersion = () => api('/upgrade/version')
 
 export const runUpgrade = (password) =>

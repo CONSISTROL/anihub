@@ -45,3 +45,7 @@ server/*.db-shm
 
 # 上传的图片
 server/uploads/
+
+# 网站升级状态与日志（本地运行数据，不应入库）
+.upgrade-state.json
+.upgrade.log

@@ -11,7 +11,7 @@ import wallpapersRouter from './routes/wallpapers.js'
 import animeRouter from './routes/anime.js'
 import monitorRouter, { serverStats } from './routes/monitor.js'
 import consoleRouter from './routes/console.js'
-import upgradeRouter from './routes/upgrade.js'
+import upgradeRouter, { finalizeUpgradeState } from './routes/upgrade.js'
 import visitsRouter, { recordPageVisit } from './routes/visits.js'
 import { attachConsoleSocket } from './consoleSocket.js'
 import { startMonitor } from './monitorCollector.js'
@@ -78,5 +78,6 @@ app.use((err, req, res, next) => {
 const server = app.listen(PORT, () => {
   console.log(`AniHub server listening on http://localhost:${PORT}`)
   startMonitor() // 服务器指标采集（每 5 秒采样 CPU/内存/网络/磁盘）
+  finalizeUpgradeState() // 如果上次升级停在 restart 阶段，新进程起来后标记完成
 })
 attachConsoleSocket(server) // 控制台实时流式输出（WebSocket）

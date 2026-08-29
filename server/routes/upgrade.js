@@ -3,12 +3,69 @@ import { Router } from 'express'
 import { exec, spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
-import { APP_DIR, GIT_BRANCH, GIT_REMOTE } from '../config.js'
+import { APP_DIR, GIT_BRANCH, GIT_REMOTE, UPGRADE_LOG_FILE, UPGRADE_STATE_FILE } from '../config.js'
 import { authRequired } from '../middleware/auth.js'
 
 const router = Router()
 const FETCH_TIMEOUT_MS = 30000
 const UPDATE_SCRIPT = 'deploy/update.sh'
+const LOG_TAIL_BYTES = 16 * 1024
+
+function readState() {
+  try {
+    return JSON.parse(fs.readFileSync(UPGRADE_STATE_FILE, 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+function writeState(state, phase) {
+  try {
+    fs.writeFileSync(
+      UPGRADE_STATE_FILE,
+      JSON.stringify({ state, phase, updatedAt: Date.now() }),
+      'utf8'
+    )
+  } catch {
+    /* 状态文件写入失败不阻断升级 */
+  }
+}
+
+function tailLog() {
+  try {
+    const size = fs.statSync(UPGRADE_LOG_FILE).size
+    const start = Math.max(0, size - LOG_TAIL_BYTES)
+    const fd = fs.openSync(UPGRADE_LOG_FILE, 'r')
+    const buf = Buffer.alloc(Math.max(0, size - start))
+    if (buf.length) fs.readSync(fd, buf, 0, buf.length, start)
+    fs.closeSync(fd)
+    return buf.toString('utf8')
+  } catch {
+    return ''
+  }
+}
+
+function getUpgradeProgress() {
+  const state = readState()
+  if (!state) {
+    return { state: 'idle', phase: '', running: false, updatedAt: null, log: '' }
+  }
+  return {
+    state: state.state,
+    phase: state.phase || '',
+    running: state.state === 'running',
+    updatedAt: state.updatedAt || null,
+    log: tailLog(),
+  }
+}
+
+// 服务重启后调用：如果升级脚本在 restart 阶段被 systemd 终止，新进程启动后把状态标记为完成
+export function finalizeUpgradeState() {
+  const state = readState()
+  if (state?.state === 'running' && state?.phase === 'restart') {
+    writeState('done', 'restart')
+  }
+}
 
 function run(cmd, { cwd = APP_DIR, timeout = 10000 } = {}) {
   return new Promise((resolve) => {
@@ -105,13 +162,26 @@ function verifySudoPassword(password) {
 }
 
 function triggerUpdate(password) {
+  // 清空上次日志并写入初始状态，前端据此轮询进度
+  try {
+    fs.writeFileSync(UPGRADE_LOG_FILE, '', 'utf8')
+  } catch {}
+  writeState('running', 'fetch')
+
   return new Promise((resolve) => {
+    let logFd
+    try {
+      logFd = fs.openSync(UPGRADE_LOG_FILE, 'a')
+    } catch {
+      logFd = 'ignore'
+    }
+
     if (typeof process.getuid === 'function' && process.getuid() === 0) {
       // 已经是 root：直接后台执行，不经过 sudo
       const child = spawn('bash', [UPDATE_SCRIPT], {
         cwd: APP_DIR,
         detached: true,
-        stdio: 'ignore',
+        stdio: ['ignore', logFd, logFd],
       })
       child.unref()
       return resolve(true)
@@ -123,7 +193,7 @@ function triggerUpdate(password) {
       {
         cwd: APP_DIR,
         detached: true,
-        stdio: ['pipe', 'ignore', 'ignore'],
+        stdio: ['pipe', logFd, logFd],
       }
     )
     child.on('error', () => resolve(false))
@@ -156,6 +226,11 @@ router.get('/version', authRequired, async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: { code: 'VERSION_FAILED', message: e.message } })
   }
+})
+
+// 管理员查看升级进度：当前阶段 + 最近日志（供设置页轮询展示）
+router.get('/progress', authRequired, (req, res) => {
+  res.json(getUpgradeProgress())
 })
 
 // 管理员查看升级状态：当前版本、落后多少提交、是否有新版本

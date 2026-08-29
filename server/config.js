@@ -32,3 +32,11 @@ export const APP_DIR = process.env.APP_DIR
 // 升级默认拉取的 git remote 与分支（与 deploy/update.sh 保持一致）
 export const GIT_REMOTE = process.env.GIT_REMOTE || 'origin'
 export const GIT_BRANCH = process.env.GIT_BRANCH || 'master'
+
+// 升级进度状态与日志文件（由 deploy/update.sh 写入，服务重启后仍可读取）
+export const UPGRADE_STATE_FILE = process.env.UPGRADE_STATE_FILE
+  ? path.resolve(process.env.UPGRADE_STATE_FILE)
+  : path.join(APP_DIR, '.upgrade-state.json')
+export const UPGRADE_LOG_FILE = process.env.UPGRADE_LOG_FILE
+  ? path.resolve(process.env.UPGRADE_LOG_FILE)
+  : path.join(APP_DIR, '.upgrade.log')

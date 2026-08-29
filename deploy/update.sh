@@ -15,6 +15,15 @@ PROXY_URL="https://ghfast.top/https://github.com/CONSISTROL/anihub.git"
 REMOTE="${1:-$PROXY_URL}"
 BRANCH="${2:-master}"
 
+# 升级进度状态（网页设置页轮询展示；服务重启后仍可读取）
+UPGRADE_STATE="${UPGRADE_STATE:-$APP_DIR/.upgrade-state.json}"
+
+write_state() {
+  printf '{"state":"%s","phase":"%s","updatedAt":%s}\n' "$1" "$2" "$(date +%s)" > "$UPGRADE_STATE"
+}
+trap 'write_state failed error' ERR
+
+write_state running fetch
 echo "==> 拉取 $REMOTE/$BRANCH"
 git config --global --add safe.directory "$APP_DIR" >/dev/null 2>&1 || true
 git fetch "$REMOTE" "$BRANCH"
@@ -36,10 +45,13 @@ else
   git reset --hard FETCH_HEAD
 fi
 
+write_state running install
 echo "==> 安装依赖并构建前端"
 npm ci
+write_state running build
 npm run build
 
+write_state running nginx
 echo "==> 同步 Nginx 反代配置（WebSocket 转发等）"
 if [[ -f /etc/nginx/sites-available/anihub ]]; then
   DOMAIN="$(sed -n 's/^[[:space:]]*server_name[[:space:]]*\([^;]*\);.*/\1/p' /etc/nginx/sites-available/anihub | head -1 | xargs)"
@@ -71,6 +83,8 @@ fi
 
 # 重启必须放最后：本脚本是 anihub 服务的子进程（控制台里跑的），
 # systemctl restart 会终止整个服务（含本脚本进程树），后面的步骤将不会执行。
+write_state running restart
 echo "==> 重启服务（会断开控制台连接，属正常现象，稍后自动重连）"
 systemctl restart anihub
+write_state done restart
 echo "==> 服务已重启"
