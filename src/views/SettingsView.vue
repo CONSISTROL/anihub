@@ -10,6 +10,7 @@ import { getUpgradeProgress, getUpgradeStatus, runUpgrade } from '../api/upgrade
 import { useSettings } from '../composables/useSettings'
 import LineChart from '../components/LineChart.vue'
 import AppIcon from '../components/AppIcon.vue'
+import LiquidFill from '../components/LiquidFill.vue'
 
 const settings = useSettings()
 
@@ -276,6 +277,17 @@ const memRatio = computed(() => {
 const rssRatio = computed(() => {
   if (!mon.value?.mem?.rss || !mon.value.memTotal) return 0
   return Math.min(100, Math.round((mon.value.mem.rss / mon.value.memTotal) * 100))
+})
+
+const diskRatio = computed(() => {
+  if (!mon.value?.disk?.total) return 0
+  return Math.min(100, Math.round((mon.value.disk.used / mon.value.disk.total) * 100))
+})
+
+const heapRatio = computed(() => {
+  const m = mon.value?.mem
+  if (!m?.heapTotal) return 0
+  return Math.min(100, Math.round((m.heapUsed / m.heapTotal) * 100))
 })
 
 /* —— 监控图表 —— */
@@ -798,17 +810,26 @@ onUnmounted(() => {
             <span class="mon-label">收到请求</span>
             <b>{{ mon.requests.toLocaleString() }}</b>
           </div>
-          <div class="mon-item">
+          <div class="mon-item liquid" :style="{ '--liquid': '#37b24d' }">
+            <LiquidFill :percent="memRatio" color="#37b24d" />
             <span class="mon-label">系统内存</span>
-            <b>{{ fmtBytes(mon.memTotal - mon.memFree) }} / {{ fmtBytes(mon.memTotal) }}</b>
+            <b>{{ fmtBytes(mon.memTotal - mon.memFree) }} / {{ fmtBytes(mon.memTotal) }} · {{ memRatio }}%</b>
           </div>
-          <div class="mon-item">
+          <div class="mon-item liquid" :style="{ '--liquid': '#f59f00' }">
+            <LiquidFill :percent="diskRatio" color="#f59f00" />
+            <span class="mon-label">磁盘容量</span>
+            <b v-if="mon.disk">{{ fmtBytes(mon.disk.used) }} / {{ fmtBytes(mon.disk.total) }} · {{ diskRatio }}%</b>
+            <b v-else>—</b>
+          </div>
+          <div class="mon-item liquid" :style="{ '--liquid': '#4a7de0' }">
+            <LiquidFill :percent="rssRatio" color="#4a7de0" />
             <span class="mon-label">进程内存 RSS</span>
-            <b>{{ fmtBytes(mon.mem.rss) }}</b>
+            <b>{{ fmtBytes(mon.mem.rss) }} · {{ rssRatio }}%</b>
           </div>
-          <div class="mon-item">
+          <div class="mon-item liquid" :style="{ '--liquid': '#9b59b6' }">
+            <LiquidFill :percent="heapRatio" color="#9b59b6" />
             <span class="mon-label">堆内存</span>
-            <b>{{ fmtBytes(mon.mem.heapUsed) }} / {{ fmtBytes(mon.mem.heapTotal) }}</b>
+            <b>{{ fmtBytes(mon.mem.heapUsed) }} / {{ fmtBytes(mon.mem.heapTotal) }} · {{ heapRatio }}%</b>
           </div>
           <div class="mon-item">
             <span class="mon-label">系统负载</span>
@@ -841,18 +862,6 @@ onUnmounted(() => {
         </div>
         <div v-else class="mon-grid">
           <p class="settings-hint">加载中…</p>
-        </div>
-        <div v-if="mon" class="mon-bars">
-          <div class="mon-bar-row">
-            <span class="mon-label">系统内存占用</span>
-            <div class="mon-bar"><div class="mon-bar-fill" :style="{ width: memRatio + '%' }"></div></div>
-            <span class="mon-val">{{ memRatio }}%</span>
-          </div>
-          <div class="mon-bar-row">
-            <span class="mon-label">本进程 RSS</span>
-            <div class="mon-bar"><div class="mon-bar-fill rss" :style="{ width: rssRatio + '%' }"></div></div>
-            <span class="mon-val">{{ rssRatio }}%</span>
-          </div>
         </div>
 
         <!-- 监控图表 -->
@@ -1116,6 +1125,9 @@ onUnmounted(() => {
 }
 
 .mon-item {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -1123,6 +1135,23 @@ onUnmounted(() => {
   background: var(--panel-2);
   border: 1px solid var(--border);
   border-radius: 8px;
+}
+
+.mon-item .mon-label,
+.mon-item b {
+  position: relative;
+  z-index: 1;
+}
+
+/* 有液体背景的小卡片：文字带主题色 tint，保证在彩色液面上可读 */
+.mon-item.liquid .mon-label {
+  color: color-mix(in srgb, var(--text) 72%, var(--liquid));
+  font-weight: 600;
+}
+
+.mon-item.liquid b {
+  color: var(--text);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.14);
 }
 
 .mon-label {
@@ -1181,6 +1210,7 @@ onUnmounted(() => {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+
 
 /* —— 监控图表 —— */
 .mon-charts {

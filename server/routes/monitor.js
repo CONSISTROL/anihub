@@ -36,6 +36,22 @@ router.get('/', authRequired, (req, res) => {
   } catch {
     /* 表不存在 */
   }
+  // 磁盘容量：统计应用目录所在分区的总容量 / 已用 / 可用
+  let disk = null
+  try {
+    const st = fs.statfsSync(path.join(import.meta.dirname, '..'))
+    const total = Number(st.blocks) * Number(st.bsize)
+    const free = Number(st.bavail) * Number(st.bsize)
+    const used = Math.max(0, total - free)
+    disk = {
+      total,
+      used,
+      free,
+      percent: total > 0 ? Math.round((used / total) * 1000) / 10 : 0,
+    }
+  } catch {
+    disk = null
+  }
   res.json({
     now: Date.now(),
     startedAt: serverStats.startedAt,
@@ -50,6 +66,7 @@ router.get('/', authRequired, (req, res) => {
     memTotal: os.totalmem(),
     memFree: os.freemem(),
     mem: { rss: mem.rss, heapUsed: mem.heapUsed, heapTotal: mem.heapTotal },
+    disk,
     db: { size: dbSize, mtime: dbMtime, ...counts },
   })
 })
