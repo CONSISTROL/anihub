@@ -3,12 +3,16 @@ import { computed } from 'vue'
 import { dayKey, fmtTime, weekdayCN } from '../utils/date'
 import { titleFor } from '../utils/titles'
 import AppIcon from './AppIcon.vue'
+import SeasonPattern from './SeasonPattern.vue'
 
 const props = defineProps({
   month: { type: Object, required: true }, // { y, m }
   schedules: { type: Array, default: () => [] },
   mediaMap: { type: Map, required: true },
+  season: { type: String, default: '' },
 })
+
+const seasonClass = computed(() => `season-${(props.season || '').toLowerCase() || 'spring'}`)
 
 const emit = defineEmits(['select'])
 
@@ -46,9 +50,10 @@ function weekdayOf(key) {
 </script>
 
 <template>
-  <div class="list-view">
+  <div class="list-view" :class="seasonClass">
     <div v-if="groups.length === 0" class="empty">本月暂无放送安排</div>
     <div v-for="g in groups" :key="g.key" class="group">
+      <SeasonPattern :season="season" :density="4" />
       <div class="group-head" :class="{ today: g.key === todayKey }">
         <span class="date">{{ g.key }}</span>
         <span class="weekday">星期{{ weekdayOf(g.key) }}</span>
@@ -77,7 +82,8 @@ function weekdayOf(key) {
 .list-view {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
+  font-variant-numeric: tabular-nums;
 }
 
 .empty {
@@ -85,56 +91,76 @@ function weekdayOf(key) {
   text-align: center;
   color: var(--muted);
   border: 1px dashed var(--border);
-  border-radius: 12px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--panel) 60%, transparent);
 }
 
 .group {
+  position: relative;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 16px;
   overflow: hidden;
-  background: var(--panel);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.06);
 }
 
 .group-head {
+  position: relative;
+  z-index: 1;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
-  padding: 10px 16px;
-  background: var(--panel-2);
+  padding: 12px 18px;
+  background: color-mix(in srgb, var(--panel-2) 80%, transparent);
   border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(6px);
 }
 
 .group-head.today {
-  background: color-mix(in srgb, var(--accent) 12%, var(--panel-2));
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 16%, var(--panel-2)) 0%,
+    color-mix(in srgb, var(--accent) 5%, var(--panel-2)) 100%
+  );
 }
 
 .group-head .date {
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
   font-variant-numeric: tabular-nums;
 }
 
 .group-head .weekday {
   font-size: 12px;
+  font-weight: 600;
   color: var(--muted);
 }
 
 .group-head .count {
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 600;
   color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
 }
 
 .group-head .today-badge {
   margin-left: auto;
   font-size: 11px;
-  font-weight: 600;
-  color: var(--accent);
-  border: 1px solid var(--accent);
+  font-weight: 700;
+  color: #fff;
+  background: var(--accent);
   border-radius: 999px;
-  padding: 1px 8px;
+  padding: 2px 10px;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
 .rows {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
 }
@@ -144,14 +170,17 @@ function weekdayOf(key) {
   align-items: center;
   gap: 12px;
   width: 100%;
-  padding: 8px 16px;
+  padding: 10px 16px;
   border: none;
   border-bottom: 1px solid var(--border);
   background: transparent;
   color: var(--text);
-  font-size: 13px;
   cursor: pointer;
   text-align: left;
+  transition:
+    transform var(--dur-ios-2) var(--ease-ios-spring),
+    background-color var(--dur-ios-1) var(--ease-ios-expo),
+    box-shadow var(--dur-ios-2) var(--ease-ios-expo);
 }
 
 .row:last-child {
@@ -159,15 +188,24 @@ function weekdayOf(key) {
 }
 
 .row:hover {
-  background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
+  box-shadow: inset 3px 0 0 var(--accent);
+  transform: translateX(3px);
+}
+
+.row:active {
+  transform: scale(0.992);
+  transition-duration: 70ms;
+  transition-timing-function: var(--ease-ios);
 }
 
 .cover {
-  width: 40px;
+  width: 44px;
   aspect-ratio: 2 / 3;
   object-fit: cover;
-  border-radius: 5px;
+  border-radius: 8px;
   flex-shrink: 0;
+  box-shadow: 0 3px 10px rgb(0 0 0 / 0.18);
 }
 
 .cover-placeholder {
@@ -176,7 +214,6 @@ function weekdayOf(key) {
   justify-content: center;
   background: var(--panel-2);
   border: 1px solid var(--border);
-  font-size: 16px;
 }
 
 .row-title {
@@ -185,17 +222,28 @@ function weekdayOf(key) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
 }
 
 .row-ep {
   flex-shrink: 0;
-  font-size: 12px;
-  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
 }
 
 .row-time {
   flex-shrink: 0;
-  font-size: 12px;
+  min-width: 48px;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 700;
   color: var(--accent);
   font-variant-numeric: tabular-nums;
 }

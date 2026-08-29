@@ -26,3 +26,28 @@ export async function searchAnime(keyword) {
   const data = await api(`/anime/search?q=${encodeURIComponent(keyword)}`, { auth: false })
   return data.items || []
 }
+
+/**
+ * 加载一段连续时间范围内的动漫数据（跨档期自动合并）。
+ */
+export async function loadRangeData({ start, end }) {
+  const data = await api(
+    `/anime/range?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`,
+    { auth: false }
+  )
+  return {
+    mediaMap: new Map((data.media || []).map((m) => [m.id, m])),
+    schedules: data.schedules || [],
+  }
+}
+
+/**
+ * 管理员强制重新从 AniList 拉取指定档期并更新服务器缓存。
+ * 需要管理员 token（api 默认带 auth）。
+ */
+export async function refreshSeasonData({ season, year }) {
+  return api(
+    `/anime/refresh?season=${encodeURIComponent(season)}&year=${encodeURIComponent(year)}`,
+    { method: 'POST' }
+  )
+}

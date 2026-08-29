@@ -4,12 +4,16 @@ import { buildMonthGrid, fmtDate, fmtTime, dayKey } from '../utils/date'
 import { titleFor } from '../utils/titles'
 import DayPopover from './DayPopover.vue'
 import AppIcon from './AppIcon.vue'
+import SeasonPattern from './SeasonPattern.vue'
 
 const props = defineProps({
   month: { type: Object, required: true }, // { y, m }
   schedules: { type: Array, default: () => [] },
   mediaMap: { type: Map, required: true },
+  season: { type: String, default: '' },
 })
+
+const seasonClass = computed(() => `season-${(props.season || '').toLowerCase() || 'spring'}`)
 
 const emit = defineEmits(['select'])
 
@@ -97,9 +101,10 @@ onUnmounted(() => window.removeEventListener('scroll', hideTooltip))
 </script>
 
 <template>
-  <div class="calendar">
+  <div class="calendar" :class="seasonClass">
+    <SeasonPattern :season="season" :density="16" />
     <div class="weekday-row">
-      <div v-for="w in WEEKDAYS" :key="w" class="weekday-cell">{{ w }}</div>
+      <div v-for="(w, i) in WEEKDAYS" :key="w" class="weekday-cell" :class="{ weekend: i >= 5 }">{{ w }}</div>
     </div>
     <div class="month-grid">
       <div v-for="(week, wi) in weeks" :key="wi" class="week">
@@ -160,26 +165,41 @@ onUnmounted(() => window.removeEventListener('scroll', hideTooltip))
 
 <style scoped>
 .calendar {
+  position: relative;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 16px;
   overflow: hidden;
-  background: var(--panel);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  box-shadow: 0 14px 40px rgb(0 0 0 / 0.08);
+  font-variant-numeric: tabular-nums;
+}
+
+.weekday-row,
+.month-grid {
+  position: relative;
+  z-index: 1;
 }
 
 .weekday-row {
   display: grid;
   /* minmax(0, 1fr)：下限为 0，防止不换行的长标题把列撑宽，保证 7 列严格等宽 */
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  background: var(--panel-2);
+  background: color-mix(in srgb, var(--panel-2) 80%, transparent);
   border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(6px);
 }
 
 .weekday-cell {
-  padding: 10px 0;
+  padding: 11px 0 9px;
   text-align: center;
-  font-size: 13px;
+  font-size: 12px;
+  letter-spacing: 0.12em;
   color: var(--muted);
-  font-weight: 600;
+  font-weight: 700;
+}
+
+.weekday-cell.weekend {
+  color: color-mix(in srgb, var(--accent) 65%, var(--muted));
 }
 
 .month-grid {
@@ -199,13 +219,16 @@ onUnmounted(() => window.removeEventListener('scroll', hideTooltip))
 }
 
 .day {
-  min-height: 104px;
-  padding: 6px;
+  position: relative;
+  min-height: 108px;
+  padding: 8px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
   border-right: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel) 55%, transparent);
   cursor: pointer;
+  overflow: hidden;
   transition: background-color var(--dur-ios-2) var(--ease-ios-expo);
 }
 
@@ -214,36 +237,65 @@ onUnmounted(() => window.removeEventListener('scroll', hideTooltip))
 }
 
 .day:not(.day-empty):hover {
-  background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
+}
+
+.day.weekend:not(.day-empty) {
+  background: color-mix(in srgb, var(--accent) 3%, color-mix(in srgb, var(--panel) 55%, transparent));
 }
 
 .day-empty {
-  background: color-mix(in srgb, var(--panel) 55%, transparent);
+  background: color-mix(in srgb, var(--panel) 40%, transparent);
   cursor: default;
 }
 
 .day-today {
-  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
-  box-shadow: inset 0 0 0 1px var(--accent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 11%, var(--panel)) 0%,
+    color-mix(in srgb, var(--accent) 5%, var(--panel)) 100%
+  );
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 65%, transparent);
 }
 
 .day-num {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-end;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
   font-size: 12px;
+  font-weight: 600;
   color: var(--muted);
-  text-align: right;
-  padding: 0 2px;
   user-select: none;
+  transition:
+    background-color var(--dur-ios-1) var(--ease-ios-expo),
+    color var(--dur-ios-1) var(--ease-ios-expo),
+    box-shadow var(--dur-ios-2) var(--ease-ios-expo);
+}
+
+.day:not(.day-empty):hover .day-num {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
 }
 
 .day-today .day-num {
-  color: var(--accent);
-  font-weight: 700;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 800;
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .entries {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
 }
 
 .chip {
@@ -251,23 +303,28 @@ onUnmounted(() => window.removeEventListener('scroll', hideTooltip))
   align-items: center;
   gap: 5px;
   width: 100%;
-  padding: 3px 5px;
-  border: none;
-  border-radius: 6px;
-  background: hsl(var(--hue) 60% 55% / 0.16);
-  border-left: 3px solid hsl(var(--hue) 65% 60%);
+  padding: 4px 6px;
+  border: 1px solid color-mix(in srgb, hsl(var(--hue) 65% 60%) 35%, transparent);
+  border-left-width: 3px;
+  border-radius: 8px;
+  background: hsl(var(--hue) 60% 55% / 0.15);
   color: var(--text);
-  font-size: 12px;
+  font-size: 11.5px;
   cursor: pointer;
   text-align: left;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.05);
   transition:
     filter var(--dur-ios-1) var(--ease-ios-expo),
-    transform var(--dur-ios-1) var(--ease-ios-spring);
+    transform var(--dur-ios-1) var(--ease-ios-spring),
+    background-color var(--dur-ios-1) var(--ease-ios-expo),
+    box-shadow var(--dur-ios-2) var(--ease-ios-expo);
 }
 
 .chip:hover {
-  filter: brightness(1.25);
+  filter: brightness(1.22);
   transform: translateX(2px) scale(1.02);
+  background: hsl(var(--hue) 60% 55% / 0.24);
+  box-shadow: 0 6px 14px rgb(0 0 0 / 0.14);
 }
 
 .chip:active {
@@ -277,11 +334,12 @@ onUnmounted(() => window.removeEventListener('scroll', hideTooltip))
 }
 
 .chip-cover {
-  width: 18px;
+  width: 20px;
   aspect-ratio: 2 / 3;
   object-fit: cover;
-  border-radius: 3px;
+  border-radius: 4px;
   flex-shrink: 0;
+  box-shadow: 0 2px 5px rgb(0 0 0 / 0.18);
 }
 
 .chip-cover-ph {
@@ -290,7 +348,6 @@ onUnmounted(() => window.removeEventListener('scroll', hideTooltip))
   justify-content: center;
   background: var(--panel-2);
   border: 1px solid var(--border);
-  font-size: 10px;
 }
 
 .chip-title {
@@ -299,20 +356,28 @@ onUnmounted(() => window.removeEventListener('scroll', hideTooltip))
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 .chip-ep {
   flex-shrink: 0;
-  font-size: 11px;
-  color: hsl(var(--hue) 70% 72%);
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  background: hsl(var(--hue) 60% 45% / 0.7);
+  border-radius: 999px;
+  padding: 1px 5px;
+  white-space: nowrap;
 }
 
 .chip-time {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: 10.5px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: hsl(var(--hue) 70% 72%);
-  opacity: 0.75;
+  opacity: 0.9;
 }
 
 /* 悬浮提示 */

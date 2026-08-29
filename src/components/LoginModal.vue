@@ -1,6 +1,6 @@
 <script setup>
-// 登录弹窗：由键盘输入 "login" 呼出（见 App.vue），登录成功后关闭
-import { nextTick, onMounted, ref } from 'vue'
+// 登录弹窗：由 Tools → HTML 渲染输入 login 后点击渲染呼出，登录成功后关闭
+import { nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { api } from '../api/http'
 import { useAuth } from '../composables/useAuth'
 import AppIcon from './AppIcon.vue'
@@ -16,7 +16,15 @@ const showPassword = ref(false)
 const userInput = ref(null)
 
 // 弹窗出现后光标直接落在用户名输入框
-onMounted(() => nextTick(() => userInput.value?.focus()))
+function onKeydown(e) {
+  if (e.key === 'Escape') emit('close')
+}
+
+onMounted(() => {
+  nextTick(() => userInput.value?.focus())
+  window.addEventListener('keydown', onKeydown)
+})
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 async function onSubmit() {
   error.value = ''

@@ -512,8 +512,8 @@ onUnmounted(() => {
           </template>
         </template>
 
-        <!-- 升级进度：独立于版本检查结果，只要存在状态就展示 -->
-        <div v-if="upgProgress" class="upg-progress">
+        <!-- 升级进度：仅在升级中/完成/失败时展示，空闲时隐藏 -->
+        <div v-if="upgProgress && upgProgress.state !== 'idle'" class="upg-progress">
           <div class="upg-progress-head">
             <span class="upg-progress-label">{{ upgProgressLabel }}</span>
             <span v-if="upgProgress.running" class="upg-progress-spinner"></span>
@@ -1186,6 +1186,13 @@ onUnmounted(() => {
   color: var(--text);
 }
 
+.range-inp:focus-visible,
+.range-inp:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
 .range-sep {
   font-size: 12px;
   color: var(--muted);
@@ -1299,6 +1306,8 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  /* 给输入框焦点外圈留出空间，避免被 visit-table-wrap 的横向滚动裁剪 */
+  padding: 2px 5px;
 }
 
 .visit-toolbar .range-inp {

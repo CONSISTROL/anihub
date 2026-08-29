@@ -1,10 +1,10 @@
 <script setup>
-// 游戏页（游客公开）：纯 2D 大肥鱼割草——主角使用网站桌宠形象，自动攻击、冲刺闪避，
-// 升级三选一能力卡，小怪/精英/boss 掉落不同品质道具，地图上有可探索资源点。
-// 怪物 / 地图资源 / 道具先用 Canvas 矢量图形渲染。
+// 游戏页（游客公开）：纯前端 Canvas 地牢射击
+// 玩法参考“挺进地牢”：房间制地牢、鼠标瞄准射击、翻滚闪避、随机枪械、
+// 清房解锁、商店/宝箱/Boss、四层主题地牢。
 import { onMounted, onUnmounted, ref } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
-import { MowGame } from '../game/engine'
+import { DungeonGame } from '../game/dungeon'
 import { acquireWallpaper } from '../composables/useWallpaper'
 import { useAuth } from '../composables/useAuth'
 import { useSettings } from '../composables/useSettings'
@@ -14,95 +14,50 @@ const canvas = ref(null)
 const game = ref(null)
 const auth = useAuth()
 const settings = useSettings()
-const wallpaperHolder = ref(null) // 开始/暂停等界面背景显示壁纸（按身份控制）
+const wallpaperHolder = ref(null)
 
-const screen = ref('start') // start | playing | levelup | paused | dead
-const choices = ref([])
-const selected = ref(0)
-const keyboardSelected = ref(0)
+const screen = ref('start') // start | playing | paused | dead | victory
 const stats = ref(null)
-const spawnRate = ref(1)
+const gameSpeed = ref(1)
 const hasSave = ref(false)
 const SAVE_KEY = 'dsh-game-save'
 
 function onSpawnRateInput() {
-  if (game.value) game.value.setSpawnRate(spawnRate.value)
-}
-
-function onLevelUp(c) {
-  choices.value = c
-  selected.value = 0
-  keyboardSelected.value = 0
-  screen.value = 'levelup'
+  if (game.value) game.value.setSpawnRate(gameSpeed.value)
 }
 
 function onGameOver(s) {
   stats.value = s
-  screen.value = 'dead'
+  screen.value = s.win ? 'victory' : 'dead'
   clearSave()
+  if (canvas.value) canvas.value.style.cursor = ''
 }
 
 function onPause(paused) {
   screen.value = paused ? 'paused' : 'playing'
+  if (canvas.value) canvas.value.style.cursor = paused ? '' : 'none'
 }
 
 function startGame() {
   clearSave()
   if (!game.value) {
-    game.value = new MowGame(canvas.value, { onLevelUp, onGameOver, onPause, spawnRate: spawnRate.value })
+    game.value = new DungeonGame(canvas.value, { onGameOver, onPause, spawnRate: gameSpeed.value })
   }
-  game.value.setSpawnRate(spawnRate.value)
+  game.value.setSpawnRate(gameSpeed.value)
+  game.value.restartRun()
   screen.value = 'playing'
   game.value.start()
+  if (canvas.value) canvas.value.style.cursor = 'none'
   if (import.meta.env.DEV) window.__game = game.value
-}
-
-function pickAbility(i) {
-  game.value.chooseAbility(i)
-  // 从存档恢复到“升级选卡”时引擎尚未启动，选完后需要真正开始游戏循环
-  if (!game.value.raf) game.value.start()
-  screen.value = 'playing'
-}
-
-function moveSelection(delta) {
-  if (!choices.value.length) return
-  selected.value = (selected.value + delta + choices.value.length) % choices.value.length
-  keyboardSelected.value = selected.value
-}
-
-function confirmSelection() {
-  if (choices.value[selected.value]) pickAbility(selected.value)
-}
-
-function onLevelUpKeydown(e) {
-  if (screen.value !== 'levelup' || !choices.value.length) return
-  const k = e.key.toLowerCase()
-  if (k === 'arrowleft' || k === 'a') {
-    e.preventDefault()
-    moveSelection(-1)
-  } else if (k === 'arrowright' || k === 'd') {
-    e.preventDefault()
-    moveSelection(1)
-  } else if (k === 'enter' || k === ' ') {
-    e.preventDefault()
-    confirmSelection()
-  } else if (k >= '1' && k <= '9') {
-    const i = Number(k) - 1
-    if (i < choices.value.length) {
-      e.preventDefault()
-      pickAbility(i)
-    }
-  }
 }
 
 function saveGame() {
   if (!game.value) return
-  if (!['playing', 'paused', 'levelup'].includes(screen.value)) return
-  // 离开页面时先把运行中的游戏切到暂停态，再写入快照
+  if (!['playing', 'paused'].includes(screen.value)) return
   if (screen.value === 'playing') game.value.pause(true)
   const data = game.value.snapshot()
   data.screen = screen.value
-  data.spawnRate = spawnRate.value
+  data.gameSpeed = gameSpeed.value
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(data))
     hasSave.value = true
@@ -126,7 +81,7 @@ function refreshHasSave() {
     hasSave.value = !!raw
     if (raw) {
       const data = JSON.parse(raw)
-      if (data.spawnRate) spawnRate.value = data.spawnRate
+      if (data.gameSpeed) gameSpeed.value = data.gameSpeed
     }
   } catch {
     hasSave.value = false
@@ -144,20 +99,17 @@ function continueGame() {
   try {
     const data = JSON.parse(raw)
     if (!game.value) {
-      game.value = new MowGame(canvas.value, { onLevelUp, onGameOver, onPause, spawnRate: spawnRate.value })
+      game.value = new DungeonGame(canvas.value, { onGameOver, onPause, spawnRate: gameSpeed.value })
     }
-    game.value.loadSnapshot(data)
-    spawnRate.value = data.spawnRate || 1
-    if (data.screen === 'levelup') {
-      choices.value = data.choices || []
-      selected.value = 0
-      keyboardSelected.value = 0
-      screen.value = 'levelup'
-    } else {
-      choices.value = []
-      screen.value = 'playing'
-      if (!game.value.raf) game.value.start()
+    if (!game.value.loadSnapshot(data)) {
+      clearSave()
+      return
     }
+    gameSpeed.value = data.gameSpeed || 1
+    game.value.setSpawnRate(gameSpeed.value)
+    screen.value = 'playing'
+    game.value.start()
+    if (canvas.value) canvas.value.style.cursor = 'none'
     if (import.meta.env.DEV) window.__game = game.value
   } catch {
     clearSave()
@@ -166,7 +118,7 @@ function continueGame() {
 
 function restart() {
   game.value?.destroy()
-  game.value = new MowGame(canvas.value, { onLevelUp, onGameOver, onPause, spawnRate: spawnRate.value })
+  game.value = new DungeonGame(canvas.value, { onGameOver, onPause, spawnRate: gameSpeed.value })
   startGame()
 }
 
@@ -175,18 +127,23 @@ function quitGame() {
   game.value = null
   screen.value = 'start'
   clearSave()
+  if (canvas.value) canvas.value.style.cursor = ''
+}
+
+function resumeGame() {
+  if (!game.value) return
+  game.value.pause(false)
+  if (canvas.value) canvas.value.style.cursor = 'none'
 }
 
 onMounted(async () => {
   refreshHasSave()
-  // 开始/暂停等界面背景显示壁纸（与 Anime 页共用壁纸管理器，按身份控制，管理员恒可见）
   await settings.load()
   if (settings.canSeeWallpaper(auth.isLoggedIn.value, auth.isInsider.value)) {
     wallpaperHolder.value = acquireWallpaper()
   }
-  game.value = new MowGame(canvas.value, { onLevelUp, onGameOver, onPause, spawnRate: spawnRate.value })
+  game.value = new DungeonGame(canvas.value, { onGameOver, onPause, spawnRate: gameSpeed.value })
   if (import.meta.env.DEV) window.__game = game.value
-  window.addEventListener('keydown', onLevelUpKeydown)
   window.addEventListener('beforeunload', saveGame)
 })
 
@@ -196,10 +153,10 @@ onBeforeRouteLeave(() => {
 
 onUnmounted(() => {
   saveGame()
-  window.removeEventListener('keydown', onLevelUpKeydown)
   window.removeEventListener('beforeunload', saveGame)
   wallpaperHolder.value?.release()
   game.value?.destroy()
+  if (canvas.value) canvas.value.style.cursor = ''
 })
 </script>
 
@@ -211,74 +168,56 @@ onUnmounted(() => {
     <div v-if="screen === 'start'" class="overlay">
       <div class="panel">
         <img src="/pet/idle_front/idle_front_238.png" alt="" class="hero-img" />
-        <h1 class="game-title">大肥鱼割草</h1>
+        <h1 class="game-title">大肥鱼：挺进地牢</h1>
+        <p class="subtitle">随机地牢 · 清房开门 · 枪械收集 · 四层 Boss</p>
         <div class="spawn-rate">
-          <span>刷怪速度</span>
+          <span>游戏速度</span>
           <input
             type="range"
             min="0.5"
-            max="3"
+            max="2"
             step="0.1"
-            v-model.number="spawnRate"
+            v-model.number="gameSpeed"
             @input="onSpawnRateInput"
           />
-          <b>{{ spawnRate.toFixed(1) }}x</b>
+          <b>{{ gameSpeed.toFixed(1) }}x</b>
         </div>
         <div class="keys">
           <span>移动：WASD / 方向键</span>
-          <span>冲刺：空格 / Shift</span>
+          <span>瞄准：鼠标</span>
+          <span>射击：鼠标左键</span>
+          <span>翻滚：空格 / Shift</span>
+          <span>互动：E</span>
+          <span>空白：F（清除弹幕）</span>
+          <span>切枪：Q / 数字键</span>
           <span>暂停：Esc / P</span>
-          <span>小地图：右下角</span>
-          <span>连击：连续击杀叠乘区</span>
         </div>
         <div v-if="hasSave" class="btn-row">
-          <button class="btn btn-primary btn-big" @click="continueGame">继续游戏</button>
-          <button class="btn btn-big" @click="startGame">新游戏</button>
+          <button class="btn btn-primary btn-big" @click="continueGame">继续冒险</button>
+          <button class="btn btn-big" @click="startGame">新的冒险</button>
         </div>
-        <button v-else class="btn btn-primary btn-big" @click="startGame">开始游戏</button>
-      </div>
-    </div>
-
-    <!-- 升级选卡 -->
-    <div v-if="screen === 'levelup'" class="overlay">
-      <div class="levelup">
-        <h2 class="lu-title"><AppIcon name="star" :size="18" /> 升级了！选择一项能力</h2>
-        <div class="cards" @mouseleave="selected = keyboardSelected">
-          <button
-            v-for="(c, i) in choices"
-            :key="c.id"
-            class="card"
-            :class="{ selected: selected === i }"
-            @mouseenter="selected = i"
-            @click="pickAbility(i)"
-          >
-            <span class="card-icon"><AppIcon :name="c.icon" :size="30" /></span>
-            <span class="card-name">{{ c.name }}</span>
-            <span class="card-desc">{{ c.desc }}</span>
-          </button>
-        </div>
-        <p class="lu-keys">←/→ 或 A/D 选择 · Enter/空格 确认 · 1/2/3 快速选择</p>
+        <button v-else class="btn btn-primary btn-big" @click="startGame">开始冒险</button>
       </div>
     </div>
 
     <!-- 暂停 -->
     <div v-if="screen === 'paused'" class="overlay">
       <div class="panel">
-        <h2 class="game-title">已暂停</h2>
+        <h2 class="game-title"><AppIcon name="stop" :size="18" /> 已暂停</h2>
         <div class="spawn-rate">
-          <span>刷怪速度</span>
+          <span>游戏速度</span>
           <input
             type="range"
             min="0.5"
-            max="3"
+            max="2"
             step="0.1"
-            v-model.number="spawnRate"
+            v-model.number="gameSpeed"
             @input="onSpawnRateInput"
           />
-          <b>{{ spawnRate.toFixed(1) }}x</b>
+          <b>{{ gameSpeed.toFixed(1) }}x</b>
         </div>
         <div class="btn-row">
-          <button class="btn btn-primary" @click="game.pause(false)">继续</button>
+          <button class="btn btn-primary" @click="resumeGame">继续</button>
           <button class="btn" @click="quitGame">退出游戏</button>
         </div>
       </div>
@@ -287,15 +226,36 @@ onUnmounted(() => {
     <!-- 结算 -->
     <div v-if="screen === 'dead'" class="overlay">
       <div class="panel">
-        <h2 class="game-title"><AppIcon name="skull" :size="18" /> 游戏结束</h2>
+        <h2 class="game-title"><AppIcon name="skull" :size="18" /> 冒险失败</h2>
         <div class="stat-list">
+          <p>抵达层数：<b>第 {{ stats.floor }} 层</b></p>
           <p>生存时间：<b>{{ stats.time }}s</b></p>
           <p>击杀数：<b>{{ stats.kills }}</b></p>
-          <p>到达等级：<b>{{ stats.level }}</b></p>
+          <p>清空房间：<b>{{ stats.roomsCleared }}</b></p>
+          <p>金币：<b>{{ stats.money }}</b></p>
           <p>得分：<b>{{ stats.score }}</b></p>
         </div>
         <div class="btn-row">
           <button class="btn btn-primary" @click="restart">再来一局</button>
+          <router-link to="/" class="btn">返回首页</router-link>
+        </div>
+      </div>
+    </div>
+
+    <!-- 通关 -->
+    <div v-if="screen === 'victory'" class="overlay">
+      <div class="panel">
+        <h2 class="game-title"><AppIcon name="star" :size="18" /> 地牢通关！</h2>
+        <p class="subtitle">你击败了四层地牢的所有 Boss</p>
+        <div class="stat-list">
+          <p>生存时间：<b>{{ stats.time }}s</b></p>
+          <p>击杀数：<b>{{ stats.kills }}</b></p>
+          <p>清空房间：<b>{{ stats.roomsCleared }}</b></p>
+          <p>金币：<b>{{ stats.money }}</b></p>
+          <p>得分：<b>{{ stats.score }}</b></p>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" @click="restart">再次挑战</button>
           <router-link to="/" class="btn">返回首页</router-link>
         </div>
       </div>
@@ -308,7 +268,6 @@ onUnmounted(() => {
   position: relative;
   height: calc(100vh - 48px); /* 导航栏下方全屏 */
   overflow: hidden;
-  /* 背景透明：开始/暂停等界面露出站点壁纸；游戏运行时 canvas 由引擎自行清屏绘制 */
   background: transparent;
 }
 
@@ -330,7 +289,7 @@ onUnmounted(() => {
 }
 
 .panel {
-  max-width: 480px;
+  max-width: 520px;
   padding: 28px 30px;
   background: var(--overlay-panel);
   border: 1px solid var(--border);
@@ -365,6 +324,12 @@ onUnmounted(() => {
 .game-title .app-icon {
   color: #38bdf8;
   flex-shrink: 0;
+}
+
+.subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
 }
 
 .keys {
@@ -403,99 +368,6 @@ onUnmounted(() => {
 .btn-row {
   display: flex;
   gap: 10px;
-}
-
-/* 升级选卡 */
-.levelup {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 18px;
-}
-
-.lu-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  font-size: 22px;
-  color: var(--text);
-}
-
-.cards {
-  display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
-  justify-content: center;
-}
-
-.card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  width: 150px;
-  padding: 18px 12px;
-  background: var(--overlay-panel);
-  border: 2px solid var(--border);
-  border-radius: 14px;
-  cursor: pointer;
-  transition:
-    transform var(--dur-ios-2) var(--ease-ios-spring),
-    border-color var(--dur-ios-1) var(--ease-ios-expo),
-    box-shadow var(--dur-ios-2) var(--ease-ios-expo);
-  animation: ios-rise-in var(--dur-ios-3) var(--ease-ios-expo) backwards;
-}
-
-.cards .card:nth-child(1) {
-  animation-delay: 60ms;
-}
-.cards .card:nth-child(2) {
-  animation-delay: 120ms;
-}
-.cards .card:nth-child(3) {
-  animation-delay: 180ms;
-}
-.cards .card:nth-child(n + 4) {
-  animation-delay: 240ms;
-}
-
-.card.selected {
-  transform: translateY(-5px) scale(1.03);
-  border-color: var(--accent);
-  box-shadow: 0 10px 26px rgb(0 0 0 / 0.25);
-}
-
-.lu-keys {
-  margin: 0;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.card:active {
-  transform: translateY(-2px) scale(0.97);
-  transition-duration: 70ms;
-  transition-timing-function: var(--ease-ios);
-}
-
-.card-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  color: var(--accent);
-}
-
-.card-name {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text);
-}
-
-.card-desc {
-  font-size: 12px;
-  color: var(--muted);
 }
 
 .stat-list p {

@@ -1,21 +1,44 @@
 import { ref, computed } from 'vue'
-import { loadSeasonData } from '../api/anilist'
-import { seasonOf, shiftSeason, seasonMonths, isCurrentSeason } from '../utils/date'
+import { loadRangeData } from '../api/anilist'
+import { SEASONS, seasonOf, seasonMonths } from '../utils/date'
 import { useSettings } from './useSettings'
 import { useAuth } from './useAuth'
 
-/** 档期状态管理：当前档期数据加载、档期/月份切换 */
-export function useSeason() {
-  const current = seasonOf()
-  const year = ref(current.year)
-  const season = ref(current.season)
-  const month = ref({ y: current.year, m: new Date().getMonth() }) // 日历显示的月份
+/**
+ * 连续日历状态：不再按季度分档期，而是加载当前日期附近一段连续时间范围的数据。
+ * 翻页跨过已加载范围时自动向服务端请求更大的时间范围。
+ */
+export function useSeason(initial) {
+  const today = new Date()
+  let initialMonth = { y: today.getFullYear(), m: today.getMonth() }
+
+  const initialSeason = String(initial?.season || '').toUpperCase()
+  const initialYear = Number(initial?.year)
+  if (
+    initial &&
+    SEASONS[initialSeason] &&
+    Number.isInteger(initialYear) &&
+    initialYear >= 1970 &&
+    initialYear <= 2100
+  ) {
+    const ms = seasonMonths({ year: initialYear, season: initialSeason })
+    if (ms.length) initialMonth = ms[0]
+  }
+
+  const month = ref(initialMonth)
   const rawMap = ref(new Map()) // id → 动漫详情（原始，含成人内容）
   const rawSchedules = ref([]) // [{ airingAt, episode, mediaId }] 按时间升序
   const loading = ref(false)
   const error = ref('')
+  const loadedRange = ref(null) // { start, end } Unix 秒
+  const rangeCache = new Map() // key → { start, end, mediaMap, schedules }
+  let loadSeq = 0 // 防止快速连续翻页时旧请求覆盖新请求
 
-  // 成人内容是否显示：按身份（设置 → Anime 内容，管理员恒可见）
+  // 当前显示月份对应的自然年档期（仅用于背景样式等展示，不再参与翻页边界）
+  const currentSeason = computed(() => seasonOf(new Date(month.value.y, month.value.m, 1)))
+  const year = computed(() => currentSeason.value.year)
+  const season = computed(() => currentSeason.value.season)
+
   const settings = useSettings()
   const auth = useAuth()
   settings.load()
@@ -32,50 +55,94 @@ export function useSeason() {
     return rawSchedules.value.filter((s) => visible.has(s.mediaId))
   })
 
-  async function load() {
-    loading.value = true
-    error.value = ''
-    try {
-      const q = { year: year.value, season: season.value }
-      // 服务器有缓存时直接返回，避免重复请求 AniList（媒体列表 7 天 / 排期当前档期 12 小时、过去档期 30 天）
-      const { mediaMap: map, schedules: sched } = await loadSeasonData(q)
-      rawMap.value = map
-      rawSchedules.value = sched
-      // 默认月份：当前档期显示当月，其他档期显示档期的第一个月
-      month.value = isCurrentSeason(q)
-        ? { y: new Date().getFullYear(), m: new Date().getMonth() }
-        : seasonMonths(q)[0]
-    } catch (e) {
-      error.value = e.message || String(e)
-    } finally {
-      loading.value = false
+  function monthRangeFor(date, padding = 5) {
+    const start = new Date(date.getFullYear(), date.getMonth() - padding, 1)
+    const end = new Date(date.getFullYear(), date.getMonth() + 1 + padding, 1)
+    end.setTime(end.getTime() - 1)
+    return {
+      start: Math.floor(start.getTime() / 1000),
+      end: Math.floor(end.getTime() / 1000),
     }
   }
 
-  /** 切换档期（delta = ±1） */
-  function goSeason(delta) {
-    const q = shiftSeason({ year: year.value, season: season.value }, delta)
-    year.value = q.year
-    season.value = q.season
-    load()
+  function rangeKey(start, end) {
+    return `${start}-${end}`
   }
 
-  /** 日历月份偏移 */
-  function goMonth(delta) {
+  function findCachedRangeForDate(date) {
+    const ts = Math.floor(date.getTime() / 1000)
+    for (const entry of rangeCache.values()) {
+      if (ts >= entry.start && ts <= entry.end) return entry
+    }
+    return null
+  }
+
+  async function loadRange(start, end) {
+    const seq = ++loadSeq
+    loading.value = true
+    error.value = ''
+    try {
+      const data = await loadRangeData({ start, end })
+      if (seq !== loadSeq) return // 已有更新的加载请求，丢弃这次过期结果
+      rawMap.value = data.mediaMap
+      rawSchedules.value = data.schedules
+      loadedRange.value = { start, end }
+      rangeCache.set(rangeKey(start, end), {
+        start,
+        end,
+        mediaMap: data.mediaMap,
+        schedules: data.schedules,
+      })
+      // 简单限制缓存条数，避免无限增长
+      if (rangeCache.size > 16) {
+        const oldest = rangeCache.keys().next().value
+        rangeCache.delete(oldest)
+      }
+    } catch (e) {
+      if (seq === loadSeq) error.value = e.message || String(e)
+    } finally {
+      if (seq === loadSeq) loading.value = false
+    }
+  }
+
+  /** 确保某个日期在已加载的时间范围内，不在则加载其前后各 5 个月的数据 */
+  async function ensureRangeForDate(date) {
+    // 之前访问过的范围直接秒切回缓存，不需要白屏/加载
+    const cached = findCachedRangeForDate(date)
+    if (cached) {
+      rawMap.value = cached.mediaMap
+      rawSchedules.value = cached.schedules
+      loadedRange.value = { start: cached.start, end: cached.end }
+      return
+    }
+
+    const r = monthRangeFor(date)
+    const ts = Math.floor(date.getTime() / 1000)
+    if (loadedRange.value && ts >= loadedRange.value.start && ts <= loadedRange.value.end) return
+    await loadRange(r.start, r.end)
+  }
+
+  async function load() {
+    await ensureRangeForDate(new Date(month.value.y, month.value.m, 1))
+  }
+
+  /** 月份翻页：连续翻，不限制季度边界 */
+  async function goMonth(delta) {
     const d = new Date(month.value.y, month.value.m + delta, 1)
     month.value = { y: d.getFullYear(), m: d.getMonth() }
+    await ensureRangeForDate(new Date(month.value.y, month.value.m, 1))
   }
 
-  // 月份导航边界（不能超出档期覆盖的月份）
-  const monthIndex = computed(() => month.value.y * 12 + month.value.m)
-  const monthBounds = computed(() => {
-    const ms = seasonMonths({ year: year.value, season: season.value })
-    const first = ms[0]
-    const last = ms[ms.length - 1]
-    return { first: first.y * 12 + first.m, last: last.y * 12 + last.m }
-  })
-  const canPrevMonth = computed(() => monthIndex.value > monthBounds.value.first)
-  const canNextMonth = computed(() => monthIndex.value < monthBounds.value.last)
+  /** 跳转到某个档期（搜索/链接直达用），定位到该档期第一个月 */
+  async function goToSeason(y, s) {
+    const targetYear = Number(y)
+    const targetSeason = String(s || '').toUpperCase()
+    if (!SEASONS[targetSeason] || !Number.isInteger(targetYear) || targetYear < 1970 || targetYear > 2100) return
+    const ms = seasonMonths({ year: targetYear, season: targetSeason })
+    if (!ms.length) return
+    month.value = ms[0]
+    await ensureRangeForDate(new Date(month.value.y, month.value.m, 1))
+  }
 
   // 档期内没有放送排期的动漫（已完结/未开播/数据缺失）
   const noScheduleAnime = computed(() => {
@@ -95,9 +162,10 @@ export function useSeason() {
     loading,
     error,
     load,
-    goSeason,
     goMonth,
-    canPrevMonth,
-    canNextMonth,
+    goToSeason,
+    ensureRangeForDate,
+    canPrevMonth: computed(() => true),
+    canNextMonth: computed(() => true),
   }
 }

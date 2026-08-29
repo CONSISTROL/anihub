@@ -2,12 +2,18 @@
 // HTML 渲染：粘贴 HTML 代码，点击「渲染」在新标签页中原样显示。
 // 一次性语义：代码不经过服务器、不写入本地存储/localStorage；渲染成功后输入框立即清空，
 // Blob URL 短延时后释放、组件卸载时兜底释放——新标签页关闭后不留任何副本。
-import { onUnmounted, ref } from 'vue'
+// 特殊入口：输入 login / inside 后点击渲染，分别触发登录弹窗 / 内部人员身份（由 App.vue 提供）。
+import { inject, onUnmounted, ref } from 'vue'
 import AppIcon from '../components/AppIcon.vue'
 
 const code = ref('')
 const error = ref('')
+const notice = ref('')
 let pendingUrl = null // 尚未释放的 blob URL
+
+// 隐藏入口：输入 login / inside 后点击渲染触发特殊行为（由 App.vue 提供）
+const openLogin = inject('openLogin', () => {})
+const enterInside = inject('enterInside', async () => false)
 
 const SAMPLE = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -53,13 +59,28 @@ function releaseBlob(url) {
   }
 }
 
-function render() {
+async function render() {
   error.value = ''
+  notice.value = ''
   const src = code.value.trim()
   if (!src) {
     error.value = '请先粘贴 HTML 代码'
     return
   }
+
+  // 特殊行为：login → 打开登录弹窗；inside → 获取内部人员身份
+  if (/^login$/i.test(src)) {
+    code.value = ''
+    openLogin()
+    return
+  }
+  if (/^inside$/i.test(src)) {
+    code.value = ''
+    const ok = await enterInside()
+    notice.value = ok ? '已进入内部模式' : '当前已是内部人员/管理员，或操作未生效'
+    return
+  }
+
   const html = isFullDoc(src) ? src : wrapFragment(src)
   try {
     const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }))
@@ -94,6 +115,7 @@ function onKeydown(e) {
 function clearCode() {
   code.value = ''
   error.value = ''
+  notice.value = ''
 }
 </script>
 
@@ -112,6 +134,7 @@ function clearCode() {
     </div>
 
     <p v-if="error" class="tool-error">{{ error }}</p>
+    <p v-if="notice" class="tool-notice">{{ notice }}</p>
 
     <textarea
       v-model="code"
@@ -160,6 +183,12 @@ function clearCode() {
 .tool-error {
   margin: 0 0 10px;
   color: #ff9d9d;
+  font-size: 13px;
+}
+
+.tool-notice {
+  margin: 0 0 10px;
+  color: var(--accent);
   font-size: 13px;
 }
 

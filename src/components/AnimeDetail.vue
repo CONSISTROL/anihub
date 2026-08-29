@@ -41,10 +41,10 @@ function genreLabel(g) {
 }
 
 const description = computed(() => {
-  // 语言为中文时优先显示本地维护的中文简介，未收录则回退 AniList 原文
+  // 语言为中文时优先显示本地维护的中文简介，未收录则显示中文占位，不再回退英文原文
   if (lang.value === 'zh') {
     const zh = ZH_DESCRIPTIONS[props.media?.id]
-    if (zh) return zh
+    return zh || '暂无中文简介'
   }
   const raw = props.media?.description
   if (!raw) return ''

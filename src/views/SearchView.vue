@@ -6,6 +6,8 @@ import { listPosts } from '../api/posts'
 import { searchAnime } from '../api/anilist'
 import { useAuth } from '../composables/useAuth'
 import { useSettings } from '../composables/useSettings'
+import { ZH_GENRES } from '../data/zhGenres'
+import { lang } from '../composables/useLanguage'
 import AppIcon from '../components/AppIcon.vue'
 
 const route = useRoute()
@@ -15,6 +17,8 @@ const settings = useSettings()
 settings.load() // 需要 showAdult（成人内容身份开关）与页面可见性
 
 const q = ref(route.query.q || '')
+const selectedTag = ref('')
+const selectedAnimeGenre = ref('')
 const loading = ref(false)
 const done = ref(false)
 const posts = ref([])
@@ -46,6 +50,8 @@ async function runSearch(kw) {
   loading.value = true
   done.value = false
   error.value = ''
+  selectedTag.value = ''
+  selectedAnimeGenre.value = ''
   posts.value = []
   anime.value = []
   const tasks = []
@@ -73,9 +79,36 @@ async function runSearch(kw) {
   done.value = true
 }
 
-const blogPosts = computed(() => posts.value.filter((p) => p.category === 'blog'))
-const wikiPosts = computed(() => posts.value.filter((p) => p.category === 'wiki'))
-const hasAny = computed(() => blogPosts.value.length || wikiPosts.value.length || anime.value.length)
+const allTags = computed(() => {
+  const set = new Set()
+  for (const p of posts.value) for (const t of p.tags || []) set.add(t)
+  return [...set].sort((a, b) => a.localeCompare(b, 'zh'))
+})
+
+const visiblePosts = computed(() =>
+  selectedTag.value ? posts.value.filter((p) => (p.tags || []).includes(selectedTag.value)) : posts.value
+)
+
+const blogPosts = computed(() => visiblePosts.value.filter((p) => p.category === 'blog'))
+const wikiPosts = computed(() => visiblePosts.value.filter((p) => p.category === 'wiki'))
+
+function genreLabel(g) {
+  return lang.value === 'zh' ? ZH_GENRES[g] || g : g
+}
+
+const animeGenres = computed(() => {
+  const set = new Set()
+  for (const a of anime.value) for (const g of a.genres || []) set.add(g)
+  return [...set].sort((a, b) => a.localeCompare(b, 'zh'))
+})
+
+const visibleAnime = computed(() =>
+  selectedAnimeGenre.value
+    ? anime.value.filter((a) => (a.genres || []).includes(selectedAnimeGenre.value))
+    : anime.value
+)
+
+const hasAny = computed(() => blogPosts.value.length || wikiPosts.value.length || visibleAnime.value.length)
 
 function fmtDate(s) {
   const d = new Date(s + 'Z')
@@ -90,6 +123,22 @@ function fmtDate(s) {
       <input v-model.trim="q" placeholder="搜索博客 / Wiki / 动漫…" autofocus />
       <button class="btn btn-primary" type="submit"><AppIcon name="search" :size="13" /> 搜索</button>
     </form>
+
+    <div v-if="allTags.length" class="tag-filter">
+      <span class="tag-filter-label">标签：</span>
+      <button
+        class="tag-chip"
+        :class="{ active: !selectedTag }"
+        @click="selectedTag = ''"
+      >全部</button>
+      <button
+        v-for="t in allTags"
+        :key="t"
+        class="tag-chip"
+        :class="{ active: selectedTag === t }"
+        @click="selectedTag = selectedTag === t ? '' : t"
+      >#{{ t }}</button>
+    </div>
 
     <p v-if="error" class="search-error">{{ error }}</p>
     <p v-else-if="loading" class="search-hint">搜索中…</p>
@@ -123,16 +172,37 @@ function fmtDate(s) {
 
       <!-- 动漫（来自服务器已缓存的档期数据） -->
       <section v-if="canSee('anime') && anime.length" class="result-section">
-        <h2 class="section-title"><AppIcon name="calendar" :size="16" /> 动漫 <span class="count">{{ anime.length }}</span></h2>
-        <div class="anime-grid">
-          <router-link v-for="a in anime" :key="a.id" to="/anime" class="anime-item">
+        <h2 class="section-title"><AppIcon name="calendar" :size="16" /> 动漫 <span class="count">{{ visibleAnime.length }} / {{ anime.length }}</span></h2>
+        <div v-if="animeGenres.length" class="genre-filter">
+          <span class="genre-filter-label">类型：</span>
+          <button
+            class="genre-chip"
+            :class="{ active: !selectedAnimeGenre }"
+            @click="selectedAnimeGenre = ''"
+          >全部</button>
+          <button
+            v-for="g in animeGenres"
+            :key="g"
+            class="genre-chip"
+            :class="{ active: selectedAnimeGenre === g }"
+            @click="selectedAnimeGenre = selectedAnimeGenre === g ? '' : g"
+          >{{ genreLabel(g) }}</button>
+        </div>
+        <div v-if="visibleAnime.length" class="anime-grid">
+          <router-link
+            v-for="a in visibleAnime"
+            :key="a.id"
+            :to="a.year && a.season ? { name: 'anime', query: { year: a.year, season: a.season, id: a.id } } : '/anime'"
+            class="anime-item"
+          >
             <img v-if="a.cover" :src="a.cover" class="anime-cover" alt="" loading="lazy" />
             <div class="anime-info">
               <span class="anime-name">{{ a.title }}</span>
-              <span class="anime-season">{{ a.season }}</span>
+              <span class="anime-season">{{ a.seasonLabel || a.season }}</span>
             </div>
           </router-link>
         </div>
+        <p v-else class="search-hint">「{{ selectedAnimeGenre }}」类型下暂无结果</p>
       </section>
     </template>
   </div>
@@ -173,6 +243,84 @@ function fmtDate(s) {
 .search-bar input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.tag-filter {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: -12px 0 16px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.tag-filter-label {
+  margin-right: 2px;
+}
+
+.tag-chip {
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    color var(--dur-ios-1) var(--ease-ios-expo),
+    border-color var(--dur-ios-1) var(--ease-ios-expo),
+    background-color var(--dur-ios-1) var(--ease-ios-expo);
+}
+
+.tag-chip:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.tag-chip.active {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.genre-filter {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.genre-filter-label {
+  margin-right: 2px;
+}
+
+.genre-chip {
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    color var(--dur-ios-1) var(--ease-ios-expo),
+    border-color var(--dur-ios-1) var(--ease-ios-expo),
+    background-color var(--dur-ios-1) var(--ease-ios-expo);
+}
+
+.genre-chip:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.genre-chip.active {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .search-error {

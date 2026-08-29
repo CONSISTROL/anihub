@@ -10,7 +10,8 @@ export function titleFor(media) {
   const t = media.title || {}
   switch (lang.value) {
     case 'zh':
-      return ZH_TITLES[media.id] || t.romaji || t.native || t.english || ''
+      // 中文模式优先中文译名；没有译名时回退日文原名，避免满屏英文
+      return ZH_TITLES[media.id] || t.native || t.romaji || t.english || ''
     case 'native':
       return t.native || t.romaji || t.english || ''
     case 'en':

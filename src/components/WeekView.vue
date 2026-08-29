@@ -3,12 +3,16 @@ import { computed } from 'vue'
 import { addDays, dayKey, fmtTime } from '../utils/date'
 import { titleFor } from '../utils/titles'
 import AppIcon from './AppIcon.vue'
+import SeasonPattern from './SeasonPattern.vue'
 
 const props = defineProps({
   weekStart: { type: Date, required: true }, // 该周周一（本地）
   schedules: { type: Array, default: () => [] },
   mediaMap: { type: Map, required: true },
+  season: { type: String, default: '' },
 })
+
+const seasonClass = computed(() => `season-${(props.season || '').toLowerCase() || 'spring'}`)
 
 const emit = defineEmits(['select'])
 
@@ -47,7 +51,8 @@ function coverOf(mediaId) {
 </script>
 
 <template>
-  <div class="week-grid">
+  <div class="week-grid" :class="seasonClass">
+    <SeasonPattern :season="season" :density="12" />
     <div v-for="(d, i) in days" :key="d.key" class="col" :class="{ 'col-today': d.isToday }">
       <div class="col-head">
         <span class="wd">周{{ WD[i] }}</span>
@@ -65,7 +70,10 @@ function coverOf(mediaId) {
           <span v-else class="cover cover-ph"><AppIcon name="film" :size="16" /></span>
           <span class="row-main">
             <span class="title">{{ titleOf(e.mediaId) }}</span>
-            <span class="meta">第{{ e.episode }}话 · {{ fmtTime(e.airingAt) }}</span>
+            <span class="meta">
+              <span class="ep-chip">第{{ e.episode }}话</span>
+              <span class="time">{{ fmtTime(e.airingAt) }}</span>
+            </span>
           </span>
         </button>
         <p v-if="!d.list.length" class="none">无放送</p>
@@ -76,20 +84,27 @@ function coverOf(mediaId) {
 
 <style scoped>
 .week-grid {
+  position: relative;
   display: grid;
   /* minmax(0, 1fr)：7 列严格等宽，不换行内容不撑宽 */
   grid-template-columns: repeat(7, minmax(0, 1fr));
   align-items: stretch;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 16px;
   overflow: hidden;
-  background: var(--panel);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  box-shadow: 0 14px 40px rgb(0 0 0 / 0.08);
+  font-variant-numeric: tabular-nums;
 }
 
 .col {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--border);
+  overflow: hidden;
+  background: color-mix(in srgb, var(--panel) 60%, transparent);
 }
 
 .col:last-child {
@@ -97,25 +112,35 @@ function coverOf(mediaId) {
 }
 
 .col-today {
-  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 12%, var(--panel)) 0%,
+    color-mix(in srgb, var(--accent) 5%, var(--panel)) 100%
+  );
 }
 
 .col-head {
+  position: relative;
+  z-index: 1;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 12px;
-  background: var(--panel-2);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 12px 12px 10px;
+  background: color-mix(in srgb, var(--panel-2) 70%, transparent);
   border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(6px);
 }
 
 .col-today .col-head {
-  background: color-mix(in srgb, var(--accent) 14%, var(--panel-2));
+  background: color-mix(in srgb, var(--accent) 15%, var(--panel-2));
 }
 
 .wd {
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--muted);
 }
 
 .col-today .wd {
@@ -123,54 +148,76 @@ function coverOf(mediaId) {
 }
 
 .dt {
-  font-size: 12px;
-  color: var(--muted);
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.15;
+  color: var(--text);
   font-variant-numeric: tabular-nums;
 }
 
 .today-badge {
-  margin-left: auto;
+  position: absolute;
+  top: 10px;
+  right: 10px;
   font-size: 10px;
-  font-weight: 600;
-  color: var(--accent);
-  border: 1px solid var(--accent);
+  font-weight: 700;
+  color: #fff;
+  background: var(--accent);
   border-radius: 999px;
-  padding: 0 6px;
+  padding: 2px 8px;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
 .col-body {
+  position: relative;
+  z-index: 1;
   flex: 1;
   padding: 8px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
 }
 
 .row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   width: 100%;
-  padding: 6px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
   color: var(--text);
-  font-size: 12.5px;
   cursor: pointer;
   text-align: left;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.05);
+  transition:
+    transform var(--dur-ios-2) var(--ease-ios-spring),
+    border-color var(--dur-ios-1) var(--ease-ios-expo),
+    background-color var(--dur-ios-1) var(--ease-ios-expo),
+    box-shadow var(--dur-ios-2) var(--ease-ios-expo);
 }
 
 .row:hover {
-  background: var(--panel-2);
+  background: var(--overlay-panel);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  box-shadow: 0 8px 20px rgb(0 0 0 / 0.1);
+  transform: translateY(-2px);
+}
+
+.row:active {
+  transform: scale(0.97);
+  transition-duration: 70ms;
+  transition-timing-function: var(--ease-ios);
 }
 
 .cover {
-  width: 32px;
+  width: 34px;
   aspect-ratio: 2 / 3;
   object-fit: cover;
-  border-radius: 4px;
+  border-radius: 7px;
   flex-shrink: 0;
+  box-shadow: 0 3px 8px rgb(0 0 0 / 0.18);
 }
 
 .cover-ph {
@@ -179,14 +226,13 @@ function coverOf(mediaId) {
   justify-content: center;
   background: var(--panel-2);
   border: 1px solid var(--border);
-  font-size: 13px;
 }
 
 .row-main {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 5px;
 }
 
 .title {
@@ -194,18 +240,37 @@ function coverOf(mediaId) {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  line-height: 1.3;
+  font-size: 12.5px;
+  font-weight: 650;
+  line-height: 1.35;
+  letter-spacing: 0.01em;
 }
 
 .meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ep-chip {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-radius: 999px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+.time {
   font-size: 11px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 
 .none {
-  margin: 0;
-  padding: 24px 0;
+  margin: auto 0;
+  padding: 28px 0;
   text-align: center;
   font-size: 12px;
   color: var(--muted);

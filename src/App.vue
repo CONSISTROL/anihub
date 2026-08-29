@@ -1,6 +1,6 @@
 <script setup>
-// 全局布局壳：导航栏 + 页面内容；键盘监听呼出隐藏的登录框 / 获取内部人员身份
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+// 全局布局壳：导航栏 + 页面内容；登录框/内部身份入口由 Tools → HTML 渲染工具触发
+import { computed, onMounted, provide, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import NavBar from './components/NavBar.vue'
 import LoginModal from './components/LoginModal.vue'
@@ -31,59 +31,45 @@ const petVisible = computed(() => {
   return settings.canAccess('pet', isInsider.value)
 })
 
-// 隐藏登录入口：键盘依次输入 "login"（大小写均可）弹出登录框
-const KEY_SEQ_LOGIN = 'login'
-// 内部人员口令：键盘依次输入 "inside" 获取只读的内部身份（关键词与 server/.env 的 INSIDER_KEYWORD 一致）
-const KEY_SEQ_INSIDE = 'inside'
-const keyBufLen = Math.max(KEY_SEQ_LOGIN.length, KEY_SEQ_INSIDE.length)
-let keyBuf = ''
+function openLogin() {
+  showLogin.value = true
+}
 
+function closeLogin() {
+  showLogin.value = false
+}
+
+// 内部人员口令：Tools → HTML 渲染中输入 inside 后点击渲染触发
+// 关键词与 server/.env 的 INSIDER_KEYWORD 一致（默认 inside）
 async function enterInside() {
-  if (insiderBusy.value) return
   const auth = useAuth()
-  if (auth.isLoggedIn.value || auth.isInsider.value) return // 管理员已全权限，内部身份已生效
+  if (auth.isLoggedIn.value || auth.isInsider.value) return true // 管理员已全权限，内部身份已生效
+  if (insiderBusy.value) return false
   insiderBusy.value = true
   try {
     const data = await api('/auth/insider', {
       method: 'POST',
-      body: { keyword: KEY_SEQ_INSIDE },
+      body: { keyword: 'inside' },
       auth: false,
     })
     auth.enterInsider(data.token)
+    return true
   } catch {
     /* 口令错误等：静默，不打扰访客 */
+    return false
   } finally {
     insiderBusy.value = false
   }
 }
 
-function onKeydown(e) {
-  if (e.isComposing) return // 中文输入法组词中
-  // Esc 关闭弹窗：优先判断，避免输入框聚焦时（弹窗打开即聚焦用户名）关闭失效
-  if (e.key === 'Escape' && showLogin.value) {
-    showLogin.value = false
-    return
-  }
-  const t = e.target
-  if (t?.matches?.('input, textarea, select, [contenteditable]')) return // 输入框内打字不触发
-  if (e.key.length !== 1) return // 只处理普通字符键
-  keyBuf = (keyBuf + e.key.toLowerCase()).slice(-keyBufLen)
-  if (keyBuf === KEY_SEQ_LOGIN) {
-    keyBuf = ''
-    e.preventDefault() // 拦下最后那个字母的默认动作，避免被键入到刚聚焦的用户名输入框
-    showLogin.value = true
-  } else if (keyBuf === KEY_SEQ_INSIDE) {
-    keyBuf = ''
-    e.preventDefault()
-    enterInside()
-  }
-}
+// 提供给 Tools → HTML 渲染工具调用
+provide('openLogin', openLogin)
+provide('closeLogin', closeLogin)
+provide('enterInside', enterInside)
 
 onMounted(() => {
-  window.addEventListener('keydown', onKeydown)
   router.isReady().then(finishPageLoading, finishPageLoading)
 })
-onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
@@ -101,9 +87,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         </keep-alive>
       </Transition>
     </router-view>
-    <!-- 隐藏登录弹窗：遮罩淡入 + 弹层弹簧缩放 -->
+    <!-- 隐藏登录弹窗：遮罩淡入 + 弹层弹簧缩放；由 Tools → HTML 渲染输入 login 后触发 -->
     <Transition name="login" appear>
-      <LoginModal v-if="showLogin" @close="showLogin = false" />
+      <LoginModal v-if="showLogin" @close="closeLogin" />
     </Transition>
     <!-- 全站壁纸背景（组件内部按身份自检：管理员恒可见，游客/内部人员按设置开关） -->
     <InsiderBackground v-if="!isGame" />
