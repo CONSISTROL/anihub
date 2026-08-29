@@ -10,6 +10,14 @@ export const getVisitMap = (params = {}) => {
   const q = qs.toString()
   return api('/visits/map' + (q ? `?${q}` : ''))
 }
+export const getVisitIpDetail = (ip, params = {}) => {
+  const qs = new URLSearchParams()
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== '') qs.set(k, v)
+  }
+  const q = qs.toString()
+  return api(`/visits/ip/${encodeURIComponent(ip)}` + (q ? `?${q}` : ''))
+}
 export const getVisitRecords = (params = {}) => {
   const qs = new URLSearchParams()
   for (const [k, v] of Object.entries(params)) {

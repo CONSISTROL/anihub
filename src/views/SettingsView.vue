@@ -4,6 +4,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { getSettings, updateSettings, getMonitor, getMonitorHistory, getWallpapersManage, saveWallpaperSelection } from '../api/settings'
 import { getVisitSummary, getVisitMap, getVisitRecords } from '../api/visits'
 import VisitMap from '../components/VisitMap.vue'
+import IpDetailModal from '../components/IpDetailModal.vue'
 import { getUpgradeProgress, getUpgradeStatus, runUpgrade } from '../api/upgrade'
 import { useSettings } from '../composables/useSettings'
 import LineChart from '../components/LineChart.vue'
@@ -438,6 +439,16 @@ const visitTotalPages = computed(() => {
   return Math.max(1, Math.ceil(visitRecords.value.total / visitPageSize.value))
 })
 
+/* —— IP 来源详情弹窗 —— */
+const ipDetail = ref(null) // 当前查看详情的 IP，null 表示不显示
+function openIpDetail(ip) {
+  if (!ip) return
+  ipDetail.value = ip
+}
+function closeIpDetail() {
+  ipDetail.value = null
+}
+
 onMounted(() => {
   refreshMonitor()
   monTimer = setInterval(refreshMonitor, 5000)
@@ -706,7 +717,7 @@ onUnmounted(() => {
           <div class="visit-panel">
             <h3 class="sub-title">热门 IP（近 30 天）</h3>
             <div v-for="p in visitSummary.topIps" :key="p.ip" class="visit-rank">
-              <span class="visit-rank-path" :title="[p.country, p.region, p.city].filter(Boolean).join(' · ')">{{ p.ip }}</span>
+              <button class="ip-link visit-rank-path" :title="[p.country, p.region, p.city].filter(Boolean).join(' · ') || '点击查看 IP 详情'" @click="openIpDetail(p.ip)">{{ p.ip }}</button>
               <span class="visit-rank-loc">{{ [p.country, p.region, p.city].filter(Boolean).join(' · ') || (p.status === 'pending' ? '解析中…' : p.status === 'skipped' ? '内网 / 本机' : '未知') }}</span>
               <span class="visit-rank-count">{{ p.c }}</span>
             </div>
@@ -738,7 +749,10 @@ onUnmounted(() => {
             <tbody>
               <tr v-for="r in visitRecords?.items || []" :key="r.id">
                 <td class="visit-td-time">{{ fmtVisitTime(r.ts) }}</td>
-                <td class="visit-td-ip"><code>{{ r.ip || '—' }}</code></td>
+                <td class="visit-td-ip">
+                  <button v-if="r.ip" class="ip-link" title="查看 IP 详情" @click="openIpDetail(r.ip)"><code>{{ r.ip }}</code></button>
+                  <span v-else>—</span>
+                </td>
                 <td class="visit-td-loc">{{ r.location }}<span v-if="r.isp" class="visit-isp"> · {{ r.isp }}</span></td>
                 <td class="visit-td-path" :title="r.path">{{ r.path }}</td>
                 <td class="visit-td-ua" :title="`${r.referer || ''}${r.referer ? ' ' : ''}${r.userAgent || ''}`">
@@ -868,6 +882,8 @@ onUnmounted(() => {
         <span v-if="message" class="saved">{{ message }}</span>
       </div>
     </div>
+    <IpDetailModal v-if="ipDetail" :ip="ipDetail" @close="closeIpDetail" />
+
   </div>
 </template>
 
@@ -1354,6 +1370,30 @@ onUnmounted(() => {
 .visit-td-time {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+.ip-link {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ip-link:hover {
+  text-decoration: underline;
+}
+
+.ip-link code {
+  color: inherit;
+  font-size: inherit;
 }
 
 .visit-td-ip {

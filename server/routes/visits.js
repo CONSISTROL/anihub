@@ -296,6 +296,70 @@ router.get('/map', authRequired, (req, res) => {
   })
 })
 
+// 单个 IP 详情：归属地完整信息 + 访问汇总 + 路径/UA 分布 + 最近访问记录
+router.get('/ip/:ip', authRequired, (req, res) => {
+  const ip = req.params.ip || ''
+  if (!ip) {
+    return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: '缺少 IP' } })
+  }
+  const days = Math.min(365, Math.max(1, parseInt(req.query.days, 10) || 30))
+  const since = Math.floor(Date.now() / 1000) - days * 86400
+
+  const loc = db
+    .prepare('SELECT country, region, city, isp, lat, lon, status, resolved_at FROM ip_locations WHERE ip = ?')
+    .get(ip) || null
+
+  const summaryRow = db
+    .prepare(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN ts >= ? THEN 1 ELSE 0 END) AS range_count,
+              MIN(ts) AS first_seen,
+              MAX(ts) AS last_seen
+       FROM visits WHERE ip = ?`
+    )
+    .get(since, ip)
+  const summary = {
+    total: summaryRow?.total || 0,
+    rangeCount: summaryRow?.range_count || 0,
+    firstSeen: summaryRow?.first_seen || null,
+    lastSeen: summaryRow?.last_seen || null,
+  }
+
+  const paths = db
+    .prepare(
+      `SELECT path, COUNT(*) AS count, MAX(ts) AS last_ts
+       FROM visits WHERE ip = ? AND ts >= ?
+       GROUP BY path ORDER BY count DESC, path LIMIT 30`
+    )
+    .all(ip, since)
+
+  const userAgents = db
+    .prepare(
+      `SELECT user_agent AS userAgent, COUNT(*) AS count, MAX(ts) AS last_ts
+       FROM visits WHERE ip = ? AND ts >= ? AND user_agent <> ''
+       GROUP BY user_agent ORDER BY count DESC, user_agent LIMIT 20`
+    )
+    .all(ip, since)
+
+  const recentVisits = db
+    .prepare(
+      `SELECT id, ts, path, referer, user_agent AS userAgent, source
+       FROM visits WHERE ip = ?
+       ORDER BY ts DESC, id DESC LIMIT 100`
+    )
+    .all(ip)
+
+  res.json({
+    ip,
+    days,
+    location: loc,
+    summary,
+    paths,
+    userAgents,
+    recentVisits,
+  })
+})
+
 router.get('/records', authRequired, (req, res) => {
   const page = Math.max(1, parseInt(req.query.page, 10) || 1)
   const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize, 10) || 20))
