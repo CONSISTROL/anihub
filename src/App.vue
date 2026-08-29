@@ -91,8 +91,9 @@ onMounted(() => {
     <Transition name="login" appear>
       <LoginModal v-if="showLogin" @close="closeLogin" />
     </Transition>
-    <!-- 全站壁纸背景（组件内部按身份自检：管理员恒可见，游客/内部人员按设置开关） -->
-    <InsiderBackground v-if="!isGame" />
+    <!-- 全站壁纸背景（组件内部按身份自检：管理员恒可见，游客/内部人员按设置开关）
+         游戏页也保持挂载，避免进入 /game 时壁纸持有者释放后再重新加载导致背景闪烁 -->
+    <InsiderBackground />
     <!-- 一键回到顶部 -->
     <BackToTop v-if="!isGame" />
     <!-- 桌宠（可见性由设置页 pet 权限控制，默认仅登录可见） -->

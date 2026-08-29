@@ -265,8 +265,13 @@ onUnmounted(() => {
 
 <style scoped>
 .game-page {
-  position: relative;
-  height: calc(100vh - 48px); /* 导航栏下方全屏 */
+  /* 游戏页沉浸式全屏：脱离文档流固定在导航栏下方，
+     避免导航栏高度/滚动条变化导致页面顶部闪烁 */
+  position: fixed;
+  top: 48px;
+  left: 0;
+  right: 0;
+  bottom: 0;
   overflow: hidden;
   background: transparent;
 }
