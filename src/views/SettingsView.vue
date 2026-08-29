@@ -5,6 +5,7 @@ import { getSettings, updateSettings, getMonitor, getMonitorHistory, getWallpape
 import { getVisitSummary, getVisitMap, getVisitRecords } from '../api/visits'
 import VisitMap from '../components/VisitMap.vue'
 import IpDetailModal from '../components/IpDetailModal.vue'
+import VisitRecordDetailModal from '../components/VisitRecordDetailModal.vue'
 import { getUpgradeProgress, getUpgradeStatus, runUpgrade } from '../api/upgrade'
 import { useSettings } from '../composables/useSettings'
 import LineChart from '../components/LineChart.vue'
@@ -439,10 +440,18 @@ const visitTotalPages = computed(() => {
   return Math.max(1, Math.ceil(visitRecords.value.total / visitPageSize.value))
 })
 
-/* —— IP 来源详情弹窗 —— */
+/* —— 访问记录 / IP 来源详情弹窗 —— */
+const recordDetail = ref(null) // 当前查看详情的单条访问记录
 const ipDetail = ref(null) // 当前查看详情的 IP，null 表示不显示
+function openRecordDetail(record) {
+  recordDetail.value = record
+}
+function closeRecordDetail() {
+  recordDetail.value = null
+}
 function openIpDetail(ip) {
   if (!ip) return
+  recordDetail.value = null
   ipDetail.value = ip
 }
 function closeIpDetail() {
@@ -747,16 +756,16 @@ onUnmounted(() => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="r in visitRecords?.items || []" :key="r.id">
+              <tr v-for="r in visitRecords?.items || []" :key="r.id" class="visit-row" title="点击查看详情" @click="openRecordDetail(r)">
                 <td class="visit-td-time">{{ fmtVisitTime(r.ts) }}</td>
                 <td class="visit-td-ip">
-                  <button v-if="r.ip" class="ip-link" title="查看 IP 详情" @click="openIpDetail(r.ip)"><code>{{ r.ip }}</code></button>
+                  <button v-if="r.ip" class="ip-link" title="查看 IP 详情" @click.stop="openIpDetail(r.ip)"><code>{{ r.ip }}</code></button>
                   <span v-else>—</span>
                 </td>
                 <td class="visit-td-loc">{{ r.location }}<span v-if="r.isp" class="visit-isp"> · {{ r.isp }}</span></td>
                 <td class="visit-td-path" :title="r.path">{{ r.path }}</td>
-                <td class="visit-td-ua" :title="`${r.referer || ''}${r.referer ? ' ' : ''}${r.userAgent || ''}`">
-                  {{ r.referer || '直达' }}<span v-if="r.userAgent" class="visit-ua">{{ r.userAgent }}</span>
+                <td class="visit-td-ua" :title="`${r.referer || '直达'}${r.userAgent ? ' · ' + r.userAgent : ''}`">
+                  {{ r.referer || '直达' }}<span v-if="r.userAgent" class="visit-ua"> · {{ r.userAgent }}</span>
                 </td>
               </tr>
               <tr v-if="visitLoading">
@@ -882,6 +891,12 @@ onUnmounted(() => {
         <span v-if="message" class="saved">{{ message }}</span>
       </div>
     </div>
+    <VisitRecordDetailModal
+      v-if="recordDetail"
+      :record="recordDetail"
+      @close="closeRecordDetail"
+      @view-ip="openIpDetail"
+    />
     <IpDetailModal v-if="ipDetail" :ip="ipDetail" @close="closeIpDetail" />
 
   </div>
@@ -1437,6 +1452,15 @@ onUnmounted(() => {
   margin-left: 6px;
   color: var(--muted);
   opacity: 0.7;
+}
+
+.visit-row {
+  cursor: pointer;
+  transition: background var(--dur-ios-1) var(--ease-ios-expo);
+}
+
+.visit-row:hover {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
 .visit-empty {
