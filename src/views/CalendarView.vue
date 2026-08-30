@@ -233,7 +233,7 @@ async function applyRouteQuery() {
   if (Number.isInteger(id) && id > 0) selectedId.value = id
 }
 
-watch(() => route.query, applyRouteQuery)
+watch(() => route.query, applyRouteQuery, { immediate: true })
 
 if (route.query.id) selectedId.value = Number(route.query.id)
 </script>
@@ -424,8 +424,8 @@ if (route.query.id) selectedId.value = Number(route.query.id)
 
     <main class="main">
       <div v-if="loading" class="loading-inline">
-        <div class="spinner"></div>
-        <p>正在加载动漫数据…</p>
+        <div class="loading-text">正在加载动漫数据…</div>
+        <div class="progress-track"><div class="progress-bar"></div></div>
       </div>
       <WeekView
         v-if="view === 'week'"
@@ -706,11 +706,11 @@ if (route.query.id) selectedId.value = Number(route.query.id)
   color: var(--muted);
 }
 
-/* 后台加载时保留日历内容，只在顶部显示一条轻量加载提示 */
+/* 后台加载时保留日历内容，只在顶部显示一条带进度条的轻量加载提示 */
 .loading-inline {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: 6px;
   padding: 10px 14px;
   margin-bottom: 10px;
   border: 1px solid var(--border);
@@ -720,24 +720,33 @@ if (route.query.id) selectedId.value = Number(route.query.id)
   font-size: 13px;
 }
 
-.loading-inline .spinner {
-  width: 16px;
-  height: 16px;
-  border-width: 2px;
+.loading-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.spinner {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  border: 3px solid var(--panel-2);
-  border-top-color: var(--accent);
-  animation: spin 0.8s linear infinite;
+.progress-track {
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  overflow: hidden;
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
+.progress-bar {
+  height: 100%;
+  width: 40%;
+  border-radius: 999px;
+  background: var(--accent);
+  animation: progress-indeterminate 1.1s ease-in-out infinite;
+}
+
+@keyframes progress-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(350%);
   }
 }
 

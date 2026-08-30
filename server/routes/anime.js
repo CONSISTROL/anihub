@@ -14,7 +14,8 @@ const PAGE_DELAY = 500 // 分页请求间隔（毫秒），避免连发触发限
 // 缓存有效期：媒体列表（标题/封面/简介等）几乎不变，7 天；
 // 排期（每集放送时间）当前档期会随新集公布陆续更新，12 小时；过去档期已定型，30 天
 const MEDIA_TTL = 7 * 24 * 3600 * 1000
-const SCHEDULE_CURRENT_TTL = 12 * 3600 * 1000
+// 当前档期排期也缓存 7 天：避免用户每次刷新都触发 AniList 排期请求
+const SCHEDULE_CURRENT_TTL = 7 * 24 * 3600 * 1000
 const SCHEDULE_PAST_TTL = 30 * 24 * 3600 * 1000
 
 const SEASONS = ['WINTER', 'SPRING', 'SUMMER', 'FALL']
@@ -77,6 +78,27 @@ async function fetchSeasonAnimeCached(season, year) {
   return media
 }
 
+// 把某个档期的原始列表持久化到 anime_cache.base_media，
+// 这样即使该档期只是作为“上一档”被跨季拉取过，重启后也不需要再次请求 AniList。
+function persistSeasonBaseMedia(season, year, baseMedia) {
+  const key = cacheKey(year, season)
+  const existing = readCache(key)
+  const now = Date.now()
+  if (existing) {
+    writeCache(key, year, season, existing.media, existing.schedules, {
+      mediaFetchedAt: existing.mediaFetchedAt || now,
+      schedFetchedAt: existing.schedFetchedAt || now,
+      baseMedia,
+    })
+  } else {
+    writeCache(key, year, season, baseMedia, [], {
+      mediaFetchedAt: now,
+      schedFetchedAt: now,
+      baseMedia,
+    })
+  }
+}
+
 async function fetchCarryoverAnime(season, year) {
   try {
     const prev = previousSeason(season, year)
@@ -86,6 +108,7 @@ async function fetchCarryoverAnime(season, year) {
     let prevMedia = cachedPrev?.baseMedia || null
     if (!prevMedia) {
       prevMedia = await fetchSeasonAnimeCached(prev.season, prev.year)
+      persistSeasonBaseMedia(prev.season, prev.year, prevMedia)
     }
     return prevMedia.filter((m) => m.status === 'RELEASING')
   } catch (e) {
@@ -384,10 +407,13 @@ async function loadSeasonData(season, year) {
   // 跨季合并：把上一档仍在放送的作品并入当前档期（如 Re:Zero S4 春季开播、夏季继续播）
   const carryover = await fetchCarryoverAnime(season, year)
   media = mergeMedia(baseMedia, carryover)
+  // 与已缓存的合并结果比较，而不是与 baseMedia 比较：
+  // baseMedia 是不含跨季作品的原始列表，merged 本来就该比它多，不能因此判定“媒体列表变了”
   const mediaChanged =
     !mediaFresh ||
-    media.length !== baseMedia.length ||
-    media.some((m, i) => m.id !== baseMedia[i].id)
+    (!!cached &&
+      (media.length !== cached.media.length ||
+        media.some((m, i) => m.id !== cached.media[i].id)))
 
   // 排期：仅在不新鲜时重新拉取（当前档期 12 小时 / 过去档期 30 天）；
   // 如果本次合并进了新的跨季动画，即使排期缓存还新鲜也要补拉，否则新作品会没有排期
@@ -396,8 +422,25 @@ async function loadSeasonData(season, year) {
   if (!schedFresh || mediaChanged) {
     const ids = media.map((m) => m.id)
     const { start, end } = seasonWindow(season, year)
-    schedules = ids.length ? await fetchSchedules(ids, start, end) : []
-    schedFetchedAt = Date.now()
+    try {
+      schedules = ids.length
+        ? await Promise.race([
+            fetchSchedules(ids, start, end),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('AniList 排期请求超时')), 15000)
+            ),
+          ])
+        : []
+      schedFetchedAt = Date.now()
+    } catch (e) {
+      // 排期拉取失败/超时时回退旧排期，避免页面长时间加载
+      if (cached?.schedules) {
+        schedules = cached.schedules
+        schedFetchedAt = cached.schedFetchedAt || 0
+      } else {
+        throw e
+      }
+    }
   }
 
   if (!mediaFresh || !schedFresh || mediaChanged) {

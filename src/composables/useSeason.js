@@ -4,11 +4,16 @@ import { SEASONS, seasonOf, seasonMonths } from '../utils/date'
 import { useSettings } from './useSettings'
 import { useAuth } from './useAuth'
 
+// 模块级单例：在同一个 SPA 会话内，离开 Anime 页再回来时复用已加载的数据，避免每次重新请求
+let sharedSeason = null
+
 /**
  * 连续日历状态：不再按季度分档期，而是加载当前日期附近一段连续时间范围的数据。
  * 翻页跨过已加载范围时自动向服务端请求更大的时间范围。
  */
 export function useSeason(initial) {
+  if (sharedSeason) return sharedSeason
+
   const today = new Date()
   let initialMonth = { y: today.getFullYear(), m: today.getMonth() }
 
@@ -55,7 +60,7 @@ export function useSeason(initial) {
     return rawSchedules.value.filter((s) => visible.has(s.mediaId))
   })
 
-  function monthRangeFor(date, padding = 5) {
+  function monthRangeFor(date, padding = 2) {
     const start = new Date(date.getFullYear(), date.getMonth() - padding, 1)
     const end = new Date(date.getFullYear(), date.getMonth() + 1 + padding, 1)
     end.setTime(end.getTime() - 1)
@@ -79,8 +84,11 @@ export function useSeason(initial) {
 
   async function loadRange(start, end) {
     const seq = ++loadSeq
-    loading.value = true
     error.value = ''
+    // 服务端命中 SQLite 缓存时通常很快，延迟显示加载条，避免每次刷新都闪一下“正在加载”
+    const showTimer = setTimeout(() => {
+      if (seq === loadSeq) loading.value = true
+    }, 150)
     try {
       const data = await loadRangeData({ start, end })
       if (seq !== loadSeq) return // 已有更新的加载请求，丢弃这次过期结果
@@ -101,11 +109,12 @@ export function useSeason(initial) {
     } catch (e) {
       if (seq === loadSeq) error.value = e.message || String(e)
     } finally {
+      clearTimeout(showTimer)
       if (seq === loadSeq) loading.value = false
     }
   }
 
-  /** 确保某个日期在已加载的时间范围内，不在则加载其前后各 5 个月的数据 */
+  /** 确保某个日期在已加载的时间范围内，不在则加载其前后各 2 个月的数据 */
   async function ensureRangeForDate(date) {
     // 之前访问过的范围直接秒切回缓存，不需要白屏/加载
     const cached = findCachedRangeForDate(date)
@@ -150,9 +159,7 @@ export function useSeason(initial) {
     return [...mediaMap.value.values()].filter((m) => !scheduled.has(m.id))
   })
 
-  load()
-
-  return {
+  const api = {
     year,
     season,
     month,
@@ -168,4 +175,7 @@ export function useSeason(initial) {
     canPrevMonth: computed(() => true),
     canNextMonth: computed(() => true),
   }
+  sharedSeason = api
+  load()
+  return api
 }
