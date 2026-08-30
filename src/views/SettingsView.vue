@@ -19,7 +19,7 @@ const OPTIONS = [
   { key: 'blog', label: 'Blog 博客', desc: '追番笔记与推荐' },
   { key: 'wiki', label: 'Wiki', desc: '动漫知识库' },
   { key: 'tools', label: 'Tools 工具箱', desc: 'JSON 格式化 / 二维码解析 / 图片裁切' },
-  { key: 'game', label: 'Game 游戏', desc: '大肥鱼割草，纯前端小游戏' },
+  { key: 'game', label: 'Game 游戏', desc: 'Shattered Pixel Dungeon 网页版' },
   { key: 'pet', label: '桌宠（大肥鱼）', desc: '网页左下角的动画小宠物，默认仅登录可见' },
 ]
 

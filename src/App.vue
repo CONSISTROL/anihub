@@ -21,7 +21,7 @@ const { loading: pageLoading } = usePageProgress()
 const showLogin = ref(false)
 const insiderBusy = ref(false)
 
-// 游戏页为沉浸式全屏玩法：隐藏桌宠与回到顶部按钮
+// 游戏页为沉浸式全屏 iframe：隐藏桌宠与回到顶部按钮
 const isGame = computed(() => route.name === 'game')
 
 // 桌宠可见性：登录（管理员）恒可见；游客/内部人员需管理员在设置中开放 pet 权限
@@ -82,7 +82,7 @@ onMounted(() => {
     <!-- 页面切换：iOS 式非线性入场（轻微上移 + 呼吸缩放，沿 Expo 曲线滑停） -->
     <router-view v-slot="{ Component }">
       <Transition name="page" mode="out-in" appear>
-        <keep-alive :include="['ConsoleView']">
+        <keep-alive :include="['ConsoleView', 'GameView']">
           <component :is="Component" :key="route.path" />
         </keep-alive>
       </Transition>

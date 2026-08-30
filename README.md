@@ -51,15 +51,12 @@
 
 ### 🎮 游戏（`/game`，游客公开）
 
-- **大肥鱼：挺进地牢**：玩法参考“挺进地牢”——俯视角房间制地牢射击，鼠标瞄准 + 左键射击，WASD / 方向键移动，空格 / Shift 翻滚闪避
-- **随机地牢**：每层由 4×4 房间迷宫组成（随机生成树 + 回廊），包含普通房、商店、宝库与 Boss 房；清空房间内敌人后门才会打开
-- **枪械系统**：基础手枪无限弹药，可收集霰弹枪、冲锋枪、爆裂步枪、激光枪、火箭筒；Q / 数字键切枪，弹药有限
-- **四层主题地牢**：森林、雪山、魔塔、深渊，每层有不同配色、敌人组合与 Boss 弹幕（环形弹幕 / 瞄准弹幕 / 高频混合弹幕）
-- **商店与宝箱**：金币购买枪械/被动/消耗品；宝箱可开出枪械、被动、生命、钥匙；部分宝箱需要钥匙开启
-- **随机掉落**：敌人概率掉落金币、生命、钥匙、空白与枪械；Boss 必掉枪械并开启下一层传送门
-- **游戏速度**：开始界面与暂停界面可调整整体游戏速度（0.5x ~ 2x）
-- **纯前端 Canvas 渲染**，无需后端；主角使用 `public/pet/` 桌宠素材，怪物、墙壁、道具与 Boss 全部使用 Canvas 矢量图形渲染
-- 操作：WASD / 方向键移动，鼠标瞄准、左键射击，空格 / Shift 翻滚，E 互动，F 使用空白清除弹幕，Q / 数字键切枪，Esc / P 暂停
+- **Shattered Pixel Dungeon 网页版**：基于 [shattered-pixel-dungeon](https://github.com/00-Evan/shattered-pixel-dungeon.git) 的 TeaVM/libGDX Web 移植（[shattered-pixel-dungeon-web](https://github.com/glassesmonkey/shattered-pixel-dungeon-web)）
+- **玩法**：经典回合制 roguelike 地牢探索——随机地图、职业/天赋、装备/道具、敌人/Boss、商店与深度养成
+- **页面集成**：`/game` 路由通过全屏 `<iframe>` 加载 `public/spd/index.html`，纯前端运行，无需后端
+- **系统要求**：现代浏览器并启用 WebGL；首次加载需下载较大的 `app.js` 与资源文件
+- **操作**：鼠标点击 / 键盘方向键 / WASD 等，与桌面版一致
+- **语言**：默认简体中文；可在游戏内设置中切换并记住选择
 
 ### 🧰 工具箱（`/tools`，子工具为二级页面）
 
@@ -186,6 +183,8 @@ sudo -i                       # 或直接进 root shell（su 需 root 密码，s
 ├── package.json
 ├── vite.config.js                # dev proxy: /api → :3001；生产分包（editor/markdown）
 ├── deploy/                       # 云端部署（轻量服务器）：setup.sh / systemd / nginx / 备份
+├── game/                         # 游戏说明与重新构建指引（Shattered Pixel Dungeon Web）
+├── public/spd/                   # SPD Web 静态构建产物（/game 用 iframe 加载 /spd/index.html）
 ├── server/                       # Node + Express + SQLite 后端
 │   ├── index.js                  # 装配：JSON → API 路由 → 静态托管 dist/ → SPA fallback
 │   ├── db.js                     # node:sqlite 连接 + users/posts/anime_cache 建表（WAL，含 visibility / content_html / format 迁移）
@@ -224,9 +223,6 @@ sudo -i                       # 或直接进 root shell（su 需 root 密码，s
     │   ├── date.js               # 档期映射、日历网格、时间格式化
     │   ├── titles.js             # 按语言解析标题（titleFor）
     │   └── jsonLike.js           # 类 JSON 解析（C 结构体转储 → JSON）
-    ├── game/
-    │   ├── dungeon.js            # 地牢射击引擎（Canvas 2D，挺进地牢式玩法）
-    │   └── engine.js             # 旧版 2D 割草引擎（已停用，保留兼容引用）
     ├── data/
     │   ├── zhTitles.js           # 中文标题映射表（AniList id → 译名）
     │   └── zhDescriptions.js     # 中文简介映射表
@@ -242,7 +238,7 @@ sudo -i                       # 或直接进 root shell（su 需 root 密码，s
     │   ├── SettingsView.vue      # /settings 设置（页面访问权限）
     │   ├── SearchView.vue        # /search 站内搜索（文章 + 动漫）
     │   ├── HttpErrorView.vue     # /error/:code 错误码页面（401/404 等插画）
-    │   ├── GameView.vue          # /game 游戏页（地牢射击，游客公开）
+    │   ├── GameView.vue          # /game 游戏页（iframe 嵌入 SPD Web）
     │   ├── ToolsView.vue         # /tools 工具箱首页（子工具入口）
     │   ├── JsonToolView.vue      # /tools/json JSON 格式化（含类 JSON 解析）
     │   ├── QrToolView.vue        # /tools/qr 二维码解析

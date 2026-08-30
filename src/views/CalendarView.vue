@@ -15,7 +15,7 @@ import { useSettings } from '../composables/useSettings'
 import { refreshSeasonData, searchAnime } from '../api/anilist'
 import { ZH_GENRES } from '../data/zhGenres'
 import { lang } from '../composables/useLanguage'
-import { addDays, mondayOf, weekRangeLabel, dayKey, toApiSeason, SEASONS, buildMonthGrid } from '../utils/date'
+import { addDays, mondayOf, weekRangeLabel, dayKey, toApiSeason, seasonOf, SEASONS, buildMonthGrid } from '../utils/date'
 
 const route = useRoute()
 const initialSeason = (() => {
@@ -55,6 +55,13 @@ const weekLabel = computed(() => weekRangeLabel(weekStart.value))
 // 连续日历始终可翻
 const canPrevWeek = computed(() => true)
 const canNextWeek = computed(() => true)
+
+// 背景花纹按当前实际显示的日期所属档期变化：周历看 weekStart，月历/列表看 month
+const displaySeason = computed(() =>
+  view.value === 'week'
+    ? seasonOf(weekStart.value).season
+    : seasonOf(new Date(month.value.y, month.value.m, 1)).season
+)
 
 async function goWeek(delta) {
   const next = addDays(weekStart.value, delta * 7)
@@ -432,7 +439,7 @@ if (route.query.id) selectedId.value = Number(route.query.id)
         :week-start="weekStart"
         :schedules="schedules"
         :media-map="mediaMap"
-        :season="season"
+        :season="displaySeason"
         @select="selectedId = $event"
       />
 
@@ -441,7 +448,7 @@ if (route.query.id) selectedId.value = Number(route.query.id)
         :month="month"
         :schedules="schedules"
         :media-map="mediaMap"
-        :season="season"
+        :season="displaySeason"
         @select="selectedId = $event"
       />
 
@@ -450,7 +457,7 @@ if (route.query.id) selectedId.value = Number(route.query.id)
         :month="month"
         :schedules="schedules"
         :media-map="mediaMap"
-        :season="season"
+        :season="displaySeason"
         @select="selectedId = $event"
       />
 
