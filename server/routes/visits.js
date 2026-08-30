@@ -75,7 +75,7 @@ function upsertLocation(ip, { country = '', region = '', city = '', isp = '', la
 
 async function resolveIp(ip) {
   try {
-    const url = `http://ip-api.com/json/${encodeURIComponent(ip)}?lang=zh-CN&fields=status,message,country,regionName,city,isp,query`
+    const url = `http://ip-api.com/json/${encodeURIComponent(ip)}?lang=zh-CN&fields=status,message,country,regionName,city,isp,lat,lon,query`
     const ctrl = new AbortController()
     const timer = setTimeout(() => ctrl.abort(), 5000)
     let data
@@ -113,10 +113,14 @@ function queueResolve(ip) {
       upsertLocation(ip, { status: 'skipped' })
       return
     }
-    const row = db.prepare('SELECT status, resolved_at, lat, lon FROM ip_locations WHERE ip = ?').get(ip)
+    const row = db
+      .prepare('SELECT status, resolved_at, lat, lon, country, region, city FROM ip_locations WHERE ip = ?')
+      .get(ip)
     if (row && row.status === 'ok' && row.lat != null && row.lon != null) return
-    // 旧数据已解析但缺经纬度：允许立即补解析；失败/未知 24 小时后允许重新解析；正在解析的 IP 不重复发起
-    if (row && row.status === 'failed' && row.resolved_at > Math.floor(Date.now() / 1000) - 86400) return
+    // 旧数据已解析但缺经纬度：允许立即补解析。
+    // 失败/未知且没有任何归属地信息的 IP，24 小时后才允许重新解析；已有人类可读归属地但缺经纬度的旧数据不受此限制
+    const hasLocationInfo = row && (row.country || row.region || row.city)
+    if (row && row.status === 'failed' && !hasLocationInfo && row.resolved_at > Math.floor(Date.now() / 1000) - 86400) return
     if (resolving.has(ip)) return
     resolving.add(ip)
     setImmediate(async () => {
@@ -300,14 +304,88 @@ router.get('/ips', authRequired, (req, res) => {
   })
 })
 
+// 热门页面详情：查看访问过某个页面的 IP 列表（近 N 天，按访问次数排序）
+router.get('/path-ips', authRequired, (req, res) => {
+  const path = String(req.query.path || '').trim()
+  if (!path || !path.startsWith('/')) {
+    return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: '缺少合法的 path 参数' } })
+  }
+  const days = Math.min(365, Math.max(1, parseInt(req.query.days, 10) || 30))
+  const since = Math.floor(Date.now() / 1000) - days * 86400
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1)
+  const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize, 10) || 20))
+
+  // 匹配路径时忽略 query（热门页面按 pathname 聚合）
+  const pathExpr = `CASE WHEN instr(v.path, '?') > 0 THEN substr(v.path, 1, instr(v.path, '?') - 1) ELSE v.path END`
+  const where = `v.ts >= ? AND v.ip <> '' AND ${pathExpr} = ?`
+  const params = [since, path]
+
+  const summary = db
+    .prepare(
+      `SELECT COUNT(*) AS total_visits,
+              COUNT(DISTINCT v.ip) AS total_ips
+       FROM visits v WHERE ${where}`
+    )
+    .get(...params)
+
+  const total = summary?.total_ips || 0
+  const rows = db
+    .prepare(
+      `SELECT v.ip, COUNT(*) AS count, MAX(v.ts) AS last_ts,
+              MAX(l.country) AS country, MAX(l.region) AS region, MAX(l.city) AS city,
+              MAX(l.isp) AS isp, MAX(l.status) AS status
+       FROM visits v LEFT JOIN ip_locations l ON l.ip = v.ip
+       WHERE ${where}
+       GROUP BY v.ip
+       ORDER BY count DESC, v.ip
+       LIMIT ? OFFSET ?`
+    )
+    .all(...params, pageSize, (page - 1) * pageSize)
+
+  res.json({
+    path,
+    days,
+    page,
+    pageSize,
+    total,
+    totalVisits: summary?.total_visits || 0,
+    items: rows.map((r) => {
+      const locationParts = [r.country, r.region, r.city].filter(Boolean)
+      let location = locationParts.join(' · ')
+      if (!location) {
+        if (r.status === 'pending') location = '解析中…'
+        else if (r.status === 'skipped') location = '内网 / 本机'
+        else location = '未知'
+      }
+      return {
+        ip: r.ip,
+        count: r.count,
+        lastSeen: r.last_ts,
+        country: r.country || '',
+        region: r.region || '',
+        city: r.city || '',
+        isp: r.isp || '',
+        status: r.status || 'pending',
+        location,
+      }
+    }),
+  })
+})
+
 // 地图热点数据：按 IP 归属地坐标聚合访问次数 / 独立 IP 数
 router.get('/map', authRequired, (req, res) => {
   const days = Math.min(365, Math.max(1, parseInt(req.query.days, 10) || 30))
   const since = Math.floor(Date.now() / 1000) - days * 86400
 
   // 旧数据可能已解析归属地但缺少经纬度：每次打开地图时补解析少量，避免一次性打满免费接口配额
+  // 也包含因之前字段缺失而被误标为 failed、但实际已有归属地文字的旧数据
   const missingCoordRows = db
-    .prepare(`SELECT ip FROM ip_locations WHERE status IN ('ok', 'pending') AND (lat IS NULL OR lon IS NULL) LIMIT 50`)
+    .prepare(
+      `SELECT ip FROM ip_locations
+       WHERE (status IN ('ok', 'pending') OR (status = 'failed' AND (country <> '' OR region <> '' OR city <> '')))
+         AND (lat IS NULL OR lon IS NULL)
+       LIMIT 50`
+    )
     .all()
   for (const row of missingCoordRows) queueResolve(row.ip)
 

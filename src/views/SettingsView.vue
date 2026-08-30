@@ -6,6 +6,7 @@ import { getVisitSummary, getVisitMap, getVisitRecords, getVisitIps } from '../a
 import VisitMap from '../components/VisitMap.vue'
 import IpDetailModal from '../components/IpDetailModal.vue'
 import VisitRecordDetailModal from '../components/VisitRecordDetailModal.vue'
+import PathIpsModal from '../components/PathIpsModal.vue'
 import { getUpgradeProgress, getUpgradeStatus, runUpgrade } from '../api/upgrade'
 import { useSettings } from '../composables/useSettings'
 import LineChart from '../components/LineChart.vue'
@@ -487,8 +488,9 @@ function jumpVisitIpPage() {
   loadVisits()
 }
 
-/* —— 访问记录 / IP 来源详情弹窗 —— */
+/* —— 访问记录 / 页面 IP / IP 来源详情弹窗 —— */
 const recordDetail = ref(null) // 当前查看详情的单条访问记录
+const pathIps = ref(null) // 当前查看详情的热门页面路径，null 表示不显示
 const ipDetail = ref(null) // 当前查看详情的 IP，null 表示不显示
 function openRecordDetail(record) {
   recordDetail.value = record
@@ -496,9 +498,17 @@ function openRecordDetail(record) {
 function closeRecordDetail() {
   recordDetail.value = null
 }
+function openPathIps(path) {
+  if (!path) return
+  pathIps.value = path
+}
+function closePathIps() {
+  pathIps.value = null
+}
 function openIpDetail(ip) {
   if (!ip) return
   recordDetail.value = null
+  pathIps.value = null
   ipDetail.value = ip
 }
 function closeIpDetail() {
@@ -766,7 +776,7 @@ onUnmounted(() => {
           <div v-if="visitSummary?.topPaths?.length" class="visit-panel">
             <h3 class="sub-title">热门页面（近 30 天）</h3>
             <div v-for="p in visitSummary.topPaths" :key="p.path" class="visit-rank">
-              <span class="visit-rank-path" :title="p.path">{{ p.path || '/' }}</span>
+              <button class="ip-link visit-rank-path" :title="`${p.path || '/'} · 点击查看访问 IP`" @click="openPathIps(p.path)">{{ p.path || '/' }}</button>
               <span class="visit-rank-count">{{ p.c }}</span>
             </div>
           </div>
@@ -966,6 +976,12 @@ onUnmounted(() => {
       v-if="recordDetail"
       :record="recordDetail"
       @close="closeRecordDetail"
+      @view-ip="openIpDetail"
+    />
+    <PathIpsModal
+      v-if="pathIps"
+      :path="pathIps"
+      @close="closePathIps"
       @view-ip="openIpDetail"
     />
     <IpDetailModal v-if="ipDetail" :ip="ipDetail" @close="closeIpDetail" />
