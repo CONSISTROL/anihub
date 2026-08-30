@@ -239,6 +239,67 @@ router.get('/summary', authRequired, (req, res) => {
   })
 })
 
+// IP 列表（近 N 天热门 IP）：支持分页，用于管理后台“热门 IP / 全部 IP 记录”
+router.get('/ips', authRequired, (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1)
+  const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize, 10) || 20))
+  const days = Math.min(365, Math.max(1, parseInt(req.query.days, 10) || 30))
+  const since = Math.floor(Date.now() / 1000) - days * 86400
+  const q = String(req.query.q || '').trim()
+
+  const where = ["v.ts >= ?", "v.ip <> ''"]
+  const params = [since]
+  if (q) {
+    where.push('(v.ip LIKE ? OR l.country LIKE ? OR l.region LIKE ? OR l.city LIKE ? OR l.isp LIKE ?)')
+    const like = `%${q}%`
+    params.push(like, like, like, like, like)
+  }
+  const whereSql = `WHERE ${where.join(' AND ')}`
+
+  const total = db
+    .prepare(`SELECT COUNT(DISTINCT v.ip) AS c FROM visits v LEFT JOIN ip_locations l ON l.ip = v.ip ${whereSql}`)
+    .get(...params)?.c || 0
+
+  const rows = db
+    .prepare(
+      `SELECT v.ip, COUNT(*) AS count,
+              MAX(l.country) AS country, MAX(l.region) AS region, MAX(l.city) AS city,
+              MAX(l.isp) AS isp, MAX(l.status) AS status
+       FROM visits v LEFT JOIN ip_locations l ON l.ip = v.ip
+       ${whereSql}
+       GROUP BY v.ip
+       ORDER BY count DESC, v.ip
+       LIMIT ? OFFSET ?`
+    )
+    .all(...params, pageSize, (page - 1) * pageSize)
+
+  res.json({
+    total,
+    page,
+    pageSize,
+    days,
+    items: rows.map((r) => {
+      const locationParts = [r.country, r.region, r.city].filter(Boolean)
+      let location = locationParts.join(' · ')
+      if (!location) {
+        if (r.status === 'pending') location = '解析中…'
+        else if (r.status === 'skipped') location = '内网 / 本机'
+        else location = '未知'
+      }
+      return {
+        ip: r.ip,
+        count: r.count,
+        country: r.country || '',
+        region: r.region || '',
+        city: r.city || '',
+        isp: r.isp || '',
+        status: r.status || 'pending',
+        location,
+      }
+    }),
+  })
+})
+
 // 地图热点数据：按 IP 归属地坐标聚合访问次数 / 独立 IP 数
 router.get('/map', authRequired, (req, res) => {
   const days = Math.min(365, Math.max(1, parseInt(req.query.days, 10) || 30))
@@ -370,9 +431,12 @@ router.get('/records', authRequired, (req, res) => {
   const where = []
   const params = []
   if (q) {
-    where.push('(v.ip LIKE ? OR v.path LIKE ? OR v.user_agent LIKE ? OR v.referer LIKE ?)')
+    where.push(
+      '(v.ip LIKE ? OR v.path LIKE ? OR v.user_agent LIKE ? OR v.referer LIKE ?' +
+      ' OR l.country LIKE ? OR l.region LIKE ? OR l.city LIKE ? OR l.isp LIKE ?)'
+    )
     const like = `%${q}%`
-    params.push(like, like, like, like)
+    params.push(like, like, like, like, like, like, like, like)
   }
   if (Number.isFinite(from)) {
     where.push('v.ts >= ?')
@@ -384,7 +448,9 @@ router.get('/records', authRequired, (req, res) => {
   }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : ''
 
-  const total = db.prepare(`SELECT COUNT(*) AS c FROM visits v ${whereSql}`).get(...params)?.c || 0
+  const total = db
+    .prepare(`SELECT COUNT(*) AS c FROM visits v LEFT JOIN ip_locations l ON l.ip = v.ip ${whereSql}`)
+    .get(...params)?.c || 0
   const rows = db
     .prepare(
       `SELECT v.id, v.ts, v.ip, v.path, v.user_agent, v.referer, v.source,

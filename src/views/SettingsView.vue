@@ -2,7 +2,7 @@
 // 设置页：配置哪些页面对游客可见、哪些页面对内部人员额外可见 + 壁纸/成人内容身份控制 + 服务器监控（图表）
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { getSettings, updateSettings, getMonitor, getMonitorHistory, getWallpapersManage, saveWallpaperSelection } from '../api/settings'
-import { getVisitSummary, getVisitMap, getVisitRecords } from '../api/visits'
+import { getVisitSummary, getVisitMap, getVisitRecords, getVisitIps } from '../api/visits'
 import VisitMap from '../components/VisitMap.vue'
 import IpDetailModal from '../components/IpDetailModal.vue'
 import VisitRecordDetailModal from '../components/VisitRecordDetailModal.vue'
@@ -395,6 +395,11 @@ const visitRecords = ref(null)
 const visitPage = ref(1)
 const visitPageSize = ref(20)
 const visitQ = ref('')
+const visitJumpPage = ref(1)
+const visitIps = ref(null)
+const visitIpPage = ref(1)
+const visitIpPageSize = ref(20)
+const visitIpJumpPage = ref(1)
 const visitLoading = ref(false)
 const visitError = ref('')
 const VISIT_COLOR = '#4a7de0'
@@ -420,14 +425,16 @@ async function loadVisits() {
   visitLoading.value = true
   visitError.value = ''
   try {
-    const [summary, records, mapData] = await Promise.all([
+    const [summary, records, mapData, ips] = await Promise.all([
       getVisitSummary(),
       getVisitRecords({ page: visitPage.value, pageSize: visitPageSize.value, q: visitQ.value || undefined }),
       getVisitMap({ days: 30 }),
+      getVisitIps({ page: visitIpPage.value, pageSize: visitIpPageSize.value, days: 30 }),
     ])
     visitSummary.value = summary
     visitRecords.value = records
     visitMap.value = mapData
+    visitIps.value = ips
   } catch (e) {
     visitError.value = e.message
   } finally {
@@ -447,10 +454,38 @@ function changeVisitPage(delta) {
   loadVisits()
 }
 
+function jumpVisitPage() {
+  const target = Math.floor(Number(visitJumpPage.value))
+  if (!Number.isFinite(target)) return
+  const max = visitTotalPages.value || 1
+  visitPage.value = Math.min(max, Math.max(1, target))
+  loadVisits()
+}
+
 const visitTotalPages = computed(() => {
   if (!visitRecords.value) return 0
   return Math.max(1, Math.ceil(visitRecords.value.total / visitPageSize.value))
 })
+
+const visitIpTotalPages = computed(() => {
+  if (!visitIps.value) return 0
+  return Math.max(1, Math.ceil(visitIps.value.total / visitIpPageSize.value))
+})
+
+function changeVisitIpPage(delta) {
+  const next = visitIpPage.value + delta
+  if (next < 1 || (visitIps.value && next > Math.max(1, Math.ceil(visitIps.value.total / visitIpPageSize.value)))) return
+  visitIpPage.value = next
+  loadVisits()
+}
+
+function jumpVisitIpPage() {
+  const target = Math.floor(Number(visitIpJumpPage.value))
+  if (!Number.isFinite(target)) return
+  const max = visitIpTotalPages.value || 1
+  visitIpPage.value = Math.min(max, Math.max(1, target))
+  loadVisits()
+}
 
 /* —— 访问记录 / IP 来源详情弹窗 —— */
 const recordDetail = ref(null) // 当前查看详情的单条访问记录
@@ -727,20 +762,36 @@ onUnmounted(() => {
         </div>
 
 
-        <div v-if="visitSummary?.topPaths?.length" class="visit-cols">
-          <div class="visit-panel">
+        <div v-if="visitSummary?.topPaths?.length || visitIps?.items?.length" class="visit-cols">
+          <div v-if="visitSummary?.topPaths?.length" class="visit-panel">
             <h3 class="sub-title">热门页面（近 30 天）</h3>
             <div v-for="p in visitSummary.topPaths" :key="p.path" class="visit-rank">
               <span class="visit-rank-path" :title="p.path">{{ p.path || '/' }}</span>
               <span class="visit-rank-count">{{ p.c }}</span>
             </div>
           </div>
-          <div class="visit-panel">
-            <h3 class="sub-title">热门 IP（近 30 天）</h3>
-            <div v-for="p in visitSummary.topIps" :key="p.ip" class="visit-rank">
-              <button class="ip-link visit-rank-path" :title="[p.country, p.region, p.city].filter(Boolean).join(' · ') || '点击查看 IP 详情'" @click="openIpDetail(p.ip)">{{ p.ip }}</button>
-              <span class="visit-rank-loc">{{ [p.country, p.region, p.city].filter(Boolean).join(' · ') || (p.status === 'pending' ? '解析中…' : p.status === 'skipped' ? '内网 / 本机' : '未知') }}</span>
-              <span class="visit-rank-count">{{ p.c }}</span>
+          <div v-if="visitIps?.items?.length" class="visit-panel">
+            <h3 class="sub-title">热门 IP（近 30 天）<span class="visit-ip-total">共 {{ visitIps.total.toLocaleString() }} 个</span></h3>
+            <div v-for="p in visitIps.items" :key="p.ip" class="visit-rank">
+              <button class="ip-link visit-rank-path" :title="p.location || '点击查看 IP 详情'" @click="openIpDetail(p.ip)">{{ p.ip }}</button>
+              <span class="visit-rank-loc">{{ p.location }}<span v-if="p.isp" class="visit-isp"> · {{ p.isp }}</span></span>
+              <span class="visit-rank-count">{{ p.count }}</span>
+            </div>
+            <div v-if="visitIpTotalPages > 1" class="visit-pager visit-ip-pager">
+              <button class="btn btn-sm" :disabled="visitIpPage <= 1 || visitLoading" @click="changeVisitIpPage(-1)">上一页</button>
+              <span>{{ visitIpPage }} / {{ visitIpTotalPages }}</span>
+              <button class="btn btn-sm" :disabled="visitIpPage >= visitIpTotalPages || visitLoading" @click="changeVisitIpPage(1)">下一页</button>
+              <span class="visit-jump">
+                <input
+                  v-model.number="visitIpJumpPage"
+                  class="range-inp visit-jump-inp"
+                  type="number"
+                  min="1"
+                  :max="visitIpTotalPages"
+                  @keyup.enter="jumpVisitIpPage"
+                />
+                <button class="btn btn-sm" :disabled="visitLoading" @click="jumpVisitIpPage">跳转</button>
+              </span>
             </div>
           </div>
         </div>
@@ -750,7 +801,7 @@ onUnmounted(() => {
             <input
               v-model="visitQ"
               class="range-inp"
-              placeholder="搜索 IP / 路径 / UA / 来源"
+              placeholder="搜索 IP / 路径 / UA / 来源 / IP归属地"
               @keyup.enter="searchVisits"
             />
             <button class="btn btn-sm" :disabled="visitLoading" @click="searchVisits">搜索</button>
@@ -792,6 +843,17 @@ onUnmounted(() => {
             <button class="btn btn-sm" :disabled="visitPage <= 1 || visitLoading" @click="changeVisitPage(-1)">上一页</button>
             <span>{{ visitPage }} / {{ visitTotalPages }}</span>
             <button class="btn btn-sm" :disabled="visitPage >= visitTotalPages || visitLoading" @click="changeVisitPage(1)">下一页</button>
+            <span class="visit-jump">
+              <input
+                v-model.number="visitJumpPage"
+                class="range-inp visit-jump-inp"
+                type="number"
+                min="1"
+                :max="visitTotalPages"
+                @keyup.enter="jumpVisitPage"
+              />
+              <button class="btn btn-sm" :disabled="visitLoading" @click="jumpVisitPage">跳转</button>
+            </span>
           </div>
         </div>
       </section>
@@ -1314,6 +1376,18 @@ onUnmounted(() => {
   margin: 0;
 }
 
+.visit-ip-total {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+  margin-left: 6px;
+}
+
+.visit-ip-pager {
+  margin-top: 6px;
+  justify-content: flex-start;
+}
+
 .visit-rank {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1506,6 +1580,18 @@ onUnmounted(() => {
   gap: 10px;
   font-size: 12px;
   color: var(--muted);
+  flex-wrap: wrap;
+}
+
+.visit-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.visit-jump-inp {
+  width: 64px;
+  padding: 4px 6px;
 }
 
 @media (max-width: 760px) {
