@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, inject, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
 import { useSettings } from '../composables/useSettings'
@@ -12,6 +12,7 @@ const settings = useSettings()
 settings.load() // 预加载可见页面（单例，守卫/主页共用）
 
 const router = useRouter()
+const toggleKeyboard = inject('toggleKeyboard', () => {})
 
 // 站内搜索：回车跳转到搜索页
 const navQ = ref('')
@@ -94,6 +95,9 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
         <button class="btn btn-sm" @click="clearSession">退出</button>
       </template>
     </div>
+    <button class="btn btn-sm keyboard-btn" title="网页内键盘（游戏 / login / inside）" @click="toggleKeyboard">
+      <AppIcon name="keyboard" :size="14" /> 键盘
+    </button>
     <ThemeSelector />
   </nav>
 </template>

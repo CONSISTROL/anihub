@@ -33,3 +33,5 @@ cp -R <spd-web>/web/build/dist/webapp public/spd
 - 首次加载会下载较大的 `app.js` 和资源文件，页面已提供加载提示。
 - 游戏需要 WebGL。
 - 首次运行默认简体中文；玩家在游戏内切换语言后会记住选择。
+- 网页顶栏「键盘」按钮可打开网页内虚拟键盘：普通页面输入 `login` / `inside`，游戏页面向 iframe 发送按键。
+- 游戏内作弊码：`↑ ↑ ↓ ↓ ← → ← → B A B A` 或 `W W S S A D A D B A B A` 恢复生命值。

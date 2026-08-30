@@ -372,6 +372,85 @@ router.get('/path-ips', authRequired, (req, res) => {
   })
 })
 
+// 地图位置详情：查看某个热点坐标下的 IP 列表（近 N 天，按访问次数排序）
+router.get('/location-ips', authRequired, (req, res) => {
+  const lat = Number(req.query.lat)
+  const lon = Number(req.query.lon)
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: '缺少合法的 lat/lon 参数' } })
+  }
+  const days = Math.min(365, Math.max(1, parseInt(req.query.days, 10) || 30))
+  const since = Math.floor(Date.now() / 1000) - days * 86400
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1)
+  const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize, 10) || 20))
+
+  const where = `v.ts >= ? AND v.ip <> '' AND l.lat = ? AND l.lon = ?`
+  const params = [since, lat, lon]
+
+  const summary = db
+    .prepare(
+      `SELECT COUNT(*) AS total_visits,
+              COUNT(DISTINCT v.ip) AS total_ips
+       FROM visits v JOIN ip_locations l ON l.ip = v.ip
+       WHERE ${where}`
+    )
+    .get(...params)
+
+  const locationRow = db
+    .prepare(
+      `SELECT country, region, city, isp FROM ip_locations
+       WHERE lat = ? AND lon = ? LIMIT 1`
+    )
+    .get(lat, lon)
+
+  const rows = db
+    .prepare(
+      `SELECT v.ip, COUNT(*) AS count, MAX(v.ts) AS last_ts,
+              MAX(l.country) AS country, MAX(l.region) AS region, MAX(l.city) AS city,
+              MAX(l.isp) AS isp, MAX(l.status) AS status
+       FROM visits v JOIN ip_locations l ON l.ip = v.ip
+       WHERE ${where}
+       GROUP BY v.ip
+       ORDER BY count DESC, v.ip
+       LIMIT ? OFFSET ?`
+    )
+    .all(...params, pageSize, (page - 1) * pageSize)
+
+  const locationText = [locationRow?.country, locationRow?.region, locationRow?.city].filter(Boolean).join(' · ') || '未知位置'
+
+  res.json({
+    lat,
+    lon,
+    location: locationText,
+    isp: locationRow?.isp || '',
+    days,
+    page,
+    pageSize,
+    total: summary?.total_ips || 0,
+    totalVisits: summary?.total_visits || 0,
+    items: rows.map((r) => {
+      const parts = [r.country, r.region, r.city].filter(Boolean)
+      let loc = parts.join(' · ')
+      if (!loc) {
+        if (r.status === 'pending') loc = '解析中…'
+        else if (r.status === 'skipped') loc = '内网 / 本机'
+        else loc = '未知'
+      }
+      return {
+        ip: r.ip,
+        count: r.count,
+        lastSeen: r.last_ts,
+        country: r.country || '',
+        region: r.region || '',
+        city: r.city || '',
+        isp: r.isp || '',
+        status: r.status || 'pending',
+        location: loc,
+      }
+    }),
+  })
+})
+
 // 地图热点数据：按 IP 归属地坐标聚合访问次数 / 独立 IP 数
 router.get('/map', authRequired, (req, res) => {
   const days = Math.min(365, Math.max(1, parseInt(req.query.days, 10) || 30))

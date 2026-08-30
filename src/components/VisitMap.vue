@@ -10,6 +10,7 @@ const props = defineProps({
   points: { type: Array, default: () => [] },
   height: { type: Number, default: 420 },
 })
+const emit = defineEmits(['view-location'])
 
 const el = ref(null)
 const showHeat = ref(true)
@@ -54,9 +55,19 @@ function render({ fit = true } = {}) {
         fillColor: markerColor(p.count),
         fillOpacity: 0.62,
       })
-      marker.bindPopup(
-        `<b>${fmtLocation(p)}</b><br/>访问 ${p.count} 次 · ${p.ipCount} 个 IP`
-      )
+      const popupEl = document.createElement('div')
+      popupEl.className = 'visit-map-popup'
+      const title = document.createElement('b')
+      title.textContent = fmtLocation(p)
+      const meta = document.createElement('span')
+      meta.textContent = `访问 ${p.count} 次 · ${p.ipCount} 个 IP`
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'visit-map-popup-btn'
+      btn.textContent = '查看 IP 详情'
+      btn.addEventListener('click', () => emit('view-location', p))
+      popupEl.append(title, meta, btn)
+      marker.bindPopup(popupEl)
       return marker
     })
   )
@@ -366,5 +377,48 @@ onUnmounted(() => {
 .visit-map :deep(.leaflet-popup-close-button) {
   color: var(--muted) !important;
   padding: 6px 6px 0 0 !important;
+}
+</style>
+
+<style>
+/* 热力层只做视觉展示，不拦截小圆点的点击 */
+.leaflet-heatmap-layer {
+  pointer-events: none !important;
+}
+
+/* 地图弹窗内容 */
+.visit-map-popup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 140px;
+}
+
+.visit-map-popup b {
+  font-size: 13px;
+}
+
+.visit-map-popup span {
+  font-size: 12px;
+  color: inherit;
+  opacity: 0.85;
+}
+
+.visit-map-popup-btn {
+  margin-top: 6px;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent, #4a7de0);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity var(--dur-ios-1, 0.2s) ease;
+}
+
+.visit-map-popup-btn:hover {
+  opacity: 0.85;
 }
 </style>

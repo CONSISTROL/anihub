@@ -18,6 +18,14 @@ export const getVisitPathIps = (path, params = {}) => {
   const q = qs.toString()
   return api('/visits/path-ips' + (q ? `?${q}` : ''))
 }
+export const getVisitLocationIps = (lat, lon, params = {}) => {
+  const qs = new URLSearchParams({ lat: String(lat), lon: String(lon) })
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== '') qs.set(k, v)
+  }
+  const q = qs.toString()
+  return api('/visits/location-ips' + (q ? `?${q}` : ''))
+}
 export const getVisitIpDetail = (ip, params = {}) => {
   const qs = new URLSearchParams()
   for (const [k, v] of Object.entries(params)) {

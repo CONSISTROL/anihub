@@ -1,5 +1,5 @@
 <script setup>
-// 全局布局壳：导航栏 + 页面内容；登录框/内部身份入口由 Tools → HTML 渲染工具触发
+// 全局布局壳：导航栏 + 页面内容；登录框/内部身份入口由网页内虚拟键盘触发
 import { computed, onMounted, provide, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import NavBar from './components/NavBar.vue'
@@ -7,6 +7,7 @@ import LoginModal from './components/LoginModal.vue'
 import InsiderBackground from './components/InsiderBackground.vue'
 import BackToTop from './components/BackToTop.vue'
 import Mascot from './components/Mascot.vue'
+import VirtualKeyboard from './components/VirtualKeyboard.vue'
 import { api } from './api/http'
 import { useAuth } from './composables/useAuth'
 import { useSettings } from './composables/useSettings'
@@ -19,6 +20,7 @@ const route = useRoute()
 const router = useRouter()
 const { loading: pageLoading } = usePageProgress()
 const showLogin = ref(false)
+const showKeyboard = ref(false)
 const insiderBusy = ref(false)
 
 // 游戏页为沉浸式全屏 iframe：隐藏桌宠与回到顶部按钮
@@ -39,7 +41,29 @@ function closeLogin() {
   showLogin.value = false
 }
 
-// 内部人员口令：Tools → HTML 渲染中输入 inside 后点击渲染触发
+function openKeyboard() {
+  showKeyboard.value = true
+}
+
+function closeKeyboard() {
+  showKeyboard.value = false
+}
+
+function toggleKeyboard() {
+  showKeyboard.value = !showKeyboard.value
+}
+
+function onLoginCommand() {
+  closeKeyboard()
+  openLogin()
+}
+
+async function onInsideCommand() {
+  await enterInside()
+  closeKeyboard()
+}
+
+// 内部人员口令：网页内虚拟键盘输入 inside 后回车触发
 // 关键词与 server/.env 的 INSIDER_KEYWORD 一致（默认 inside）
 async function enterInside() {
   const auth = useAuth()
@@ -62,10 +86,13 @@ async function enterInside() {
   }
 }
 
-// 提供给 Tools → HTML 渲染工具调用
+// 提供给全局组件 / 虚拟键盘调用
 provide('openLogin', openLogin)
 provide('closeLogin', closeLogin)
 provide('enterInside', enterInside)
+provide('openKeyboard', openKeyboard)
+provide('closeKeyboard', closeKeyboard)
+provide('toggleKeyboard', toggleKeyboard)
 
 onMounted(() => {
   router.isReady().then(finishPageLoading, finishPageLoading)
@@ -87,10 +114,17 @@ onMounted(() => {
         </keep-alive>
       </Transition>
     </router-view>
-    <!-- 隐藏登录弹窗：遮罩淡入 + 弹层弹簧缩放；由 Tools → HTML 渲染输入 login 后触发 -->
+    <!-- 隐藏登录弹窗：遮罩淡入 + 弹层弹簧缩放；由网页内虚拟键盘输入 login 后触发 -->
     <Transition name="login" appear>
       <LoginModal v-if="showLogin" @close="closeLogin" />
     </Transition>
+    <!-- 网页内虚拟键盘：非游戏页输入 login/inside，游戏页向 iframe 发送按键 -->
+    <VirtualKeyboard
+      v-if="showKeyboard"
+      @close="closeKeyboard"
+      @login="onLoginCommand"
+      @inside="onInsideCommand"
+    />
     <!-- 全站壁纸背景（组件内部按身份自检：管理员恒可见，游客/内部人员按设置开关）
          游戏页也保持挂载，避免进入 /game 时壁纸持有者释放后再重新加载导致背景闪烁 -->
     <InsiderBackground />

@@ -135,3 +135,5 @@
 - 游戏本体嵌入 /spd/index.html，GameView 使用全屏 iframe 承载
 - 构建产物位于 public/spd，来源与重建方式见 game/README.md
 - 支持鼠标 / 键盘操作，依赖 WebGL
+- 顶栏「键盘」按钮打开网页内虚拟键盘：普通页输入 login/inside 触发登录/内部身份；游戏页向 iframe 发送按键
+- 游戏作弊码：↑ ↑ ↓ ↓ ← → ← → B A B A 或 W W S S A D A D B A B A 恢复生命值

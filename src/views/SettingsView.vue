@@ -7,6 +7,7 @@ import VisitMap from '../components/VisitMap.vue'
 import IpDetailModal from '../components/IpDetailModal.vue'
 import VisitRecordDetailModal from '../components/VisitRecordDetailModal.vue'
 import PathIpsModal from '../components/PathIpsModal.vue'
+import LocationIpsModal from '../components/LocationIpsModal.vue'
 import { getUpgradeProgress, getUpgradeStatus, runUpgrade } from '../api/upgrade'
 import { useSettings } from '../composables/useSettings'
 import LineChart from '../components/LineChart.vue'
@@ -488,9 +489,10 @@ function jumpVisitIpPage() {
   loadVisits()
 }
 
-/* —— 访问记录 / 页面 IP / IP 来源详情弹窗 —— */
+/* —— 访问记录 / 页面 IP / 地图位置 / IP 来源详情弹窗 —— */
 const recordDetail = ref(null) // 当前查看详情的单条访问记录
 const pathIps = ref(null) // 当前查看详情的热门页面路径，null 表示不显示
+const locationIps = ref(null) // 当前查看详情的地图热点位置，null 表示不显示
 const ipDetail = ref(null) // 当前查看详情的 IP，null 表示不显示
 function openRecordDetail(record) {
   recordDetail.value = record
@@ -505,10 +507,18 @@ function openPathIps(path) {
 function closePathIps() {
   pathIps.value = null
 }
+function openLocationIps(point) {
+  if (!point) return
+  locationIps.value = point
+}
+function closeLocationIps() {
+  locationIps.value = null
+}
 function openIpDetail(ip) {
   if (!ip) return
   recordDetail.value = null
   pathIps.value = null
+  locationIps.value = null
   ipDetail.value = ip
 }
 function closeIpDetail() {
@@ -768,7 +778,7 @@ onUnmounted(() => {
             {{ visitMap.mappedIps }} 个 IP / {{ visitMap.mappedVisits }} 次访问
             <template v-if="visitMap.unresolvedIps">；另有 {{ visitMap.unresolvedIps }} 个 IP 暂无坐标</template>
           </p>
-          <VisitMap :points="visitMap.points || []" />
+          <VisitMap :points="visitMap.points || []" @view-location="openLocationIps" />
         </div>
 
 
@@ -982,6 +992,12 @@ onUnmounted(() => {
       v-if="pathIps"
       :path="pathIps"
       @close="closePathIps"
+      @view-ip="openIpDetail"
+    />
+    <LocationIpsModal
+      v-if="locationIps"
+      :point="locationIps"
+      @close="closeLocationIps"
       @view-ip="openIpDetail"
     />
     <IpDetailModal v-if="ipDetail" :ip="ipDetail" @close="closeIpDetail" />
