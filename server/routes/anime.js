@@ -9,7 +9,7 @@ import { authRequired } from '../middleware/auth.js'
 const router = Router()
 
 const ENDPOINT = 'https://graphql.anilist.co'
-const PAGE_DELAY = 200 // 分页请求间隔（毫秒），避免连发触发限流
+const PAGE_DELAY = 500 // 分页请求间隔（毫秒），避免连发触发限流
 
 // 缓存有效期：媒体列表（标题/封面/简介等）几乎不变，7 天；
 // 排期（每集放送时间）当前档期会随新集公布陆续更新，12 小时；过去档期已定型，30 天
@@ -29,6 +29,15 @@ const SEASON_ORDER = ['WINTER', 'SPRING', 'SUMMER', 'FALL']
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const cacheKey = (year, season) => `${year}-${season}`
+
+// 全局请求去重：同一 key 的 AniList 拉取只发起一次，其他用户复用同一个 Promise
+const requestDedupe = new Map()
+function dedupeRequest(key, factory) {
+  if (requestDedupe.has(key)) return requestDedupe.get(key)
+  const p = factory().finally(() => requestDedupe.delete(key))
+  requestDedupe.set(key, p)
+  return p
+}
 
 function displayYear(season, year) {
   // 界面按自然年“春夏秋冬”展示：冬季 12-2 月归到起始年份，AniList 的 WINTER seasonYear 需减 1
@@ -63,7 +72,7 @@ async function fetchSeasonAnimeCached(season, year) {
   const key = cacheKey(year, season)
   const hit = seasonMediaMemory.get(key)
   if (hit && Date.now() - hit.at <= SEASON_MEDIA_MEMORY_TTL) return hit.media
-  const media = await fetchSeasonAnime(season, year)
+  const media = await dedupeRequest(`season-media:${key}`, () => fetchSeasonAnime(season, year))
   seasonMediaMemory.set(key, { at: Date.now(), media })
   return media
 }
@@ -184,17 +193,53 @@ function writeCache(key, year, season, media, schedules, { mediaFetchedAt, sched
   )
 }
 
-async function graphql(query, variables) {
-  const res = await fetch(ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ query, variables }),
-  })
-  const json = await res.json()
-  if (!res.ok || json.errors) {
-    throw new Error(json.errors?.[0]?.message || `AniList 请求失败 (${res.status})`)
+const GRAPHQL_MAX_RETRY = 3
+
+async function graphqlRaw(query, variables, attempt = 0) {
+  let res
+  try {
+    res = await fetch(ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ query, variables }),
+    })
+  } catch (e) {
+    if (attempt < GRAPHQL_MAX_RETRY) {
+      const delay = Math.min(1000 * 2 ** attempt, 8000) + Math.random() * 300
+      await sleep(delay)
+      return graphqlRaw(query, variables, attempt + 1)
+    }
+    throw e
   }
-  return json.data
+
+  const json = await res.json().catch(() => ({}))
+  if (res.ok && !json.errors) return json.data
+
+  const retryable = res.status === 429 || res.status >= 500
+  if (retryable && attempt < GRAPHQL_MAX_RETRY) {
+    const retryAfter = Number(res.headers.get('retry-after')) || 0
+    const delay = retryAfter
+      ? retryAfter * 1000
+      : Math.min(1000 * 2 ** attempt, 8000) + Math.random() * 300
+    await sleep(delay)
+    return graphqlRaw(query, variables, attempt + 1)
+  }
+
+  const message = json.errors?.[0]?.message || `AniList 请求失败 (${res.status})`
+  const err = new Error(message)
+  err.status = res.status
+  throw err
+}
+
+// 全局串行化 AniList 请求：同一时间只发一个请求，从源头降低触发限流的概率
+let graphqlQueue = Promise.resolve()
+function graphql(query, variables) {
+  const p = graphqlQueue.then(() => graphqlRaw(query, variables))
+  graphqlQueue = p.then(
+    () => undefined,
+    () => undefined
+  )
+  return p
 }
 
 const ANIME_FIELDS = `
@@ -319,8 +364,18 @@ async function loadSeasonData(season, year) {
   let media = mediaFresh ? cached.media : null
   let mediaFetchedAt = mediaFresh ? cached.mediaFetchedAt : 0
   if (!media) {
-    media = await fetchSeasonAnime(season, year)
-    mediaFetchedAt = Date.now()
+    try {
+      media = await fetchSeasonAnime(season, year)
+      mediaFetchedAt = Date.now()
+    } catch (e) {
+      // 拉取失败（如限流）时优先回退旧缓存，避免页面直接报错
+      if (cached?.media) {
+        media = cached.media
+        mediaFetchedAt = cached.mediaFetchedAt || 0
+      } else {
+        throw e
+      }
+    }
   }
 
   // baseMedia 是“原始档期列表”，跨季合并前保存/复用，避免重启后为了跨季作品重新请求 AniList
@@ -539,9 +594,12 @@ const SEARCH_CACHE_TTL = 10 * 60 * 1000
 async function searchRemoteAnime(q) {
   const hit = searchCache.get(q)
   if (hit && Date.now() - hit.at < SEARCH_CACHE_TTL) return hit.items
-  const data = await graphql(REMOTE_SEARCH_QUERY, { search: q, page: 1 })
-  const items = (data.Page?.media || []).map(remoteSearchItem)
-  searchCache.set(q, { at: Date.now(), items })
+  const items = await dedupeRequest(`remote-search:${q}`, async () => {
+    const data = await graphql(REMOTE_SEARCH_QUERY, { search: q, page: 1 })
+    const result = (data.Page?.media || []).map(remoteSearchItem)
+    searchCache.set(q, { at: Date.now(), items: result })
+    return result
+  })
   return items
 }
 
