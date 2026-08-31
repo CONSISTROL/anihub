@@ -429,6 +429,12 @@ onMounted(() => window.addEventListener('message', onMessage))
   border-radius: 14px;
 }
 
+/* 浅色模式 Wiki：比默认面板更透明一些，让壁纸直接透出来，不加毛玻璃 */
+:root[data-theme='light'] .post-detail.detail-wide .post-card {
+  background: rgb(255 255 255 / 0.42);
+  border-color: rgb(255 255 255 / 0.55);
+}
+
 .post-head {
   margin-bottom: 20px;
   padding-bottom: 14px;
