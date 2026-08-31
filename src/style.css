@@ -19,8 +19,8 @@
 :root,
 :root[data-theme='light'] {
   --bg: #f2f4f9;
-  --panel: rgb(255 255 255 / 0.78); /* 半透明面板：让背景壁纸透出来 */
-  --panel-2: rgb(233 236 243 / 0.72);
+  --panel: rgb(255 255 255 / 0.52); /* 半透明面板：让背景壁纸透出来 */
+  --panel-2: rgb(233 236 243 / 0.5);
   --overlay-panel: #ffffff; /* 弹窗等需要实底保证可读的层 */
   --border: #d5dae6;
   --text: #1b2030;

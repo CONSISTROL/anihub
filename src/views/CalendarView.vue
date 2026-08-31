@@ -482,6 +482,35 @@ if (route.query.id) selectedId.value = Number(route.query.id)
   padding: 20px 20px 40px;
 }
 
+/* 页面内容按从上到下的顺序依次浮现（与 blog/wiki/tools 的入场风格一致） */
+.header,
+.anime-search,
+.month-bar,
+.main,
+.footer {
+  animation: ios-rise-in var(--dur-ios-3) var(--ease-ios-expo) backwards;
+}
+
+.header {
+  animation-delay: 20ms;
+}
+
+.anime-search {
+  animation-delay: 80ms;
+}
+
+.month-bar {
+  animation-delay: 140ms;
+}
+
+.main {
+  animation-delay: 200ms;
+}
+
+.footer {
+  animation-delay: 260ms;
+}
+
 .header {
   display: flex;
   align-items: center;
