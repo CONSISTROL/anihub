@@ -1309,7 +1309,7 @@ if (route.query.id) selectedId.value = Number(route.query.id)
   }
 
   .nav-group {
-    flex: 1;
+    flex: 1 1 100%;
     min-width: 0;
   }
 
@@ -1323,7 +1323,9 @@ if (route.query.id) selectedId.value = Number(route.query.id)
   }
 
   .view-toggle {
+    flex: 1;
     margin-left: 0;
+    justify-content: center;
   }
 
   .toggle-btn {

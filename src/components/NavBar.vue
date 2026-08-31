@@ -41,6 +41,8 @@ const links = computed(() => {
   return ALL_LINKS.filter((l) => settings.canAccess(l.page, isInsider.value))
 })
 
+// 手机比例：导航链接收进 AniHub 下拉菜单（纯 CSS hover 展开）
+
 // 登录后右上角显示当前站点版本号 + 提交 ID。
 // 初始不显示旧 bundle 的构建 commit，避免先闪旧值再被服务端最新 commit 替换；
 // 先显示“版本号…”占位，接口返回后更新为“版本号.commit”。
@@ -78,7 +80,13 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
 
 <template>
   <nav class="navbar" :class="{ scrolled }">
-    <router-link to="/" class="brand">AniHub</router-link>
+    <div class="brand-wrap">
+      <router-link to="/" class="brand">AniHub</router-link>
+      <!-- 手机比例：鼠标悬停 AniHub 时展开，菜单位置紧贴品牌下方 -->
+      <div class="mobile-menu">
+        <router-link v-for="l in links" :key="l.to" :to="l.to">{{ l.label }}</router-link>
+      </div>
+    </div>
     <!-- 窄屏时 links + user-area 放进同一行容器：能放下就是两行，放不下时容器内部再换行 -->
     <div class="nav-bottom">
       <div class="links">
@@ -179,6 +187,50 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
 }
 
 .links a.router-link-active {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* 手机比例：AniHub 下拉菜单 */
+.brand-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.mobile-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 60;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* 视觉上不是卡片，而是 AniHub 文字向下自然延伸展开 */
+.mobile-menu a {
+  display: block;
+  padding: 5px 2px;
+  font-size: 14px;
+  color: var(--muted);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color var(--dur-ios-1) var(--ease-ios-expo);
+}
+
+.mobile-menu a:hover {
+  color: var(--accent);
+  background: transparent;
+}
+
+.mobile-menu a.router-link-active {
   color: var(--accent);
   font-weight: 600;
 }
@@ -379,6 +431,18 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+}
+
+@media (max-width: 768px) {
+  .links {
+    display: none;
+  }
+
+  /* 鼠标悬停 AniHub 时展开，菜单从品牌正下方依次排布 */
+  .brand-wrap:hover .mobile-menu,
+  .mobile-menu:hover {
+    display: flex;
   }
 }
 
