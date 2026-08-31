@@ -275,4 +275,17 @@ function coverOf(mediaId) {
   font-size: 12px;
   color: var(--muted);
 }
+
+/* 手机端：保持 7 列等宽与内容完整，允许横向滑动查看 */
+@media (max-width: 760px) {
+  .week-grid {
+    overflow-x: auto;
+    overflow-y: hidden;
+    grid-template-columns: repeat(7, minmax(96px, 1fr));
+  }
+
+  .week-grid::-webkit-scrollbar {
+    height: 6px;
+  }
+}
 </style>

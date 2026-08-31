@@ -10,6 +10,8 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
 
+const emit = defineEmits(['hide'])
+
 const B = (p) => `/pet/${p}`
 
 const CLIPS = {
@@ -377,12 +379,19 @@ function goHome() {
 
 function hide() {
   hidden.value = true
+  emit('hide')
   if (pendingFood) {
     pendingFood = false
     clearTimeout(foodTimer)
     foodX.value = null
   }
 }
+
+function show() {
+  hidden.value = false
+}
+
+defineExpose({ show })
 
 function onWinPointerDown(e) {
   if (menuOpen.value && !(e.target instanceof Element && e.target.closest('.mascot-menu'))) closeMenu()

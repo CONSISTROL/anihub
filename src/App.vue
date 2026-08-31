@@ -1,12 +1,14 @@
 <script setup>
 // 全局布局壳：导航栏 + 页面内容；登录框/内部身份入口由网页内虚拟键盘触发
-import { computed, onMounted, provide, ref } from 'vue'
+import { computed, onMounted, onUnmounted, provide, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import NavBar from './components/NavBar.vue'
 import LoginModal from './components/LoginModal.vue'
 import InsiderBackground from './components/InsiderBackground.vue'
 import BackToTop from './components/BackToTop.vue'
+import BackToBottom from './components/BackToBottom.vue'
 import Mascot from './components/Mascot.vue'
+import PetButton from './components/PetButton.vue'
 import VirtualKeyboard from './components/VirtualKeyboard.vue'
 import { api } from './api/http'
 import { useAuth } from './composables/useAuth'
@@ -26,12 +28,24 @@ const insiderBusy = ref(false)
 // 游戏页为沉浸式全屏 iframe：隐藏桌宠与回到顶部按钮
 const isGame = computed(() => route.name === 'game')
 
+// 手机端不展示完整桌宠，只显示紧凑图标按钮
+const isMobile = ref(false)
+let mobileQuery = null
+function updateMobile() {
+  isMobile.value = window.matchMedia('(max-width: 768px)').matches
+}
+
+// 桌宠被右键菜单“隐藏”后，本次会话内用 petDismissed 记录，并显示召唤按钮
+const petDismissed = ref(false)
+
 // 桌宠可见性：登录（管理员）恒可见；游客/内部人员需管理员在设置中开放 pet 权限
 const petVisible = computed(() => {
   if (isLoggedIn.value) return true
   if (!settings.guestPages.value) return false // 设置未加载完成：默认不显示
   return settings.canAccess('pet', isInsider.value)
 })
+
+const showPet = computed(() => petVisible.value && !isGame.value && !isMobile.value && !petDismissed.value)
 
 function openLogin() {
   showLogin.value = true
@@ -95,7 +109,14 @@ provide('closeKeyboard', closeKeyboard)
 provide('toggleKeyboard', toggleKeyboard)
 
 onMounted(() => {
+  mobileQuery = window.matchMedia('(max-width: 768px)')
+  updateMobile()
+  mobileQuery.addEventListener?.('change', updateMobile)
   router.isReady().then(finishPageLoading, finishPageLoading)
+})
+
+onUnmounted(() => {
+  mobileQuery?.removeEventListener?.('change', updateMobile)
 })
 </script>
 
@@ -128,10 +149,13 @@ onMounted(() => {
     <!-- 全站壁纸背景（组件内部按身份自检：管理员恒可见，游客/内部人员按设置开关）
          游戏页也保持挂载，避免进入 /game 时壁纸持有者释放后再重新加载导致背景闪烁 -->
     <InsiderBackground />
-    <!-- 一键回到顶部 -->
+    <!-- 一键回到顶部 / 回到底部 -->
     <BackToTop v-if="!isGame" />
-    <!-- 桌宠（可见性由设置页 pet 权限控制，默认仅登录可见） -->
-    <Mascot v-if="petVisible && !isGame" />
+    <BackToBottom v-if="!isGame" />
+    <!-- 桌宠（可见性由设置页 pet 权限控制，默认仅登录可见；手机端不显示完整桌宠） -->
+    <Mascot v-if="showPet" @hide="petDismissed = true" />
+    <!-- 桌宠隐藏/手机端时显示紧凑图标按钮，点击重新召唤桌宠 -->
+    <PetButton v-else-if="!isGame" @click="petDismissed = false" />
   </div>
 </template>
 

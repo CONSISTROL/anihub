@@ -67,6 +67,12 @@ body {
   padding: 0;
 }
 
+/* 始终保留主滚动条空间，避免进度条/滚动条出现时页面宽度跳动 */
+html {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
+
 body {
   background-color: var(--bg);
   /* Anime 页壁纸：--wallpaper-url 由 index.html 内联脚本 / AnimeBackground.vue 设置，
@@ -211,6 +217,30 @@ a {
   background: transparent;
 }
 
+/* 内部滚动容器不显示滚动条，避免和页面右侧滚动条叠加成“两条滚动条”；
+   内部区域仍可正常滚轮/触控滚动 */
+* {
+  scrollbar-width: none;
+}
+
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+html,
+body {
+  scrollbar-width: auto;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+  display: block;
+}
+
 /* 全站通用的入场关键帧：组件内引用（页面切换动画在 App.vue 定义） */
 @keyframes ios-rise-in {
   from {
@@ -244,6 +274,52 @@ a {
   }
   to {
     opacity: 1;
+  }
+}
+
+/* ==========================================================================
+   移动端适配
+   1. 禁止页面横向溢出（很多面板宽度固定，手机端容易撑开页面造成整体放大）
+   2. 输入控件最小 16px，避免 iOS Safari 聚焦输入框时自动放大页面
+   3. 通用按钮 / 标题不换行，防止文字被压成一竖排
+   ========================================================================== */
+@media (max-width: 768px) {
+  html,
+  body {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  .btn,
+  .btn-sm,
+  a.btn {
+    white-space: nowrap;
+  }
+
+  h1,
+  h2,
+  h3 {
+    overflow-wrap: anywhere;
+  }
+
+  /* 手机端触摸滚动更顺滑 */
+  .links,
+  .user-area,
+  .tools-grid,
+  .cards {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 480px) {
+  body {
+    line-height: 1.55;
   }
 }
 

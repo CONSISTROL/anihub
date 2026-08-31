@@ -431,4 +431,21 @@ onUnmounted(() => window.removeEventListener('scroll', hideTooltip))
 .fade-leave-to {
   opacity: 0;
 }
+
+/* 手机端：月历保持 7 列等宽，允许横向滑动查看 */
+@media (max-width: 760px) {
+  .calendar {
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .weekday-row,
+  .week {
+    min-width: 672px;
+  }
+
+  .calendar::-webkit-scrollbar {
+    height: 6px;
+  }
+}
 </style>

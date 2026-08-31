@@ -98,7 +98,7 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
     <button class="btn btn-sm keyboard-btn" title="网页内键盘（游戏 / login / inside）" @click="toggleKeyboard">
       <AppIcon name="keyboard" :size="14" /> 键盘
     </button>
-    <ThemeSelector />
+    <span class="theme-slot"><ThemeSelector /></span>
   </nav>
 </template>
 
@@ -262,5 +262,94 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
 .btn-sm {
   padding: 5px 10px;
   font-size: 13px;
+}
+
+/* —— 移动端：导航栏改为两行布局，文字永不竖排 —— */
+@media (max-width: 900px) {
+  .navbar {
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    padding: 8px 12px;
+  }
+
+  .brand {
+    order: 1;
+    white-space: nowrap;
+  }
+
+  .nav-search {
+    order: 2;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .nav-search input,
+  .nav-search input:focus {
+    width: 100%;
+    min-width: 0;
+    font-size: 16px; /* 避免 iOS 聚焦时自动放大页面 */
+  }
+
+  .keyboard-btn {
+    order: 3;
+  }
+
+  .theme-slot {
+    order: 4;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .user-area {
+    order: 5;
+    width: 100%;
+    margin-left: 0;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .username {
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .links {
+    order: 6;
+    width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 2px;
+    scrollbar-width: none;
+  }
+
+  .links::-webkit-scrollbar {
+    display: none;
+  }
+
+  .links a {
+    flex: 0 0 auto;
+    padding: 6px 12px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 480px) {
+  .brand {
+    font-size: 17px;
+  }
+
+  .nav-search input {
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+
+  .btn-sm {
+    padding: 5px 8px;
+    font-size: 12px;
+  }
 }
 </style>

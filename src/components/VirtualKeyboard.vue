@@ -218,15 +218,17 @@ onUnmounted(() => {
   justify-content: center;
   background: rgb(0 0 0 / 0.3);
   backdrop-filter: blur(2px);
-  padding: 12px;
+  padding: 0;
 }
 
 .vk-panel {
-  width: min(560px, 96vw);
+  width: 100%;
+  max-width: none;
   background: var(--overlay-panel);
   border: 1px solid var(--border);
-  border-radius: 16px;
-  box-shadow: 0 20px 60px rgb(0 0 0 / 0.35);
+  border-bottom: none;
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -12px 40px rgb(0 0 0 / 0.25);
   overflow: hidden;
 }
 
@@ -262,10 +264,10 @@ onUnmounted(() => {
 }
 
 .vk-body {
-  padding: 14px 16px 16px;
+  padding: 10px 12px 14px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .vk-screen {
@@ -294,8 +296,7 @@ onUnmounted(() => {
 
 .vk-qwerty-row .vk-key {
   flex: 1 1 0;
-  min-width: 26px;
-  max-width: 48px;
+  min-width: 0;
 }
 
 .vk-action-row {
@@ -306,7 +307,7 @@ onUnmounted(() => {
 
 .vk-action-row .vk-key {
   flex: 1;
-  max-width: 120px;
+  min-width: 0;
 }
 
 .vk-enter-right {
@@ -314,7 +315,7 @@ onUnmounted(() => {
 }
 
 .vk-key-space {
-  min-width: 150px;
+  min-width: 0;
 }
 
 .vk-key {

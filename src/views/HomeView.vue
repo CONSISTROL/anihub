@@ -225,4 +225,31 @@ const visibleSections = computed(() =>
   font-weight: 600;
   margin-top: auto;
 }
+
+/* —— 手机端适配 —— */
+@media (max-width: 640px) {
+  .home {
+    padding: 24px 12px 40px;
+  }
+
+  .hero {
+    padding: 28px 0 14px;
+  }
+
+  .site-name {
+    font-size: 38px;
+  }
+
+  .cards {
+    gap: 12px;
+  }
+
+  .card {
+    padding: 18px;
+  }
+
+  .card-img {
+    height: 136px;
+  }
+}
 </style>

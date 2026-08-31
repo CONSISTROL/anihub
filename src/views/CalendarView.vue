@@ -1284,4 +1284,65 @@ if (route.query.id) selectedId.value = Number(route.query.id)
   color: var(--accent);
   text-decoration: none;
 }
+
+/* —— 手机端适配 —— */
+@media (max-width: 760px) {
+  .app {
+    padding: 12px 10px 32px;
+  }
+
+  .logo {
+    font-size: 19px;
+  }
+
+  .header-actions {
+    width: 100%;
+  }
+
+  .search-form input {
+    font-size: 16px; /* 避免 iOS 聚焦自动放大 */
+  }
+
+  .month-bar {
+    padding: 6px 8px;
+    gap: 8px;
+  }
+
+  .nav-group {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .month-label {
+    min-width: 128px;
+    font-size: 14px;
+  }
+
+  .month-count {
+    display: none;
+  }
+
+  .view-toggle {
+    margin-left: 0;
+  }
+
+  .toggle-btn {
+    padding: 5px 10px;
+    font-size: 12px;
+  }
+
+  .today-btn {
+    padding: 5px 10px;
+    font-size: 12px;
+  }
+
+  .jump-date-btn {
+    max-width: 104px;
+  }
+
+  .jump-date-btn span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
 </style>
