@@ -340,6 +340,7 @@ function onPickImage(e) {
 }
 
 .rt-content :deep(code) {
+  font-family: Consolas, 'Cascadia Code', 'Courier New', monospace;
   padding: 2px 5px;
   border-radius: 4px;
   font-size: 0.9em;
@@ -347,15 +348,22 @@ function onPickImage(e) {
 }
 
 .rt-content :deep(pre) {
-  padding: 12px 14px;
-  border-radius: 8px;
+  font-family: Consolas, 'Cascadia Code', 'Courier New', monospace;
+  padding: 14px 16px;
+  border-radius: 10px;
   background: var(--panel-2);
+  border: 1px solid var(--border);
+  line-height: 1.6;
   overflow-x: auto;
+  tab-size: 4;
+  -webkit-overflow-scrolling: touch;
 }
 
 .rt-content :deep(pre code) {
+  font-family: inherit;
   padding: 0;
   background: transparent;
+  font-size: 13px;
 }
 
 .rt-content :deep(blockquote) {

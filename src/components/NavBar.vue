@@ -41,7 +41,19 @@ const links = computed(() => {
   return ALL_LINKS.filter((l) => settings.canAccess(l.page, isInsider.value))
 })
 
-// 手机比例：导航链接收进 AniHub 下拉菜单（纯 CSS hover 展开）
+// 导航折叠成下拉列表时：AniHub 点击只展开菜单，不跳转回首页
+const menuHidden = ref(false)
+function onBrandClick(e) {
+  // 直接根据当前 DOM 状态判断是否处于折叠态，避免依赖具体断点
+  const linksEl = document.querySelector('.links')
+  const collapsed = !!linksEl && getComputedStyle(linksEl).display === 'none'
+  if (!collapsed) return
+  e.preventDefault()
+  menuHidden.value = false
+}
+function closeMenu() {
+  menuHidden.value = true
+}
 
 // 登录后右上角显示当前站点版本号 + 提交 ID。
 // 初始不显示旧 bundle 的构建 commit，避免先闪旧值再被服务端最新 commit 替换；
@@ -80,11 +92,11 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
 
 <template>
   <nav class="navbar" :class="{ scrolled }">
-    <div class="brand-wrap">
-      <router-link to="/" class="brand">AniHub</router-link>
+    <div class="brand-wrap" @mouseleave="menuHidden = false">
+      <router-link to="/" class="brand" @click="onBrandClick">AniHub</router-link>
       <!-- 手机比例：鼠标悬停 AniHub 时展开，菜单位置紧贴品牌下方 -->
-      <div class="mobile-menu">
-        <router-link v-for="l in links" :key="l.to" :to="l.to">{{ l.label }}</router-link>
+      <div class="mobile-menu" :class="{ hidden: menuHidden }">
+        <router-link v-for="l in links" :key="l.to" :to="l.to" @click="closeMenu">{{ l.label }}</router-link>
       </div>
     </div>
     <!-- 窄屏时 links + user-area 放进同一行容器：能放下就是两行，放不下时容器内部再换行 -->
@@ -233,6 +245,10 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
 .mobile-menu a.router-link-active {
   color: var(--accent);
   font-weight: 600;
+}
+
+.mobile-menu.hidden {
+  display: none !important;
 }
 
 .nav-search {
@@ -434,7 +450,7 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
   }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 1024px) {
   .links {
     display: none;
   }
