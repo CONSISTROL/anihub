@@ -35,3 +35,4 @@ cp -R <spd-web>/web/build/dist/webapp public/spd
 - 首次运行默认简体中文；玩家在游戏内切换语言后会记住选择。
 - 网页顶栏「键盘」按钮可打开网页内虚拟键盘：普通页面输入 `login` / `inside`，游戏页面向 iframe 发送按键。
 - 游戏内作弊码：`↑ ↑ ↓ ↓ ← → ← → B A B A` 或 `W W S S A D A D B A B A` 恢复生命值。
+- 加载模式：`/game` 首次进入可选择「极速模式（无音频）」或「完整模式（含音频）」，选择会记住；无音频模式通过 `?noaudio=1` 禁用音乐/音效加载。选择无音频后，网站顶栏会出现「加载音频」按钮，点击后根据 `public/spd/audio-manifest.json` 拉取剩余音频资源并缓存，完成后按钮消失。

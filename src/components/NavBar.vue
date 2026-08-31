@@ -1,8 +1,9 @@
 <script setup>
 import { computed, inject, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
 import { useSettings } from '../composables/useSettings'
+import { useGameAudio } from '../composables/useGameAudio'
 import { getUpgradeVersion } from '../api/upgrade'
 import ThemeSelector from './ThemeSelector.vue'
 import AppIcon from './AppIcon.vue'
@@ -12,6 +13,9 @@ const settings = useSettings()
 settings.load() // 预加载可见页面（单例，守卫/主页共用）
 
 const router = useRouter()
+const route = useRoute()
+const { audioMode, audioLoaded, loadingAudio, loadRemainingAudio } = useGameAudio()
+const showAudioLoad = computed(() => route.name === 'game' && audioMode.value === 'noaudio' && !audioLoaded.value)
 const toggleKeyboard = inject('toggleKeyboard', () => {})
 
 // 站内搜索：回车跳转到搜索页
@@ -75,26 +79,32 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
 <template>
   <nav class="navbar" :class="{ scrolled }">
     <router-link to="/" class="brand">AniHub</router-link>
-    <div class="links">
-      <router-link v-for="l in links" :key="l.to" :to="l.to">{{ l.label }}</router-link>
+    <!-- 窄屏时 links + user-area 放进同一行容器：能放下就是两行，放不下时容器内部再换行 -->
+    <div class="nav-bottom">
+      <div class="links">
+        <router-link v-for="l in links" :key="l.to" :to="l.to">{{ l.label }}</router-link>
+      </div>
+      <div class="user-area">
+        <button v-if="showAudioLoad" class="btn btn-sm audio-load-btn" :disabled="loadingAudio" @click="loadRemainingAudio">
+          {{ loadingAudio ? '音频加载中…' : '加载音频' }}
+        </button>
+        <span v-if="isInsider && !isLoggedIn" class="insider-chip" title="内部人员模式（只读）">
+          <img src="/insider.webp" class="insider-avatar" alt="" />
+          <span class="insider-label"><AppIcon name="sparkles" :size="11" /> 内部模式</span>
+          <button class="chip-x" aria-label="退出内部模式" @click="exitInsider"><AppIcon name="x" :size="12" /></button>
+        </span>
+        <template v-if="isLoggedIn">
+          <span class="username">{{ WELCOME }}</span>
+          <router-link to="/console" class="btn btn-sm">控制台</router-link>
+          <router-link to="/settings" class="btn btn-sm">设置</router-link>
+          <button class="btn btn-sm" @click="clearSession">退出</button>
+        </template>
+      </div>
     </div>
     <form class="nav-search" @submit.prevent="onNavSearch">
       <span class="nav-search-icon"><AppIcon name="search" :size="13" /></span>
       <input v-model.trim="navQ" placeholder="站内搜索…" title="站内搜索（回车）" />
     </form>
-    <div class="user-area">
-      <span v-if="isInsider && !isLoggedIn" class="insider-chip" title="内部人员模式（只读）">
-        <img src="/insider.webp" class="insider-avatar" alt="" />
-        <span class="insider-label"><AppIcon name="sparkles" :size="11" /> 内部模式</span>
-        <button class="chip-x" aria-label="退出内部模式" @click="exitInsider"><AppIcon name="x" :size="12" /></button>
-      </span>
-      <template v-if="isLoggedIn">
-        <span class="username">{{ WELCOME }}</span>
-        <router-link to="/console" class="btn btn-sm">控制台</router-link>
-        <router-link to="/settings" class="btn btn-sm">设置</router-link>
-        <button class="btn btn-sm" @click="clearSession">退出</button>
-      </template>
-    </div>
     <button class="btn btn-sm keyboard-btn" title="网页内键盘（游戏 / login / inside）" @click="toggleKeyboard">
       <AppIcon name="keyboard" :size="14" /> 键盘
     </button>
@@ -108,8 +118,9 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
   top: 0;
   z-index: 50;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 24px;
+  gap: 10px 24px;
   padding: 10px 24px;
   background: color-mix(in srgb, var(--panel) 85%, transparent);
   backdrop-filter: blur(8px);
@@ -131,9 +142,16 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
   text-decoration: none;
 }
 
+/* 桌面：nav-bottom 只作为分组壳，其子元素直接参与顶栏 flex 排序 */
+.nav-bottom {
+  display: contents;
+}
+
 .links {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
+  order: 2;
 }
 
 .links a {
@@ -169,6 +187,7 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
   position: relative;
   display: flex;
   align-items: center;
+  order: 3;
 }
 
 .nav-search-icon {
@@ -209,6 +228,17 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
   display: flex;
   align-items: center;
   gap: 10px;
+  order: 4;
+}
+
+.keyboard-btn {
+  order: 5;
+}
+
+.theme-slot {
+  order: 6;
+  display: inline-flex;
+  align-items: center;
 }
 
 .username {
@@ -264,12 +294,12 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
   font-size: 13px;
 }
 
-/* —— 移动端：导航栏改为两行布局，文字永不竖排 —— */
-@media (max-width: 900px) {
+/* —— 窄屏 / 中等宽度：导航栏改为两行布局，文字永不竖排 —— */
+@media (max-width: 1200px) {
   .navbar {
     flex-wrap: wrap;
     gap: 8px 10px;
-    padding: 8px 12px;
+    padding: 8px 14px;
   }
 
   .brand {
@@ -287,11 +317,11 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
   .nav-search input:focus {
     width: 100%;
     min-width: 0;
-    font-size: 16px; /* 避免 iOS 聚焦时自动放大页面 */
   }
 
   .keyboard-btn {
     order: 3;
+    white-space: nowrap;
   }
 
   .theme-slot {
@@ -300,25 +330,23 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
     align-items: center;
   }
 
-  .user-area {
+  /* 第二行：links + user-area 共用一行；实在放不下时 nav-bottom 内部自动换行 */
+  .nav-bottom {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
     order: 5;
     width: 100%;
-    margin-left: 0;
-    flex-wrap: wrap;
-    gap: 6px;
     min-width: 0;
   }
 
-  .username {
-    max-width: 150px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
   .links {
-    order: 6;
-    width: 100%;
+    order: 1;
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 140px;
+    flex-wrap: nowrap;
     overflow-x: auto;
     overflow-y: hidden;
     gap: 2px;
@@ -334,6 +362,34 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
     padding: 6px 12px;
     font-size: 13px;
     white-space: nowrap;
+  }
+
+  .user-area {
+    order: 2;
+    flex: 0 1 auto;
+    width: auto;
+    margin-left: auto;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .username {
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 900px) {
+  .nav-search input,
+  .nav-search input:focus {
+    font-size: 16px; /* 避免 iOS 聚焦时自动放大页面 */
+  }
+
+  .username {
+    max-width: 150px;
   }
 }
 

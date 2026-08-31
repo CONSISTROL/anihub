@@ -1,7 +1,8 @@
 <script setup>
 // /game 页面：嵌入 Shattered Pixel Dungeon Web（TeaVM/libGDX 构建产物）
 // 游戏本体由 game/shattered-pixel-dungeon-web 构建后输出到 public/spd
-import { onActivated, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onActivated, onMounted, onUnmounted, ref } from 'vue'
+import { useGameAudio } from '../composables/useGameAudio'
 
 defineOptions({ name: 'GameView' })
 
@@ -9,6 +10,11 @@ const frame = ref(null)
 const loaded = ref(false)
 const failed = ref(false)
 const topOffset = ref(48)
+const { audioMode, chooseAudio } = useGameAudio()
+
+const iframeSrc = computed(() =>
+  audioMode.value === 'noaudio' ? '/spd/index.html?noaudio=1' : '/spd/index.html'
+)
 
 let loadTimer = null
 
@@ -39,8 +45,6 @@ function startLoadTimer() {
   }, 60000)
 }
 
-startLoadTimer()
-
 // 根据顶部导航栏实际高度定位游戏区域，避免血条/HUD 被导航栏遮挡
 function updateTop() {
   const nav = document.querySelector('.navbar')
@@ -50,6 +54,7 @@ function updateTop() {
 onMounted(() => {
   updateTop()
   window.addEventListener('resize', updateTop)
+  if (audioMode.value) startLoadTimer()
 })
 
 onActivated(updateTop)
@@ -62,23 +67,38 @@ onUnmounted(() => {
 
 <template>
   <div class="game-page" :style="{ top: topOffset + 'px' }">
-    <iframe
-      ref="frame"
-      src="/spd/index.html"
-      class="spd-frame"
-      :class="{ ready: loaded }"
-      title="Shattered Pixel Dungeon"
-      allow="autoplay; fullscreen"
-      tabindex="-1"
-      @load="onLoad"
-      @error="onError"
-    />
-    <div v-if="!loaded" class="spd-loading">
-      <div class="spinner" aria-hidden="true"></div>
-      <p class="spd-loading-text">
-        {{ failed ? '游戏加载失败，请检查浏览器是否支持 WebGL 后刷新重试。' : 'Shattered Pixel Dungeon 加载中…' }}
-      </p>
-      <button v-if="failed" class="btn btn-primary" @click="reload">刷新重试</button>
+    <template v-if="audioMode">
+      <iframe
+        ref="frame"
+        :src="iframeSrc"
+        class="spd-frame"
+        :class="{ ready: loaded }"
+        title="Shattered Pixel Dungeon"
+        allow="autoplay; fullscreen"
+        tabindex="-1"
+        @load="onLoad"
+        @error="onError"
+      />
+      <div v-if="!loaded" class="spd-loading">
+        <div class="spinner" aria-hidden="true"></div>
+        <p class="spd-loading-text">
+          {{ failed ? '游戏加载失败，请检查浏览器是否支持 WebGL 后刷新重试。' : 'Shattered Pixel Dungeon 加载中…' }}
+        </p>
+        <button v-if="failed" class="btn btn-primary" @click="reload">刷新重试</button>
+      </div>
+    </template>
+
+    <div v-else class="spd-audio-choice">
+      <h2 class="spd-choice-title">选择游戏加载模式</h2>
+      <p class="spd-choice-sub">无音频模式传输量更小，加载更快</p>
+      <div class="spd-choice-btns">
+        <button class="btn btn-primary btn-big" @click="chooseAudio('noaudio')">
+          极速模式（无音频）
+        </button>
+        <button class="btn btn-big" @click="chooseAudio('audio')">
+          完整模式（含音频）
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -129,6 +149,45 @@ onUnmounted(() => {
   font-size: 14px;
   text-align: center;
   padding: 0 20px;
+}
+
+.spd-audio-choice {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: var(--text);
+  background: #0b0e14;
+  padding: 20px;
+  text-align: center;
+}
+
+.spd-choice-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.spd-choice-sub {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.spd-choice-btns {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.btn-big {
+  padding: 12px 28px;
+  font-size: 15px;
 }
 
 @keyframes spd-spin {

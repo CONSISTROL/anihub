@@ -5,6 +5,7 @@ import { titleFor } from '../utils/titles'
 import DayPopover from './DayPopover.vue'
 import AppIcon from './AppIcon.vue'
 import SeasonPattern from './SeasonPattern.vue'
+import { useMediaQuery } from '../composables/useMediaQuery'
 
 const props = defineProps({
   month: { type: Object, required: true }, // { y, m }
@@ -20,6 +21,12 @@ const emit = defineEmits(['select'])
 const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日']
 
 const weeks = computed(() => buildMonthGrid(props.month.y, props.month.m))
+
+// 手机端使用“每日日程卡”布局：只显示当月有排期的日期
+const isMobile = useMediaQuery('(max-width: 760px)')
+const mobileDays = computed(() =>
+  weeks.value.flat().filter((cell) => cell.date && entriesFor(cell).length > 0)
+)
 
 // 按本地日期分组排期，'YYYY-MM-DD' → [{ airingAt, episode, mediaId }]
 const byDay = computed(() => {
@@ -101,7 +108,8 @@ onUnmounted(() => window.removeEventListener('scroll', hideTooltip))
 </script>
 
 <template>
-  <div class="calendar" :class="seasonClass">
+  <!-- 桌面 / 平板：7 列月历 -->
+  <div v-if="!isMobile" class="calendar" :class="seasonClass">
     <SeasonPattern :season="season" :density="16" />
     <div class="weekday-row">
       <div v-for="(w, i) in WEEKDAYS" :key="w" class="weekday-cell" :class="{ weekend: i >= 5 }">{{ w }}</div>
@@ -136,31 +144,68 @@ onUnmounted(() => window.removeEventListener('scroll', hideTooltip))
         </div>
       </div>
     </div>
+  </div>
 
-    <DayPopover
-      v-if="openDay"
-      :date="openDay"
-      :entries="byDay.get(dayKey(openDay)) || []"
-      :media-map="mediaMap"
-      @select="onSelect"
-      @close="openDay = null"
-    />
+  <!-- 手机：每日一张日程卡，只列有排期的日期 -->
+  <div v-else class="calendar-mobile">
+    <template v-if="mobileDays.length">
+      <section
+        v-for="cell in mobileDays"
+        :key="cell.date.toISOString()"
+        class="calendar-day-card"
+        :class="{ 'calendar-day-today': cell.isToday }"
+      >
+        <header class="calendar-day-head">
+          <span class="calendar-day-date">
+            {{ cell.date.getMonth() + 1 }}/{{ cell.date.getDate() }}
+            <span class="calendar-day-weekday">周{{ '日一二三四五六'[cell.date.getDay()] }}</span>
+          </span>
+          <span class="calendar-day-count">{{ entriesFor(cell).length }} 部</span>
+          <span v-if="cell.isToday" class="calendar-today-badge">今天</span>
+        </header>
+        <div class="calendar-day-body">
+          <button
+            v-for="e in entriesFor(cell)"
+            :key="`${e.mediaId}-${e.episode}`"
+            class="chip"
+            :style="{ '--hue': hueOf(e.mediaId) }"
+            @click="emit('select', e.mediaId)"
+          >
+            <img v-if="coverOf(e.mediaId)" :src="coverOf(e.mediaId)" class="chip-cover" alt="" />
+            <span v-else class="chip-cover chip-cover-ph"><AppIcon name="film" :size="10" /></span>
+            <span class="chip-title">{{ titleOf(e.mediaId) }}</span>
+            <span class="chip-ep">第{{ e.episode }}话</span>
+            <span class="chip-time">{{ fmtTime(e.airingAt) }}</span>
+          </button>
+        </div>
+      </section>
+    </template>
+    <p v-else class="calendar-mobile-empty">本月暂无放送安排</p>
+  </div>
 
-    <Teleport to="body">
-      <Transition name="fade">
-        <div v-if="tooltip" class="chip-tooltip" :style="ttStyle">
-          <img v-if="ttCover" :src="ttCover" class="tt-cover" alt="" />
-          <div class="tt-info">
-            <div class="tt-title">{{ ttTitle }}</div>
-            <div class="tt-meta">
-              {{ fmtDate(tooltip.entry.airingAt) }} {{ fmtTime(tooltip.entry.airingAt) }}
-              · 第{{ tooltip.entry.episode }}话
-            </div>
+  <DayPopover
+    v-if="openDay"
+    :date="openDay"
+    :entries="byDay.get(dayKey(openDay)) || []"
+    :media-map="mediaMap"
+    @select="onSelect"
+    @close="openDay = null"
+  />
+
+  <Teleport to="body">
+    <Transition name="fade">
+      <div v-if="tooltip" class="chip-tooltip" :style="ttStyle">
+        <img v-if="ttCover" :src="ttCover" class="tt-cover" alt="" />
+        <div class="tt-info">
+          <div class="tt-title">{{ ttTitle }}</div>
+          <div class="tt-meta">
+            {{ fmtDate(tooltip.entry.airingAt) }} {{ fmtTime(tooltip.entry.airingAt) }}
+            · 第{{ tooltip.entry.episode }}话
           </div>
         </div>
-      </Transition>
-    </Teleport>
-  </div>
+      </div>
+    </Transition>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -432,20 +477,100 @@ onUnmounted(() => window.removeEventListener('scroll', hideTooltip))
   opacity: 0;
 }
 
-/* 手机端：月历保持 7 列等宽，允许横向滑动查看 */
-@media (max-width: 760px) {
-  .calendar {
-    overflow-x: auto;
-    overflow-y: hidden;
-  }
+/* —— 手机端：每日日程卡布局 —— */
+.calendar-mobile {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
 
-  .weekday-row,
-  .week {
-    min-width: 672px;
-  }
+.calendar-day-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.06);
+}
 
-  .calendar::-webkit-scrollbar {
-    height: 6px;
-  }
+.calendar-day-today {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 10%, var(--panel)) 0%,
+    color-mix(in srgb, var(--panel) 92%, transparent) 100%
+  );
+}
+
+.calendar-day-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--panel-2) 72%, transparent);
+  border-bottom: 1px solid var(--border);
+}
+
+.calendar-day-date {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 17px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.calendar-day-weekday {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.calendar-day-count {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.calendar-today-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--accent);
+  border-radius: 999px;
+  padding: 2px 9px;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.calendar-day-body {
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  gap: 5px;
+}
+
+.calendar-day-body .chip {
+  border-radius: 9px;
+  padding: 7px 8px;
+}
+
+.calendar-day-body .chip-title {
+  font-size: 12.5px;
+}
+
+.calendar-mobile-empty {
+  margin: 0;
+  padding: 48px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel) 60%, transparent);
 }
 </style>

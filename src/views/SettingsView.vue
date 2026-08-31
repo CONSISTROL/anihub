@@ -1,6 +1,6 @@
 <script setup>
 // 设置页：配置哪些页面对游客可见、哪些页面对内部人员额外可见 + 壁纸/成人内容身份控制 + 服务器监控（图表）
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { getSettings, updateSettings, getMonitor, getMonitorHistory, getWallpapersManage, saveWallpaperSelection } from '../api/settings'
 import { getVisitSummary, getVisitMap, getVisitRecords, getVisitIps } from '../api/visits'
 import VisitMap from '../components/VisitMap.vue'
@@ -46,6 +46,7 @@ const upgPassword = ref('')
 const upgBusy = ref(false)
 const upgMessage = ref('')
 const upgProgress = ref({ state: 'idle', phase: '', running: false, updatedAt: null, log: '' })
+const upgLogEl = ref(null)
 let upgPollTimer = null
 /* —— 壁纸管理（选择参与展示的壁纸） —— */
 const wpImages = ref([]) // [{ name, url, selected }]
@@ -158,6 +159,15 @@ function stopUpgradePolling() {
   clearInterval(upgPollTimer)
   upgPollTimer = null
 }
+
+// 升级日志更新后自动滚动到底部
+watch(
+  () => upgProgress.value?.log,
+  async () => {
+    await nextTick()
+    if (upgLogEl.value) upgLogEl.value.scrollTop = upgLogEl.value.scrollHeight
+  }
+)
 
 function openUpgradeModal() {
   upgPassword.value = ''
@@ -610,7 +620,7 @@ onUnmounted(() => {
           <div class="upg-progress-track">
             <div class="upg-progress-bar" :style="{ width: upgProgressPercent + '%' }"></div>
           </div>
-          <pre v-if="upgProgress.log" class="upg-log">{{ upgProgress.log }}</pre>
+          <pre ref="upgLogEl" v-if="upgProgress.log" class="upg-log">{{ upgProgress.log }}</pre>
         </div>
 
         <!-- su/root 密码确认弹窗 -->
