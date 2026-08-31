@@ -35,8 +35,19 @@ function updateMobile() {
   isMobile.value = window.matchMedia('(max-width: 768px)').matches
 }
 
-// 桌宠被右键菜单“隐藏”后，本次会话内用 petDismissed 记录，并显示召唤按钮
-const petDismissed = ref(false)
+// 桌宠被右键菜单“隐藏”后，持久化到 localStorage，刷新后仍保持隐藏，直到点击召唤按钮恢复
+const PET_HIDDEN_KEY = 'anime-calendar.mascot.hidden'
+const petDismissed = ref(localStorage.getItem(PET_HIDDEN_KEY) === '1')
+
+function hidePet() {
+  petDismissed.value = true
+  localStorage.setItem(PET_HIDDEN_KEY, '1')
+}
+
+function summonPet() {
+  petDismissed.value = false
+  localStorage.removeItem(PET_HIDDEN_KEY)
+}
 
 // 桌宠可见性：登录（管理员）恒可见；游客/内部人员需管理员在设置中开放 pet 权限
 const petVisible = computed(() => {
@@ -153,9 +164,9 @@ onUnmounted(() => {
     <BackToTop v-if="!isGame" />
     <BackToBottom v-if="!isGame" />
     <!-- 桌宠（可见性由设置页 pet 权限控制，默认仅登录可见；手机端不显示完整桌宠） -->
-    <Mascot v-if="showPet" @hide="petDismissed = true" />
+    <Mascot v-if="showPet" @hide="hidePet" />
     <!-- 桌宠隐藏/手机端时显示紧凑图标按钮，点击重新召唤桌宠 -->
-    <PetButton v-else-if="!isGame" @click="petDismissed = false" />
+    <PetButton v-else-if="!isGame" @click="summonPet" />
   </div>
 </template>
 
