@@ -57,10 +57,21 @@ function fire(type, value) {
   align-items: center;
   gap: 2px;
   padding: 6px 8px;
-  background: var(--panel-2);
-  border: 1px solid var(--border);
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: 10px 10px 0 0;
   border-bottom: none;
+  transition:
+    background-color var(--dur-ios-2) var(--ease-ios-expo),
+    border-color var(--dur-ios-2) var(--ease-ios-expo),
+    box-shadow var(--dur-ios-2) var(--ease-ios-expo);
+}
+
+.md-toolbar.stuck {
+  background: color-mix(in srgb, var(--panel) 90%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-color: var(--border);
 }
 
 .md-btn {

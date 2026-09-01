@@ -2,7 +2,7 @@
 // 新建/编辑文章（博客与 Wiki 共用，category 由路由 props 传入）
 // 两种正文编辑模式：Markdown（源码 + 工具栏 + 实时预览）/ 所见即所得（TipTap）
 // 存储格式跟随模式：md 存 content_md，html 存 content_html；切换时相互转换
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { createPost, getPostBySlug, updatePost, uploadImage } from '../api/posts'
 import { useAuth } from '../composables/useAuth'
@@ -49,7 +49,92 @@ const form = ref({
 })
 const fileInput = ref(null)
 const mdInput = ref(null)
+const rawInput = ref(null)
+const showPreview = ref(false)
 
+// 编辑框高度随内容自动撑开，不固定高度
+function autoResizeTextarea(el) {
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = el.scrollHeight + 'px'
+}
+function syncEditorHeights() {
+  autoResizeTextarea(mdInput.value)
+  autoResizeTextarea(rawInput.value)
+}
+watch([form.content_md, form.content_html, mode, showPreview], () => nextTick(syncEditorHeights), { immediate: true })
+
+// 点击预览时保持当前滚动位置，避免页面跳到顶部
+async function togglePreview() {
+  const y = window.scrollY
+  showPreview.value = !showPreview.value
+  await nextTick()
+  window.scrollTo(0, y)
+}
+// 模式切换往返保护：记录最近一次自动转换，避免来回切换改写内容
+let lastMdToHtml = null // { md, html }：md → html 自动生成
+let lastHtmlToMd = null // { html, md }：html/raw → md 自动生成
+
+// 吸顶设置条高度：供 Markdown/富文本工具栏计算吸顶位置，避免与设置条重叠
+const editStickyEl = ref(null)
+const editStickyH = ref(54)
+const editStickyStuck = ref(false)
+const mdToolbarStuck = ref(false)
+let stickyResizeObserver = null
+let stickyScrollRaf = null
+
+function measureSticky() {
+  editStickyH.value = editStickyEl.value?.offsetHeight || 54
+  nextTick(syncStickyGlass)
+}
+
+// 吸顶元素未锁定前保持透明，锁定时才加毛玻璃：通过“元素实际位置是否已到达 sticky top”判断
+function syncStickyGlass() {
+  const check = (el, target) => {
+    if (!el) {
+      target.value = false
+      return
+    }
+    const top = parseFloat(getComputedStyle(el).top) || 0
+    target.value = el.getBoundingClientRect().top <= top + 2
+  }
+  check(editStickyEl.value, editStickyStuck)
+  check(document.querySelector('.md-toolbar'), mdToolbarStuck)
+}
+
+function onStickyScroll() {
+  if (stickyScrollRaf) return
+  stickyScrollRaf = requestAnimationFrame(() => {
+    stickyScrollRaf = null
+    syncStickyGlass()
+  })
+}
+
+onMounted(() => {
+  measureSticky()
+  syncEditorHeights()
+  if (typeof ResizeObserver !== 'undefined' && editStickyEl.value) {
+    stickyResizeObserver = new ResizeObserver(measureSticky)
+    stickyResizeObserver.observe(editStickyEl.value)
+  }
+  window.addEventListener('scroll', onStickyScroll, { passive: true })
+  window.addEventListener('resize', onStickyScroll, { passive: true })
+})
+watch(loading, (v) => {
+  if (!v) {
+    nextTick(() => {
+      measureSticky()
+      syncEditorHeights()
+    })
+  }
+})
+watch(mode, () => nextTick(syncStickyGlass))
+onUnmounted(() => {
+  stickyResizeObserver?.disconnect()
+  window.removeEventListener('scroll', onStickyScroll)
+  window.removeEventListener('resize', onStickyScroll)
+  if (stickyScrollRaf) cancelAnimationFrame(stickyScrollRaf)
+})
 // —— 格式转换 ——
 // Markdown → HTML（与 MarkdownView 渲染同配置）
 function mdToHtml(src) {
@@ -93,6 +178,8 @@ async function loadExisting() {
       tags: post.tags.join('，'),
       visibility: post.visibility || 'public',
     }
+    lastMdToHtml = null
+    lastHtmlToMd = null
     // 完整 HTML 文档用源码模式编辑（所见即所得会破坏 <head>/<style>/<script>）
     if (post.format === 'html') mode.value = isFullDoc(post.contentHtml) ? 'raw' : 'html'
     else mode.value = 'md'
@@ -107,20 +194,44 @@ async function loadExisting() {
 watch(() => route.params.slug, loadExisting, { immediate: true })
 
 // —— 模式切换（md / html / raw 相互转换）——
+
 function switchMode(next) {
   if (next === mode.value) return
   const cur = mode.value
+  const scrollY = window.scrollY
+
   if (next === 'md') {
-    form.value.content_md = htmlToMd(form.value.content_html) // html / raw → md
-  } else if (next === 'html') {
-    if (cur === 'md') form.value.content_html = mdToHtml(form.value.content_md)
-    // raw → html：内容已是 HTML，直接切换
-  } else if (next === 'raw') {
-    if (cur === 'md') form.value.content_html = mdToHtml(form.value.content_md)
-    // html → raw：内容已是 HTML，直接切换
+    // html / raw → md
+    const html = form.value.content_html
+    if (lastMdToHtml && lastMdToHtml.md === form.value.content_md && lastMdToHtml.html === html) {
+      // HTML 没被改过：直接保留原 Markdown，避免往返转换改写
+      form.value.content_md = lastMdToHtml.md
+    } else {
+      form.value.content_md = htmlToMd(html)
+      lastHtmlToMd = { html, md: form.value.content_md }
+    }
+  } else if (cur === 'md') {
+    // md → html / raw
+    const md = form.value.content_md
+    if (lastHtmlToMd && lastHtmlToMd.html === form.value.content_html && lastHtmlToMd.md === md) {
+      // Markdown 没被改过：直接保留原 HTML，避免往返转换改写
+      form.value.content_html = lastHtmlToMd.html
+    } else {
+      form.value.content_html = mdToHtml(md)
+      lastMdToHtml = { md, html: form.value.content_html }
+    }
   }
+
   mode.value = next
   localStorage.setItem(MODE_KEY, next)
+  // 切换模式会重建编辑区 DOM；先同步编辑框高度，再恢复滚动位置，
+  // 否则高度还没撑开时 scrollTo 会被浏览器 clamp 到顶部附近。
+  nextTick(() => {
+    syncEditorHeights()
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => window.scrollTo(0, scrollY))
+    })
+  })
 }
 
 // —— Markdown 工具栏命令 ——
@@ -296,7 +407,7 @@ async function onSubmit() {
     <p v-if="error" class="edit-error">{{ error }}</p>
     <p v-if="loading" class="edit-hint">加载中…</p>
 
-    <form v-else class="edit-card" @submit.prevent="onSubmit">
+    <form v-else class="edit-card" :style="{ '--edit-sticky-h': editStickyH + 'px' }" @submit.prevent="onSubmit">
       <label class="field">
         <span>标题 *</span>
         <input v-model.trim="form.title" required maxlength="200" />
@@ -314,31 +425,67 @@ async function onSubmit() {
         <input v-model.trim="form.tags" placeholder="例如：2026夏, 推荐, 攻略" />
       </label>
 
-      <div class="mode-switch">
-        <button type="button" class="mode-btn" :class="{ on: mode === 'md' }" @click="switchMode('md')">
-          Markdown
-        </button>
-        <button type="button" class="mode-btn" :class="{ on: mode === 'html' }" @click="switchMode('html')">
-          所见即所得
-        </button>
-        <button type="button" class="mode-btn" :class="{ on: mode === 'raw' }" @click="switchMode('raw')">
-          HTML 源码
-        </button>
+      <!-- 长内容编辑时固定可见性与保存/取消：放在正文上方，滚动时始终可见 -->
+      <div ref="editStickyEl" class="edit-sticky" :class="{ stuck: editStickyStuck }" role="group" aria-label="条目设置与操作">
+        <div class="mode-switch">
+          <button type="button" class="mode-btn" :class="{ on: mode === 'md' }" @click="switchMode('md')">
+            Markdown
+          </button>
+          <button type="button" class="mode-btn" :class="{ on: mode === 'html' }" @click="switchMode('html')">
+            所见即所得
+          </button>
+          <button type="button" class="mode-btn" :class="{ on: mode === 'raw' }" @click="switchMode('raw')">
+            HTML 源码
+          </button>
+          <button
+            type="button"
+            class="mode-btn"
+            :class="{ on: showPreview }"
+            @click="togglePreview"
+          >
+            预览
+          </button>
+        </div>
+        <div class="edit-sticky-right">
+          <div class="toolbar-vis" role="radiogroup" aria-label="可见性">
+            <span class="toolbar-label">可见性</span>
+            <label class="vis-pill" title="公开（游客可见）">
+              <input type="radio" value="public" v-model="form.visibility" />
+              <span>公开</span>
+            </label>
+            <label class="vis-pill" title="仅内部人员（游客不可见，内部人员可读）">
+              <input type="radio" value="insider" v-model="form.visibility" />
+              <span>内部</span>
+            </label>
+            <label class="vis-pill" title="仅管理员（私有）">
+              <input type="radio" value="private" v-model="form.visibility" />
+              <span>私有</span>
+            </label>
+          </div>
+          <div class="actions">
+            <button type="submit" class="btn btn-primary" :disabled="saving">
+              {{ saving ? '保存中…' : '保存' }}
+            </button>
+            <router-link :to="isEdit ? `/${category}/${slug}` : `/${category}`" class="btn">取消</router-link>
+          </div>
+        </div>
       </div>
 
       <!-- Markdown 模式：工具栏 + 源码 + 实时预览 -->
       <template v-if="mode === 'md'">
-        <MdToolbar @cmd="onMdCmd" />
-        <textarea
-          ref="mdInput"
-          v-model="form.content_md"
-          rows="14"
-          required
-          class="md-input"
-          placeholder="支持 Markdown 与行内 HTML（如 <span style=&quot;color:red&quot;>文字</span>）…；Ctrl+V 可直接粘贴剪贴板里的图片；粘贴完整 HTML 文档会自动切到 HTML 源码模式"
-          @paste="onPaste"
-        ></textarea>
-        <div class="preview">
+        <template v-if="!showPreview">
+          <MdToolbar :class="{ stuck: mdToolbarStuck }" @cmd="onMdCmd" />
+          <textarea
+            ref="mdInput"
+            v-model="form.content_md"
+            rows="1"
+            required
+            class="md-input"
+            placeholder="支持 Markdown 与行内 HTML（如 <span style=&quot;color:red&quot;>文字</span>）…；Ctrl+V 可直接粘贴剪贴板里的图片；粘贴完整 HTML 文档会自动切到 HTML 源码模式"
+            @paste="onPaste"
+          ></textarea>
+        </template>
+        <div v-if="showPreview" class="preview">
           <span class="preview-label">预览</span>
           <div class="preview-body">
             <MarkdownView v-if="form.content_md" :source="form.content_md" />
@@ -347,19 +494,30 @@ async function onSubmit() {
         </div>
       </template>
 
-      <!-- 所见即所得模式：TipTap 编辑器（所见即所得，无需额外预览） -->
-      <RichTextEditor v-else-if="mode === 'html'" v-model="form.content_html" :image-upload="uploadImage" />
+      <!-- 所见即所得模式：TipTap 编辑器（预览时隐藏编辑器，只展示渲染结果） -->
+      <template v-else-if="mode === 'html'">
+        <RichTextEditor v-if="!showPreview" v-model="form.content_html" :image-upload="uploadImage" />
+        <div v-else class="preview">
+          <span class="preview-label">预览</span>
+          <div class="preview-body">
+            <HtmlDocView v-if="form.content_html" :source="form.content_html" />
+            <p v-else class="edit-hint">（正文为空，预览将显示在此处）</p>
+          </div>
+        </div>
+      </template>
 
       <!-- HTML 源码模式：原始 HTML（可粘贴完整文档，按原样保存与渲染） -->
       <template v-else-if="mode === 'raw'">
         <textarea
+          ref="rawInput"
+          v-if="!showPreview"
           v-model="form.content_html"
-          rows="20"
+          rows="1"
           spellcheck="false"
           class="md-input raw-input"
           placeholder="粘贴 / 编写原始 HTML，可包含 &lt;style&gt; 与 &lt;script&gt;（完整文档或片段均可）"
         ></textarea>
-        <div class="preview">
+        <div v-if="showPreview" class="preview">
           <span class="preview-label">预览（完整文档以独立页面渲染）</span>
           <div class="preview-body">
             <HtmlDocView v-if="form.content_html" :source="form.content_html" />
@@ -376,28 +534,6 @@ async function onSubmit() {
         @change="onPickImage"
       />
 
-      <fieldset class="vis-group">
-        <legend>可见性</legend>
-        <label class="vis-opt">
-          <input type="radio" value="public" v-model="form.visibility" />
-          <span>公开（游客可见）</span>
-        </label>
-        <label class="vis-opt">
-          <input type="radio" value="insider" v-model="form.visibility" />
-          <span>仅内部人员（游客不可见，内部人员可读）</span>
-        </label>
-        <label class="vis-opt">
-          <input type="radio" value="private" v-model="form.visibility" />
-          <span>仅管理员（私有）</span>
-        </label>
-      </fieldset>
-
-      <div class="actions">
-        <button type="submit" class="btn btn-primary" :disabled="saving">
-          {{ saving ? '保存中…' : '保存' }}
-        </button>
-        <router-link :to="`/${category}`" class="btn">取消</router-link>
-      </div>
     </form>
   </div>
 </template>
@@ -493,8 +629,7 @@ async function onSubmit() {
   color: var(--text);
   background: var(--panel-2);
   border: 1px solid var(--border);
-  border-top: none;
-  border-radius: 0 0 10px 10px;
+  border-radius: 10px;
   outline: none;
   font-family: inherit;
   resize: vertical;
@@ -509,7 +644,7 @@ async function onSubmit() {
   font-family: Consolas, 'Cascadia Code', 'Courier New', monospace;
   font-size: 13px;
   line-height: 1.5;
-  min-height: 340px;
+  min-height: 0;
 }
 
 .file-input {
@@ -535,36 +670,149 @@ async function onSubmit() {
   min-height: 120px;
 }
 
-.vis-group {
+/* 长内容编辑：可见性 + 保存/取消固定在正文上方，滚动时始终可用 */
+.edit-sticky {
+  position: sticky;
+  top: 70px;
+  z-index: 20;
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 14px;
+  padding: 10px 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  box-shadow: none;
+  transition:
+    background-color var(--dur-ios-2) var(--ease-ios-expo),
+    border-color var(--dur-ios-2) var(--ease-ios-expo),
+    box-shadow var(--dur-ios-2) var(--ease-ios-expo),
+    padding var(--dur-ios-2) var(--ease-ios-expo);
+}
+
+.edit-sticky.stuck {
+  padding: 10px 14px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  border-color: var(--border);
+  border-radius: 14px;
+  box-shadow:
+    0 10px 30px rgb(0 0 0 / 0.12),
+    inset 0 1px 0 rgb(255 255 255 / 0.06);
+}
+
+/* 右侧控件组：模式切换在左，可见性 + 操作在右，布局更整齐 */
+.edit-sticky-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px 14px;
+}
+
+.toolbar-vis {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
   font-size: 13px;
   color: var(--muted);
 }
 
-.vis-group legend {
-  padding: 0 6px;
-  font-size: 13px;
+.toolbar-label {
+  font-weight: 600;
+  margin-right: 2px;
 }
 
-.vis-opt {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.vis-pill {
+  position: relative;
+}
+
+.vis-pill input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.vis-pill span {
+  display: inline-block;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--muted);
   cursor: pointer;
+  transition:
+    background-color var(--dur-ios-1) var(--ease-ios-expo),
+    border-color var(--dur-ios-1) var(--ease-ios-expo),
+    color var(--dur-ios-1) var(--ease-ios-expo);
 }
 
-.vis-opt input {
-  accent-color: var(--accent);
+.vis-pill:hover span {
+  border-color: var(--accent);
+}
+
+.vis-pill input:checked + span {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.vis-pill input:focus-visible + span {
+  outline: 2px solid color-mix(in srgb, var(--accent) 65%, transparent);
+  outline-offset: 2px;
 }
 
 .actions {
   display: flex;
   gap: 10px;
-  margin-top: 4px;
+}
+
+/* 正文编辑工具栏（Markdown / 富文本）也吸顶，但保持在设置条下方 */
+.edit-card :deep(.md-toolbar),
+.edit-card :deep(.rt-toolbar) {
+  position: sticky;
+  top: calc(70px + var(--edit-sticky-h, 54px));
+  z-index: 19;
+  transition:
+    background-color var(--dur-ios-2) var(--ease-ios-expo),
+    border-color var(--dur-ios-2) var(--ease-ios-expo),
+    box-shadow var(--dur-ios-2) var(--ease-ios-expo);
+}
+
+.edit-card :deep(.md-toolbar.stuck),
+.edit-card :deep(.rt-toolbar.stuck) {
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.06);
+}
+
+/* 窄屏：操作区改为上下两行，依然保持吸顶 */
+@media (max-width: 768px) {
+  .edit-sticky {
+    top: 84px;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .edit-sticky-right {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .toolbar-vis {
+    justify-content: space-between;
+  }
+
+  .actions {
+    justify-content: flex-end;
+  }
+
+  .edit-card :deep(.md-toolbar),
+  .edit-card :deep(.rt-toolbar) {
+    top: calc(84px + var(--edit-sticky-h, 92px));
+  }
 }
 </style>

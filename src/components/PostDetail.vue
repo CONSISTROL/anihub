@@ -315,7 +315,7 @@ onMounted(() => window.addEventListener('message', onMessage))
       <HtmlDocView v-else-if="post.format === 'html' && post.contentHtml" :source="post.contentHtml" />
       <p v-else class="detail-hint">（暂无内容）</p>
 
-      <footer v-if="canEdit" class="post-actions">
+      <footer v-if="canEdit && category !== 'wiki'" class="post-actions">
         <router-link :to="`/${category}/${post.slug}/edit`" class="btn">编辑</router-link>
         <button class="btn btn-danger" :disabled="deleting" @click="onDelete">
           {{ deleting ? '删除中…' : '删除' }}
@@ -365,8 +365,8 @@ onMounted(() => window.addEventListener('message', onMessage))
                 <span v-for="t in post.tags" :key="t" class="post-tag">#{{ t }}</span>
               </div>
             </div>
-            <!-- 完整 HTML 文档没有卡片操作栏，编辑/删除放到抽屉里 -->
-            <div v-if="canEdit && isFullDoc" class="side-box">
+            <!-- Wiki 的编辑/删除统一放到右侧抽屉，避免正文底部操作栏 -->
+            <div v-if="canEdit" class="side-box">
               <h3 class="side-title">操作</h3>
               <div class="side-actions">
                 <router-link :to="`/${category}/${post.slug}/edit`" class="btn btn-sm">编辑</router-link>

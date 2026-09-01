@@ -7,7 +7,7 @@ import { TextStyle, Color, FontSize } from '@tiptap/extension-text-style'
 import Link from '@tiptap/extension-link'
 import Image from '@tiptap/extension-image'
 import Underline from '@tiptap/extension-underline'
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 
 const props = defineProps({
@@ -54,6 +54,37 @@ const COLORS = ['#e74c3c', '#e67e22', '#f1c40f', '#2ecc71', '#1abc9c', '#3498db'
 const fileInput = ref(null)
 const uploading = ref(false)
 const errMsg = ref('')
+
+// 工具栏未锁定前保持透明，锁定时才显示毛玻璃背景
+const toolbarEl = ref(null)
+const toolbarStuck = ref(false)
+let toolbarScrollRaf = null
+function syncToolbarStuck() {
+  const el = toolbarEl.value
+  if (!el) {
+    toolbarStuck.value = false
+    return
+  }
+  const top = parseFloat(getComputedStyle(el).top) || 0
+  toolbarStuck.value = el.getBoundingClientRect().top <= top + 2
+}
+function onToolbarScroll() {
+  if (toolbarScrollRaf) return
+  toolbarScrollRaf = requestAnimationFrame(() => {
+    toolbarScrollRaf = null
+    syncToolbarStuck()
+  })
+}
+onMounted(() => {
+  nextTick(syncToolbarStuck)
+  window.addEventListener('scroll', onToolbarScroll, { passive: true })
+  window.addEventListener('resize', onToolbarScroll, { passive: true })
+})
+onUnmounted(() => {
+  window.removeEventListener('scroll', onToolbarScroll)
+  window.removeEventListener('resize', onToolbarScroll)
+  if (toolbarScrollRaf) cancelAnimationFrame(toolbarScrollRaf)
+})
 
 // 按钮高亮状态（响应式跟随光标）
 const active = computed(() => {
@@ -142,7 +173,7 @@ function onPickImage(e) {
 
 <template>
   <div class="richtext">
-    <div class="rt-toolbar">
+    <div ref="toolbarEl" class="rt-toolbar" :class="{ stuck: toolbarStuck }">
       <button type="button" class="rt-btn" title="撤销" :disabled="!editor?.can().undo()" @click="run((c) => c.undo())"><AppIcon name="undo" :size="14" /></button>
       <button type="button" class="rt-btn" title="重做" :disabled="!editor?.can().redo()" @click="run((c) => c.redo())"><AppIcon name="redo" :size="14" /></button>
       <span class="rt-sep" />
@@ -196,7 +227,6 @@ function onPickImage(e) {
 .richtext {
   border: 1px solid var(--border);
   border-radius: 10px;
-  overflow: hidden;
 }
 
 .rt-toolbar {
@@ -205,8 +235,20 @@ function onPickImage(e) {
   align-items: center;
   gap: 2px;
   padding: 6px 8px;
-  background: var(--panel-2);
-  border-bottom: 1px solid var(--border);
+  background: transparent;
+  border-bottom: 1px solid transparent;
+  border-radius: 10px 10px 0 0;
+  transition:
+    background-color var(--dur-ios-2) var(--ease-ios-expo),
+    border-color var(--dur-ios-2) var(--ease-ios-expo),
+    box-shadow var(--dur-ios-2) var(--ease-ios-expo);
+}
+
+.rt-toolbar.stuck {
+  background: color-mix(in srgb, var(--panel) 90%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom-color: var(--border);
 }
 
 .rt-btn {
