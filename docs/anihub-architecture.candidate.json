@@ -1,0 +1,259 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "AniHub Runtime Architecture",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/CONSISTROL/anihub",
+      "revision": "c42abf67a7b3479e5a48f35d4676ab222633b8c5"
+    },
+    "viewBox": [1300, 680],
+    "views": [
+      {
+        "id": "main-path",
+        "label": "Main request path",
+        "focus": ["spa", "nginx", "api", "sqlite"],
+        "note": "A page load flows from the SPA through Nginx to Express and durable SQLite state."
+      },
+      {
+        "id": "anime-data",
+        "label": "Anime data pipeline",
+        "focus": ["api", "sqlite", "anilist"],
+        "note": "Season media and schedules are cached in SQLite; AniList is queried only on TTL expiry or admin refresh."
+      },
+      {
+        "id": "admin-console",
+        "label": "Admin console",
+        "focus": ["ws", "shell", "api"],
+        "note": "The xterm.js console streams a PTY over WebSocket; exec and file APIs share the session directory."
+      },
+      {
+        "id": "upgrade",
+        "label": "Self-upgrade flow",
+        "focus": ["api", "git"],
+        "note": "Version check, sudo password verify, then a detached deploy/update.sh (git pull + build + restart)."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "spa",
+      "type": "frontend",
+      "label": "Vue 3 SPA",
+      "sublabel": "lazy views · auth store",
+      "tag": "guest · insider · admin",
+      "sources": [
+        { "path": "src/main.js", "line": 1, "end_line": 6 },
+        { "path": "src/router/index.js", "line": 1, "end_line": 97 },
+        { "path": "src/App.vue", "line": 1, "end_line": 32 }
+      ],
+      "pos": [40, 320],
+      "size": [150, 80]
+    },
+    {
+      "id": "nginx",
+      "type": "cloud",
+      "label": "Nginx",
+      "sublabel": "HTTPS :443 · /ws upgrade",
+      "sources": [
+        { "path": "deploy/anihub.nginx.conf", "line": 19, "end_line": 58 }
+      ],
+      "pos": [300, 320],
+      "size": [150, 80]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "Express API",
+      "sublabel": "server/index.js :3001",
+      "tag": "10 REST routers · JWT",
+      "sources": [
+        { "path": "server/index.js", "line": 24, "end_line": 83 },
+        { "path": "server/middleware/auth.js", "line": 1, "end_line": 46 }
+      ],
+      "pos": [560, 320],
+      "size": [180, 80]
+    },
+    {
+      "id": "sqlite",
+      "type": "database",
+      "label": "SQLite",
+      "sublabel": "anihub.db · WAL",
+      "tag": "7 tables",
+      "sources": [
+        { "path": "server/db.js", "line": 1, "end_line": 83 }
+      ],
+      "pos": [890, 320],
+      "size": [160, 80]
+    },
+    {
+      "id": "git",
+      "type": "external",
+      "label": "Git remote",
+      "sublabel": "origin · update.sh",
+      "sources": [
+        { "path": "server/routes/upgrade.js", "line": 83, "end_line": 141 },
+        { "path": "deploy/update.sh", "line": 1, "end_line": 30 }
+      ],
+      "pos": [560, 40],
+      "size": [180, 64]
+    },
+    {
+      "id": "anilist",
+      "type": "external",
+      "label": "AniList",
+      "sublabel": "GraphQL API",
+      "sources": [
+        { "path": "server/routes/anime.js", "line": 219, "end_line": 266 },
+        { "path": "server/routes/anime.js", "line": 372, "end_line": 451 }
+      ],
+      "pos": [980, 40],
+      "size": [150, 64]
+    },
+    {
+      "id": "ipapi",
+      "type": "external",
+      "label": "ip-api.com",
+      "sublabel": "geolocation",
+      "sources": [
+        { "path": "server/routes/visits.js", "line": 76, "end_line": 107 }
+      ],
+      "pos": [1120, 130],
+      "size": [150, 64]
+    },
+    {
+      "id": "ws",
+      "type": "messagebus",
+      "label": "Console WebSocket",
+      "sublabel": "/ws/console · per-tab PTY",
+      "sources": [
+        { "path": "server/consoleSocket.js", "line": 19, "end_line": 84 }
+      ],
+      "pos": [560, 460],
+      "size": [180, 66]
+    },
+    {
+      "id": "shell",
+      "type": "external",
+      "label": "Host shell",
+      "sublabel": "bash PTY · sudo",
+      "sources": [
+        { "path": "server/consoleSession.js", "line": 180, "end_line": 283 }
+      ],
+      "pos": [560, 550],
+      "size": [180, 66]
+    },
+    {
+      "id": "monitor",
+      "type": "backend",
+      "label": "Metrics collector",
+      "sublabel": "5s CPU / mem / net / disk",
+      "sources": [
+        { "path": "server/monitorCollector.js", "line": 115, "end_line": 174 }
+      ],
+      "pos": [960, 460],
+      "size": [160, 66]
+    },
+    {
+      "id": "files",
+      "type": "database",
+      "label": "Static files",
+      "sublabel": "uploads/ · wallpapers/",
+      "sources": [
+        { "path": "server/routes/upload.js", "line": 22, "end_line": 40 },
+        { "path": "server/routes/wallpapers.js", "line": 47, "end_line": 75 }
+      ],
+      "pos": [790, 550],
+      "size": [160, 66]
+    }
+  ],
+  "boundaries": [
+    { "kind": "security-group", "label": "Browser client", "wraps": ["spa"] },
+    {
+      "kind": "region",
+      "label": "Server host · systemd anihub.service",
+      "wraps": ["nginx", "api", "sqlite", "ws", "shell", "monitor", "files"]
+    },
+    { "kind": "security-group", "label": "Admin-only · JWT-gated", "wraps": ["ws", "shell"] },
+    { "kind": "region", "label": "External services", "wraps": ["git", "anilist", "ipapi"] }
+  ],
+  "connections": [
+    {
+      "id": "spa-nginx",
+      "from": "spa",
+      "to": "nginx",
+      "label": "HTTPS · /api /uploads /ws",
+      "variant": "emphasis",
+      "labelAt": [245, 430]
+    },
+    { "id": "nginx-api", "from": "nginx", "to": "api", "label": "proxy :3001" },
+    { "id": "nginx-ws", "from": "nginx", "to": "ws", "label": "upgrade /ws/console" },
+    { "id": "api-sqlite", "from": "api", "to": "sqlite", "label": "node:sqlite · SQL", "labelAt": [770, 420] },
+    {
+      "id": "api-git",
+      "from": "api",
+      "to": "git",
+      "label": "fetch · sudo update.sh",
+      "variant": "dashed",
+      "labelAt": [643, 180]
+    },
+    {
+      "id": "api-anilist",
+      "from": "api",
+      "to": "anilist",
+      "label": "GraphQL · media & schedules",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "api-ipapi",
+      "from": "api",
+      "to": "ipapi",
+      "label": "geolocation lookup",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "bottom"
+    },
+    {
+      "id": "api-files",
+      "from": "api",
+      "to": "files",
+      "label": "upload · static serve",
+      "fromSide": "right",
+      "toSide": "top"
+    },
+    { "id": "ws-shell", "from": "ws", "to": "shell", "label": "spawn PTY · stream I/O", "labelAt": [650, 540] },
+    { "id": "monitor-sqlite", "from": "monitor", "to": "sqlite", "label": "INSERT metrics · 5s", "fromSide": "top", "toSide": "bottom" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Client",
+      "items": [
+        "Vue 3 SPA, lazy routes, loading progress bar",
+        "Identities: guest · insider · admin (JWT in localStorage)",
+        "Hidden 'login' / 'inside' keyboard entry; tools: xterm.js, three.js, leaflet, TipTap"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Application",
+      "items": [
+        "Express: 10 REST routers + built SPA on one :3001 port",
+        "SQLite WAL: users, posts, settings, anime_cache, visits, ip_locations, metrics",
+        "WebSocket console: one PTY per tab; metrics sampled every 5s"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "External & Ops",
+      "items": [
+        "AniList GraphQL cached in SQLite (TTL), deduped, rate-limited",
+        "ip-api.com geolocation, cached in ip_locations",
+        "Self-upgrade: git status → sudo verify → deploy/update.sh"
+      ]
+    }
+  ]
+}

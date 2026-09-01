@@ -22,7 +22,8 @@ import { WALLPAPER_DIR } from './config.js'
 captureConsole()
 
 const app = express()
-app.use(express.json({ limit: '2mb' }))
+// 文章正文允许完整 HTML 文档（Archify 等导出可能 >500KB），JSON body 放宽到 20mb
+app.use(express.json({ limit: '20mb' }))
 
 // 请求计数（服务器监控用）
 app.use((req, res, next) => {

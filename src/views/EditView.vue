@@ -209,15 +209,29 @@ function onPickImage(e) {
 // 粘贴剪贴板中的图片（Ctrl+C 复制的图片 / 截图）→ 上传并插入；普通文本粘贴不受影响
 function onPasteImage(e) {
   const items = e.clipboardData?.items
-  if (!items) return
+  if (!items) return false
   for (const item of items) {
     if (item.type.startsWith('image/')) {
       const file = item.getAsFile()
-      if (!file) return
+      if (!file) return false
       e.preventDefault() // 拦下默认粘贴，避免图片被当文本贴进去
       insertMdImage(file)
-      return
+      return true
     }
+  }
+  return false
+}
+
+// Markdown 模式粘贴：优先处理图片；若粘贴的是完整 HTML 文档（<html> / <!DOCTYPE html>），
+// 自动切到 HTML 源码模式并按原样保存，避免用户以为“保存没反应”而实际存成了 Markdown。
+function onPaste(e) {
+  if (onPasteImage(e)) return
+  const text = e.clipboardData?.getData('text/plain')
+  if (text && isFullDoc(text)) {
+    e.preventDefault()
+    form.value.content_html = text
+    mode.value = 'raw'
+    localStorage.setItem(MODE_KEY, 'raw')
   }
 }
 
@@ -266,6 +280,11 @@ async function onSubmit() {
     router.replace(`/${props.category}/${saved.slug}`)
   } catch (e) {
     error.value = e.message
+    // 错误提示在页面顶部；保存按钮通常在下方，滚动过去避免“点了没反应”的错觉
+    requestAnimationFrame(() => {
+      document.querySelector('.edit-error')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+  } finally {
     saving.value = false
   }
 }
@@ -316,8 +335,8 @@ async function onSubmit() {
           rows="14"
           required
           class="md-input"
-          placeholder="支持 Markdown 与行内 HTML（如 <span style=&quot;color:red&quot;>文字</span>）…；Ctrl+V 可直接粘贴剪贴板里的图片"
-          @paste="onPasteImage"
+          placeholder="支持 Markdown 与行内 HTML（如 <span style=&quot;color:red&quot;>文字</span>）…；Ctrl+V 可直接粘贴剪贴板里的图片；粘贴完整 HTML 文档会自动切到 HTML 源码模式"
+          @paste="onPaste"
         ></textarea>
         <div class="preview">
           <span class="preview-label">预览</span>
