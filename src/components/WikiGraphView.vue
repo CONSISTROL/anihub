@@ -15,6 +15,7 @@ const nodes = ref([])
 const edges = ref([])
 const running = ref(false)
 const activeId = ref(null)
+const maxShared = ref(1)
 
 const VIEW_W = 1400
 const VIEW_H = 900
@@ -25,36 +26,73 @@ let raf = null
 let iter = 0
 const MAX_ITER = 520
 
+let measureCtx = null
+function getMeasureCtx() {
+  if (typeof document === 'undefined') return null
+  if (!measureCtx) {
+    const canvas = document.createElement('canvas')
+    measureCtx = canvas.getContext('2d')
+  }
+  return measureCtx
+}
+
+// 用 canvas 实测文本宽度，兼容中文/英文混排，避免按字符数估算导致溢出
+function textWidth(text, size, weight) {
+  const ctx = getMeasureCtx()
+  const s = String(text || '')
+  if (!ctx) return s.length * size * 0.62
+  ctx.font = `${weight || 400} ${size}px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif`
+  return ctx.measureText(s).width
+}
+
+function fitText(text, maxWidth, size, weight) {
+  const s = String(text || '')
+  if (textWidth(s, size, weight) <= maxWidth) return s
+  const ell = '…'
+  let low = 0
+  let high = s.length
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2)
+    if (textWidth(s.slice(0, mid) + ell, size, weight) <= maxWidth) low = mid
+    else high = mid - 1
+  }
+  return s.slice(0, low) + ell
+}
+
+// 卡片宽度由标题实际宽度 + 标签预览宽度共同决定，保证文字能放进卡片
+function rawTagPreview(n) {
+  const tags = n.tags || []
+  if (!tags.length) return '无标签'
+  return tags.slice(0, 3).map((t) => '#' + t).join(' ')
+}
+
 function nodeWidth(n) {
-  return Math.max(96, Math.min(210, String(n.title || '').length * 7.2 + 24))
+  const titleW = textWidth(String(n.title || ''), 13, 600)
+  const tagW = textWidth(rawTagPreview(n), 10, 500)
+  return Math.max(96, Math.min(240, Math.ceil(Math.max(titleW, tagW) + 30)))
 }
 
 function nodeHeight() {
   return NODE_H
 }
 
-// 标题按卡片宽度截断，避免文字超出卡片
+// 标题按卡片实际可用宽度截断，避免文字超出卡片
 function fmtTitle(n) {
-  const t = String(n.title || '')
-  const maxChars = Math.max(6, Math.floor((nodeWidth(n) - 18) / 7.2))
-  return t.length > maxChars ? t.slice(0, Math.max(1, maxChars - 1)) + '…' : t
+  const maxWidth = nodeWidth(n) - 20
+  return fitText(String(n.title || ''), maxWidth, 13, 600)
 }
 
-// 标签也按卡片宽度截断，避免第二行文字溢出
+// 标签也按卡片实际可用宽度截断
 function fmtTags(n) {
   const tags = n.tags || []
   if (!tags.length) return ''
-  const maxChars = Math.max(4, Math.floor((nodeWidth(n) - 24) / 5.4))
-  let list = tags.slice(0, 3)
-  let text = list.map((t) => '#' + t).join(' ')
-  while (text.length > maxChars && list.length > 1) {
-    list = list.slice(0, -1)
-    text = list.map((t) => '#' + t).join(' ')
+  const maxWidth = nodeWidth(n) - 20
+  for (let count = Math.min(3, tags.length); count >= 1; count--) {
+    const suffix = tags.length > count ? ` +${tags.length - count}` : ''
+    const text = tags.slice(0, count).map((t) => '#' + t).join(' ') + suffix
+    if (textWidth(text, 10, 500) <= maxWidth) return text
   }
-  if (text.length > maxChars) {
-    text = text.slice(0, Math.max(1, maxChars - 1)) + '…'
-  }
-  return text
+  return fitText('#' + tags[0], maxWidth, 10, 500)
 }
 
 function openNode(slug) {
@@ -82,6 +120,7 @@ function buildGraph() {
       if (shared.length) es.push({ i, j, shared })
     }
   }
+  maxShared.value = es.length ? Math.max(...es.map((e) => e.shared.length)) : 1
 
   const cx = VIEW_W / 2
   const cy = VIEW_H / 2
@@ -230,6 +269,32 @@ function edgeClass(e) {
   return linked ? 'is-active' : 'is-dim'
 }
 
+// 关联强度：按当前图谱最大共同标签数归一化到 0~1
+function edgeStrength(e) {
+  if (!maxShared.value) return 0
+  return Math.min(1, e.shared.length / maxShared.value)
+}
+
+function edgeStyle(e) {
+  const s = edgeStrength(e)
+  return {
+    '--edge-width': `${1.5 + s * 5}px`,
+    '--edge-opacity': `${0.35 + s * 0.6}`,
+  }
+}
+
+function edgeTitle(e) {
+  return `共享标签 (${e.shared.length})：${e.shared.join('、')}`
+}
+
+// 悬停时在关联边上显示共享标签
+function sharedLabel(e) {
+  const tags = e.shared || []
+  if (!tags.length) return ''
+  const shown = tags.slice(0, 2).map((t) => '#' + t).join(' ')
+  return tags.length > 2 ? shown + ' +' + (tags.length - 2) : shown
+}
+
 async function load() {
   loading.value = true
   error.value = ''
@@ -260,14 +325,14 @@ onBeforeUnmount(() => {
       <div class="graph-head">
         <span class="graph-tip">
           <span class="dot"></span>
-          共享标签的条目会连在一起；悬停卡片高亮关联；点击节点打开条目
+          共享标签的条目会连在一起；线越粗/越亮 = 关联越强；悬停卡片可查看共享标签
         </span>
         <span class="graph-count">{{ nodes.length }} 个条目 · {{ edges.length }} 条关联</span>
       </div>
 
       <div class="graph-canvas">
         <svg :viewBox="`0 0 ${VIEW_W} ${VIEW_H}`" role="img" aria-label="Wiki 条目标签关联拓扑图">
-          <!-- 边：共享标签越多的边越粗 -->
+          <!-- 边：共享标签越多，线越粗、越亮；悬停卡片时显示共享标签 -->
           <g v-for="(e, idx) in edges" :key="'e' + idx">
             <line
               :x1="nodes[e.i]?.x"
@@ -275,9 +340,17 @@ onBeforeUnmount(() => {
               :x2="nodes[e.j]?.x"
               :y2="nodes[e.j]?.y"
               :class="['graph-edge', edgeClass(e)]"
-              :stroke-width="Math.min(4, 1 + e.shared.length * 0.8)"
-              :title="e.shared.join('、')"
+              :style="edgeStyle(e)"
+              :title="edgeTitle(e)"
             />
+            <g
+              v-if="edgeClass(e) === 'is-active'"
+              class="edge-tag"
+              :transform="`translate(${(nodes[e.i]?.x + nodes[e.j]?.x) / 2}, ${(nodes[e.i]?.y + nodes[e.j]?.y) / 2})`"
+            >
+              <rect :width="sharedLabel(e).length * 6.5 + 18" height="20" rx="10" :x="-(sharedLabel(e).length * 6.5 + 18) / 2" :y="-10" />
+              <text y="4" text-anchor="middle">{{ sharedLabel(e) }}</text>
+            </g>
           </g>
 
           <!-- 节点 -->
@@ -390,7 +463,9 @@ onBeforeUnmount(() => {
 
 .graph-edge {
   stroke: color-mix(in srgb, var(--accent) 35%, var(--border));
+  stroke-width: var(--edge-width, 2px);
   stroke-linecap: round;
+  opacity: var(--edge-opacity, 0.6);
   pointer-events: none;
   transition:
     opacity var(--dur-ios-1) var(--ease-ios-expo),
@@ -406,6 +481,23 @@ onBeforeUnmount(() => {
 
 .graph-edge.is-dim {
   opacity: 0.12;
+}
+
+.edge-tag {
+  pointer-events: none;
+}
+
+.edge-tag rect {
+  fill: var(--panel);
+  stroke: var(--accent);
+  stroke-width: 1;
+  filter: drop-shadow(0 1px 4px rgb(0 0 0 / 0.18));
+}
+
+.edge-tag text {
+  fill: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
 }
 
 .graph-node {
