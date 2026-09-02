@@ -62,7 +62,11 @@ function syncEditorHeights() {
   autoResizeTextarea(mdInput.value)
   autoResizeTextarea(rawInput.value)
 }
-watch([form.content_md, form.content_html, mode, showPreview], () => nextTick(syncEditorHeights), { immediate: true })
+watch(
+  [() => form.value.content_md, () => form.value.content_html, mode, showPreview],
+  () => nextTick(syncEditorHeights),
+  { immediate: true }
+)
 
 // 点击预览时保持当前滚动位置，避免页面跳到顶部
 async function togglePreview() {
@@ -250,6 +254,10 @@ function onMdCmd({ type, value }) {
     case 'image': fileInput.value?.click(); break
     case 'font-size': wrapSelection(`<span style="font-size:${value}px">`, '</span>', '文字'); break
     case 'color': wrapSelection(`<span style="color:${value}">`, '</span>', '文字'); break
+    case 'underline': wrapSelection('<u>', '</u>', '下划线'); break
+    case 'undo': execEditorCommand('undo'); break
+    case 'redo': execEditorCommand('redo'); break
+    case 'clear': clearMdFormatting(); break
   }
 }
 
@@ -301,6 +309,47 @@ function onInsertLink() {
   form.value.content_md = form.value.content_md.slice(0, start) + insert + form.value.content_md.slice(end)
   ta?.focus()
   ta?.setSelectionRange(start + insert.length, start + insert.length)
+}
+
+// Markdown 撤销/重做：调用 textarea 原生编辑历史
+function execEditorCommand(cmd) {
+  const ta = mdInput.value
+  if (!ta) return
+  ta.focus()
+  try { document.execCommand(cmd) } catch (_) {}
+}
+
+// Markdown 清除格式：去掉选中范围内的 Markdown/行内 HTML 标记，保留文字
+function clearMdFormatting() {
+  const ta = mdInput.value
+  if (!ta) return
+  const start = ta.selectionStart ?? 0
+  const end = ta.selectionEnd ?? start
+  if (start === end) return
+  const md = form.value.content_md
+  const before = md.slice(0, start)
+  const after = md.slice(end)
+  const selected = md
+    .slice(start, end)
+    .replace(/<\/?(?:u|strong|b|em|i|s|strike|code|span)(?:\s[^>]*)?>/gi, '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/__(.+?)__/g, '$1')
+    .replace(/~~(.+?)~~/g, '$1')
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1$2')
+    .replace(/(^|[^_])_([^_\n]+)_/g, '$1$2')
+    .replace(/`([^`\n]+)`/g, '$1')
+    .split('\n')
+    .map((line) =>
+      line
+        .replace(/^(#{1,6})\s+/, '')
+        .replace(/^>\s?/, '')
+        .replace(/^[-*+]\s+/, '')
+        .replace(/^\d+\.\s+/, '')
+    )
+    .join('\n')
+  form.value.content_md = before + selected + after
+  ta.focus()
+  ta.setSelectionRange(start, start + selected.length)
 }
 
 function parseTags() {
@@ -478,7 +527,7 @@ async function onSubmit() {
           <textarea
             ref="mdInput"
             v-model="form.content_md"
-            rows="1"
+            rows="20"
             required
             class="md-input"
             placeholder="支持 Markdown 与行内 HTML（如 <span style=&quot;color:red&quot;>文字</span>）…；Ctrl+V 可直接粘贴剪贴板里的图片；粘贴完整 HTML 文档会自动切到 HTML 源码模式"
@@ -512,7 +561,7 @@ async function onSubmit() {
           ref="rawInput"
           v-if="!showPreview"
           v-model="form.content_html"
-          rows="1"
+          rows="28"
           spellcheck="false"
           class="md-input raw-input"
           placeholder="粘贴 / 编写原始 HTML，可包含 &lt;style&gt; 与 &lt;script&gt;（完整文档或片段均可）"
@@ -633,6 +682,8 @@ async function onSubmit() {
   outline: none;
   font-family: inherit;
   resize: vertical;
+  /* 三种编辑模式初始高度保持一致；内容增多后 autoResize 仍会继续撑高 */
+  min-height: 480px;
 }
 
 .md-input:focus {
@@ -644,7 +695,7 @@ async function onSubmit() {
   font-family: Consolas, 'Cascadia Code', 'Courier New', monospace;
   font-size: 13px;
   line-height: 1.5;
-  min-height: 0;
+  min-height: 480px;
 }
 
 .file-input {

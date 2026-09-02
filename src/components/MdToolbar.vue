@@ -14,8 +14,12 @@ function fire(type, value) {
 
 <template>
   <div class="md-toolbar">
+    <button type="button" class="md-btn" title="撤销" @click="fire('undo')"><AppIcon name="undo" :size="14" /></button>
+    <button type="button" class="md-btn" title="重做" @click="fire('redo')"><AppIcon name="redo" :size="14" /></button>
+    <span class="md-sep" />
     <button type="button" class="md-btn" title="加粗" @click="fire('bold')"><AppIcon name="bold" :size="14" /></button>
     <button type="button" class="md-btn" title="斜体" @click="fire('italic')"><AppIcon name="italic" :size="14" /></button>
+    <button type="button" class="md-btn" title="下划线" @click="fire('underline')"><AppIcon name="underline" :size="14" /></button>
     <button type="button" class="md-btn" title="删除线" @click="fire('strike')"><AppIcon name="strike" :size="14" /></button>
     <span class="md-sep" />
     <button type="button" class="md-btn" title="一级标题" @click="fire('h1')">H1</button>
@@ -47,6 +51,7 @@ function fire(type, value) {
       />
       <input type="color" class="md-picker" title="自定义颜色" @input="fire('color', $event.target.value)" />
     </span>
+    <button type="button" class="md-btn" title="清除格式" @click="fire('clear')"><AppIcon name="eraser" :size="14" /></button>
   </div>
 </template>
 

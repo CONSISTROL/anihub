@@ -225,6 +225,8 @@ function onPickImage(e) {
 
 <style scoped>
 .richtext {
+  /* 与上方标题/摘要输入框、Markdown/HTML 源码输入框保持同一底色 */
+  background: var(--panel-2);
   border: 1px solid var(--border);
   border-radius: 10px;
 }
@@ -339,7 +341,8 @@ function onPickImage(e) {
 }
 
 .rt-content {
-  min-height: 280px;
+  /* 与 Markdown / HTML 源码模式的初始编辑区高度保持一致 */
+  min-height: 480px;
   padding: 12px 14px;
   font-size: 15px;
   line-height: 1.75;
@@ -349,7 +352,7 @@ function onPickImage(e) {
 
 .rt-content :deep(.ProseMirror) {
   outline: none;
-  min-height: 260px;
+  min-height: 456px; /* 480px 减去上下内边距 12px×2 */
 }
 
 .rt-content :deep(h1),
