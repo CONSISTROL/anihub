@@ -1,6 +1,8 @@
 <script setup>
-// Wiki 条目列表页：支持「列表 / 拓扑图」两种视图切换，视图状态保存在 URL query 中，
-// 这样从拓扑图点进条目再返回时仍会回到拓扑图视图。
+// Wiki 条目列表页：支持「列表 / 拓扑图」两种视图切换。
+// 视图状态同时保存在 URL query 与 localStorage 中：
+// - URL 带 ?view=graph 时优先按 URL 显示（支持分享/前进后退）
+// - URL 不带 view 时使用上次选择，因此从其它页面回到 /wiki 仍能保持拓扑图
 import { ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PostList from '../components/PostList.vue'
@@ -9,18 +11,37 @@ import AppIcon from '../components/AppIcon.vue'
 
 const route = useRoute()
 const router = useRouter()
+const STORAGE_KEY = 'anihub.wiki-view'
 
-const viewMode = ref(route.query.view === 'graph' ? 'graph' : 'list')
+function readStored() {
+  try { return localStorage.getItem(STORAGE_KEY) } catch { return null }
+}
+
+function writeStored(view) {
+  try { localStorage.setItem(STORAGE_KEY, view) } catch {}
+}
+
+function resolveInitialView() {
+  const q = route.query.view
+  if (q === 'graph' || q === 'list') return q
+  return readStored() === 'graph' ? 'graph' : 'list'
+}
+
+const viewMode = ref(resolveInitialView())
 
 watch(
   () => route.query.view,
   (view) => {
-    viewMode.value = view === 'graph' ? 'graph' : 'list'
+    if (view === 'graph' || view === 'list') {
+      viewMode.value = view
+      writeStored(view)
+    }
   }
 )
 
 function setMode(mode) {
   viewMode.value = mode
+  writeStored(mode)
   const query = { ...route.query }
   if (mode === 'graph') query.view = 'graph'
   else delete query.view

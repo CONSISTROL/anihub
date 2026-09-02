@@ -15,10 +15,11 @@ const nodes = ref([])
 const edges = ref([])
 const running = ref(false)
 const activeId = ref(null)
+const filterTags = ref([])
 const maxShared = ref(1)
 
-const VIEW_W = 1400
-const VIEW_H = 900
+let viewW = 1400
+let viewH = 900
 const MARGIN = 100
 const NODE_H = 46
 const CARD_GAP = 30
@@ -122,9 +123,9 @@ function buildGraph() {
   }
   maxShared.value = es.length ? Math.max(...es.map((e) => e.shared.length)) : 1
 
-  const cx = VIEW_W / 2
-  const cy = VIEW_H / 2
-  const radius = Math.max(140, Math.min(VIEW_W, VIEW_H) / 2 - 160)
+  const cx = viewW / 2
+  const cy = viewH / 2
+  const radius = Math.max(140, Math.min(viewW, viewH) / 2 - 160)
   ns.forEach((node, index) => {
     const angle = ns.length === 1 ? 0 : (index / ns.length) * Math.PI * 2
     node.x = cx + radius * Math.cos(angle) + (Math.random() * 80 - 40)
@@ -137,8 +138,8 @@ function buildGraph() {
 }
 
 function clampToView(n) {
-  n.x = Math.max(MARGIN, Math.min(VIEW_W - MARGIN, n.x))
-  n.y = Math.max(MARGIN, Math.min(VIEW_H - MARGIN, n.y))
+  n.x = Math.max(MARGIN, Math.min(viewW - MARGIN, n.x))
+  n.y = Math.max(MARGIN, Math.min(viewH - MARGIN, n.y))
 }
 
 // 矩形碰撞分离：确保卡片之间不重叠，并保留 CARD_GAP 间距
@@ -172,6 +173,29 @@ function separateOverlaps() {
     }
   }
   ns.forEach(clampToView)
+}
+
+function hasOverlap() {
+  const ns = nodes.value
+  if (!ns.length) return false
+  for (let i = 0; i < ns.length; i++) {
+    for (let j = i + 1; j < ns.length; j++) {
+      const a = ns[i]
+      const b = ns[j]
+      const minX = (nodeWidth(a) + nodeWidth(b)) / 2 + CARD_GAP
+      const minY = nodeHeight() + CARD_GAP
+      if (Math.abs(a.x - b.x) < minX && Math.abs(a.y - b.y) < minY) return true
+    }
+  }
+  return false
+}
+
+function settleCollisions() {
+  let guard = 0
+  while (hasOverlap() && guard < 600) {
+    separateOverlaps()
+    guard += 1
+  }
 }
 
 function applyForces() {
@@ -215,8 +239,8 @@ function applyForces() {
   }
 
   // 向中心轻微聚拢，避免整体漂移
-  const cx = VIEW_W / 2
-  const cy = VIEW_H / 2
+  const cx = viewW / 2
+  const cy = viewH / 2
   for (const n of ns) {
     n.vx += (cx - n.x) * 0.001
     n.vy += (cy - n.y) * 0.001
@@ -240,8 +264,8 @@ function startSimulation() {
     if (iter < MAX_ITER) {
       raf = requestAnimationFrame(step)
     } else {
-      // 结束后再多次碰撞分离，尽量收敛到无重叠状态
-      for (let i = 0; i < 120; i++) separateOverlaps()
+      // 结束后继续碰撞分离，直到没有重叠或达到保护上限
+      settleCollisions()
       running.value = false
       raf = null
     }
@@ -249,24 +273,54 @@ function startSimulation() {
   raf = requestAnimationFrame(step)
 }
 
-// —— 悬停高亮 ——
+// —— 标签筛选 ——
+function allTags() {
+  const counts = {}
+  for (const n of nodes.value) {
+    for (const t of n.tags || []) counts[t] = (counts[t] || 0) + 1
+  }
+  return Object.keys(counts).sort((a, b) => (counts[b] - counts[a]) || a.localeCompare(b))
+}
+
+function matchesFilter(n) {
+  if (!filterTags.value.length) return true
+  return (n.tags || []).some((t) => filterTags.value.includes(t))
+}
+
+function toggleTag(tag) {
+  const index = filterTags.value.indexOf(tag)
+  if (index >= 0) filterTags.value.splice(index, 1)
+  else filterTags.value.push(tag)
+}
+
+// —— 悬停高亮 + 标签筛选 ——
 function nodeClass(n) {
-  if (!activeId.value) return ''
-  if (n.id === activeId.value) return 'is-active'
-  const linked = edges.value.some((e) => {
-    const a = nodes.value[e.i]
-    const b = nodes.value[e.j]
-    return (a.id === activeId.value && b.id === n.id) || (b.id === activeId.value && a.id === n.id)
-  })
-  return linked ? 'is-neighbor' : 'is-dim'
+  if (activeId.value) {
+    if (n.id === activeId.value) return 'is-active'
+    const linked = edges.value.some((e) => {
+      const a = nodes.value[e.i]
+      const b = nodes.value[e.j]
+      return (a.id === activeId.value && b.id === n.id) || (b.id === activeId.value && a.id === n.id)
+    })
+    return linked ? 'is-neighbor' : 'is-dim'
+  }
+  if (filterTags.value.length) return matchesFilter(n) ? 'is-filter-match' : 'is-dim'
+  return ''
 }
 
 function edgeClass(e) {
-  if (!activeId.value) return ''
-  const a = nodes.value[e.i]
-  const b = nodes.value[e.j]
-  const linked = a.id === activeId.value || b.id === activeId.value
-  return linked ? 'is-active' : 'is-dim'
+  if (activeId.value) {
+    const a = nodes.value[e.i]
+    const b = nodes.value[e.j]
+    const linked = a.id === activeId.value || b.id === activeId.value
+    return linked ? 'is-active' : 'is-dim'
+  }
+  if (filterTags.value.length) {
+    const a = nodes.value[e.i]
+    const b = nodes.value[e.j]
+    return matchesFilter(a) && matchesFilter(b) ? 'is-filter-match' : 'is-dim'
+  }
+  return ''
 }
 
 // 关联强度：按当前图谱最大共同标签数归一化到 0~1
@@ -330,8 +384,29 @@ onBeforeUnmount(() => {
         <span class="graph-count">{{ nodes.length }} 个条目 · {{ edges.length }} 条关联</span>
       </div>
 
+      <div v-if="allTags().length" class="filter-bar">
+        <span class="filter-label">标签筛选</span>
+        <button
+          v-for="tag in allTags()"
+          :key="tag"
+          type="button"
+          :class="{ on: filterTags.includes(tag) }"
+          @click="toggleTag(tag)"
+        >
+          #{{ tag }}
+        </button>
+        <button
+          v-if="filterTags.length"
+          type="button"
+          class="filter-clear"
+          @click="filterTags = []"
+        >
+          清除
+        </button>
+      </div>
+
       <div class="graph-canvas">
-        <svg :viewBox="`0 0 ${VIEW_W} ${VIEW_H}`" role="img" aria-label="Wiki 条目标签关联拓扑图">
+        <svg :viewBox="`0 0 ${viewW} ${viewH}`" role="img" aria-label="Wiki 条目标签关联拓扑图">
           <!-- 边：共享标签越多，线越粗、越亮；悬停卡片时显示共享标签 -->
           <g v-for="(e, idx) in edges" :key="'e' + idx">
             <line
@@ -447,6 +522,55 @@ onBeforeUnmount(() => {
   color: var(--text-faint, var(--muted));
 }
 
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 72%, transparent);
+}
+
+.filter-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-right: 2px;
+}
+
+.filter-bar button {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-ios-1) var(--ease-ios-expo),
+    border-color var(--dur-ios-1) var(--ease-ios-expo),
+    color var(--dur-ios-1) var(--ease-ios-expo);
+}
+
+.filter-bar button:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.filter-bar button.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.filter-bar .filter-clear {
+  border-style: dashed;
+}
+
 .graph-canvas {
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -473,7 +597,8 @@ onBeforeUnmount(() => {
     stroke-width var(--dur-ios-1) var(--ease-ios-expo);
 }
 
-.graph-edge.is-active {
+.graph-edge.is-active,
+.graph-edge.is-filter-match {
   stroke: var(--accent);
   opacity: 1;
   filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent) 60%, transparent));
@@ -522,6 +647,7 @@ onBeforeUnmount(() => {
 
 .graph-node.is-active rect.node-bg,
 .graph-node.is-neighbor rect.node-bg,
+.graph-node.is-filter-match rect.node-bg,
 .graph-node:hover rect.node-bg,
 .graph-node:focus-visible rect.node-bg {
   fill: color-mix(in srgb, var(--accent) 12%, var(--panel-2));
