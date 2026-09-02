@@ -1,6 +1,7 @@
 <script setup>
 // Wiki 拓扑视图：把条目作为节点，共享至少一个标签的两个条目之间画一条关联边。
-// 使用轻量 force-directed 布局，点击节点跳转到对应 Wiki 条目。
+// 使用轻量 force-directed 布局 + 矩形碰撞分离，避免卡片重叠。
+// 鼠标悬停/键盘聚焦卡片时高亮相连的边与邻接卡片。
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { listPosts } from '../api/posts'
@@ -13,17 +14,47 @@ const items = ref([])
 const nodes = ref([])
 const edges = ref([])
 const running = ref(false)
+const activeId = ref(null)
 
-const VIEW_W = 1200
-const VIEW_H = 800
-const MARGIN = 80
+const VIEW_W = 1400
+const VIEW_H = 900
+const MARGIN = 100
+const NODE_H = 46
+const CARD_GAP = 30
 let raf = null
 let iter = 0
-const MAX_ITER = 420
+const MAX_ITER = 520
 
-function fmtTitle(title) {
-  const t = String(title || '')
-  return t.length > 24 ? t.slice(0, 23) + '…' : t
+function nodeWidth(n) {
+  return Math.max(96, Math.min(210, String(n.title || '').length * 7.2 + 24))
+}
+
+function nodeHeight() {
+  return NODE_H
+}
+
+// 标题按卡片宽度截断，避免文字超出卡片
+function fmtTitle(n) {
+  const t = String(n.title || '')
+  const maxChars = Math.max(6, Math.floor((nodeWidth(n) - 18) / 7.2))
+  return t.length > maxChars ? t.slice(0, Math.max(1, maxChars - 1)) + '…' : t
+}
+
+// 标签也按卡片宽度截断，避免第二行文字溢出
+function fmtTags(n) {
+  const tags = n.tags || []
+  if (!tags.length) return ''
+  const maxChars = Math.max(4, Math.floor((nodeWidth(n) - 24) / 5.4))
+  let list = tags.slice(0, 3)
+  let text = list.map((t) => '#' + t).join(' ')
+  while (text.length > maxChars && list.length > 1) {
+    list = list.slice(0, -1)
+    text = list.map((t) => '#' + t).join(' ')
+  }
+  if (text.length > maxChars) {
+    text = text.slice(0, Math.max(1, maxChars - 1)) + '…'
+  }
+  return text
 }
 
 function openNode(slug) {
@@ -34,7 +65,7 @@ function buildGraph() {
   const list = items.value
   if (!list.length) return
 
-  const ns = list.map((p, i) => ({
+  const ns = list.map((p) => ({
     id: p.id,
     slug: p.slug,
     title: p.title,
@@ -54,16 +85,54 @@ function buildGraph() {
 
   const cx = VIEW_W / 2
   const cy = VIEW_H / 2
-  const radius = Math.max(120, Math.min(VIEW_W, VIEW_H) / 2 - 120)
+  const radius = Math.max(140, Math.min(VIEW_W, VIEW_H) / 2 - 160)
   ns.forEach((node, index) => {
     const angle = ns.length === 1 ? 0 : (index / ns.length) * Math.PI * 2
-    node.x = cx + radius * Math.cos(angle) + (Math.random() * 60 - 30)
-    node.y = cy + radius * Math.sin(angle) + (Math.random() * 60 - 30)
+    node.x = cx + radius * Math.cos(angle) + (Math.random() * 80 - 40)
+    node.y = cy + radius * Math.sin(angle) + (Math.random() * 80 - 40)
   })
 
   nodes.value = ns
   edges.value = es
   startSimulation()
+}
+
+function clampToView(n) {
+  n.x = Math.max(MARGIN, Math.min(VIEW_W - MARGIN, n.x))
+  n.y = Math.max(MARGIN, Math.min(VIEW_H - MARGIN, n.y))
+}
+
+// 矩形碰撞分离：确保卡片之间不重叠，并保留 CARD_GAP 间距
+function separateOverlaps() {
+  const ns = nodes.value
+  if (!ns.length) return
+  for (let i = 0; i < ns.length; i++) {
+    for (let j = i + 1; j < ns.length; j++) {
+      const a = ns[i]
+      const b = ns[j]
+      const minX = (nodeWidth(a) + nodeWidth(b)) / 2 + CARD_GAP
+      const minY = nodeHeight() + CARD_GAP
+      let dx = b.x - a.x
+      let dy = b.y - a.y
+      const absX = Math.abs(dx)
+      const absY = Math.abs(dy)
+      const ox = minX - absX
+      const oy = minY - absY
+      if (ox <= 0 || oy <= 0) continue
+      if (ox < oy) {
+        const dir = dx >= 0 ? 1 : -1
+        const move = ox / 2
+        a.x -= dir * move
+        b.x += dir * move
+      } else {
+        const dir = dy >= 0 ? 1 : -1
+        const move = oy / 2
+        a.y -= dir * move
+        b.y += dir * move
+      }
+    }
+  }
+  ns.forEach(clampToView)
 }
 
 function applyForces() {
@@ -79,7 +148,7 @@ function applyForces() {
       let dx = a.x - b.x
       let dy = a.y - b.y
       let d = Math.sqrt(dx * dx + dy * dy) || 1
-      const force = 9000 / (d * d)
+      const force = 14000 / (d * d)
       dx /= d
       dy /= d
       a.vx += dx * force
@@ -96,8 +165,8 @@ function applyForces() {
     let dx = a.x - b.x
     let dy = a.y - b.y
     const d = Math.sqrt(dx * dx + dy * dy) || 1
-    const target = Math.max(150, Math.min(240, 220 - e.shared.length * 20))
-    const f = (d - target) * 0.012
+    const target = Math.max(190, Math.min(300, 270 - e.shared.length * 24))
+    const f = (d - target) * 0.014
     dx /= d
     dy /= d
     a.vx -= dx * f
@@ -110,18 +179,16 @@ function applyForces() {
   const cx = VIEW_W / 2
   const cy = VIEW_H / 2
   for (const n of ns) {
-    n.vx += (cx - n.x) * 0.0012
-    n.vy += (cy - n.y) * 0.0012
-
-    // 速度衰减
-    n.vx *= 0.86
-    n.vy *= 0.86
-
+    n.vx += (cx - n.x) * 0.001
+    n.vy += (cy - n.y) * 0.001
+    n.vx *= 0.85
+    n.vy *= 0.85
     n.x += n.vx
     n.y += n.vy
-    n.x = Math.max(MARGIN, Math.min(VIEW_W - MARGIN, n.x))
-    n.y = Math.max(MARGIN, Math.min(VIEW_H - MARGIN, n.y))
   }
+
+  // 每帧做一次碰撞分离，避免中途卡片叠在一起
+  separateOverlaps()
 }
 
 function startSimulation() {
@@ -134,11 +201,33 @@ function startSimulation() {
     if (iter < MAX_ITER) {
       raf = requestAnimationFrame(step)
     } else {
+      // 结束后再多次碰撞分离，尽量收敛到无重叠状态
+      for (let i = 0; i < 120; i++) separateOverlaps()
       running.value = false
       raf = null
     }
   }
   raf = requestAnimationFrame(step)
+}
+
+// —— 悬停高亮 ——
+function nodeClass(n) {
+  if (!activeId.value) return ''
+  if (n.id === activeId.value) return 'is-active'
+  const linked = edges.value.some((e) => {
+    const a = nodes.value[e.i]
+    const b = nodes.value[e.j]
+    return (a.id === activeId.value && b.id === n.id) || (b.id === activeId.value && a.id === n.id)
+  })
+  return linked ? 'is-neighbor' : 'is-dim'
+}
+
+function edgeClass(e) {
+  if (!activeId.value) return ''
+  const a = nodes.value[e.i]
+  const b = nodes.value[e.j]
+  const linked = a.id === activeId.value || b.id === activeId.value
+  return linked ? 'is-active' : 'is-dim'
 }
 
 async function load() {
@@ -171,19 +260,13 @@ onBeforeUnmount(() => {
       <div class="graph-head">
         <span class="graph-tip">
           <span class="dot"></span>
-          共享标签的条目会连在一起；点击节点打开条目
+          共享标签的条目会连在一起；悬停卡片高亮关联；点击节点打开条目
         </span>
         <span class="graph-count">{{ nodes.length }} 个条目 · {{ edges.length }} 条关联</span>
       </div>
 
       <div class="graph-canvas">
         <svg :viewBox="`0 0 ${VIEW_W} ${VIEW_H}`" role="img" aria-label="Wiki 条目标签关联拓扑图">
-          <defs>
-            <marker id="wiki-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-              <path d="M0,0 L8,4 L0,8 Z" class="arrow-head" />
-            </marker>
-          </defs>
-
           <!-- 边：共享标签越多的边越粗 -->
           <g v-for="(e, idx) in edges" :key="'e' + idx">
             <line
@@ -191,7 +274,7 @@ onBeforeUnmount(() => {
               :y1="nodes[e.i]?.y"
               :x2="nodes[e.j]?.x"
               :y2="nodes[e.j]?.y"
-              class="graph-edge"
+              :class="['graph-edge', edgeClass(e)]"
               :stroke-width="Math.min(4, 1 + e.shared.length * 0.8)"
               :title="e.shared.join('、')"
             />
@@ -201,7 +284,7 @@ onBeforeUnmount(() => {
           <g
             v-for="n in nodes"
             :key="n.id"
-            class="graph-node"
+            :class="['graph-node', nodeClass(n)]"
             :transform="`translate(${n.x}, ${n.y})`"
             role="link"
             tabindex="0"
@@ -209,28 +292,32 @@ onBeforeUnmount(() => {
             @click="openNode(n.slug)"
             @keydown.enter="openNode(n.slug)"
             @keydown.space.prevent="openNode(n.slug)"
+            @mouseenter="activeId = n.id"
+            @mouseleave="activeId = null"
+            @focusin="activeId = n.id"
+            @focusout="activeId = null"
           >
             <title>{{ n.title }}{{ n.tags.length ? ' · ' + n.tags.join('、') : '' }}</title>
             <rect
               class="node-bg"
-              :width="Math.max(96, Math.min(210, n.title.length * 7.2 + 24))"
+              :width="nodeWidth(n)"
               height="46"
               rx="12"
               :y="-23"
             />
-            <text class="node-label" :x="Math.max(96, Math.min(210, n.title.length * 7.2 + 24)) / 2" y="-3" text-anchor="middle">
-              {{ fmtTitle(n.title) }}
+            <text class="node-label" :x="nodeWidth(n) / 2" y="-3" text-anchor="middle">
+              {{ fmtTitle(n) }}
             </text>
             <text
               v-if="n.tags.length"
               class="node-tags"
-              :x="Math.max(96, Math.min(210, n.title.length * 7.2 + 24)) / 2"
+              :x="nodeWidth(n) / 2"
               y="13"
               text-anchor="middle"
             >
-              #{{ n.tags.slice(0, 3).join(' #') }}{{ n.tags.length > 3 ? ' …' : '' }}
+              {{ fmtTags(n) }}
             </text>
-            <text v-else class="node-no-tags" :x="Math.max(96, Math.min(210, n.title.length * 7.2 + 24)) / 2" y="13" text-anchor="middle">
+            <text v-else class="node-no-tags" :x="nodeWidth(n) / 2" y="13" text-anchor="middle">
               无标签
             </text>
           </g>
@@ -298,18 +385,37 @@ onBeforeUnmount(() => {
   display: block;
   width: 100%;
   height: auto;
-  min-height: 520px;
+  min-height: 560px;
 }
 
 .graph-edge {
   stroke: color-mix(in srgb, var(--accent) 35%, var(--border));
   stroke-linecap: round;
   pointer-events: none;
+  transition:
+    opacity var(--dur-ios-1) var(--ease-ios-expo),
+    stroke var(--dur-ios-1) var(--ease-ios-expo),
+    stroke-width var(--dur-ios-1) var(--ease-ios-expo);
+}
+
+.graph-edge.is-active {
+  stroke: var(--accent);
+  opacity: 1;
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent) 60%, transparent));
+}
+
+.graph-edge.is-dim {
+  opacity: 0.12;
 }
 
 .graph-node {
   cursor: pointer;
   outline: none;
+  transition: opacity var(--dur-ios-1) var(--ease-ios-expo);
+}
+
+.graph-node.is-dim {
+  opacity: 0.22;
 }
 
 .graph-node rect.node-bg {
@@ -322,27 +428,32 @@ onBeforeUnmount(() => {
     filter var(--dur-ios-1) var(--ease-ios-expo);
 }
 
+.graph-node.is-active rect.node-bg,
+.graph-node.is-neighbor rect.node-bg,
 .graph-node:hover rect.node-bg,
 .graph-node:focus-visible rect.node-bg {
   fill: color-mix(in srgb, var(--accent) 12%, var(--panel-2));
   stroke: var(--accent);
-  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 45%, transparent));
+  filter: drop-shadow(0 0 7px color-mix(in srgb, var(--accent) 50%, transparent));
 }
 
 .graph-node .node-label {
   fill: var(--text);
   font-size: 13px;
   font-weight: 600;
+  pointer-events: none;
 }
 
 .graph-node .node-tags {
   fill: var(--accent);
   font-size: 10px;
+  pointer-events: none;
 }
 
 .graph-node .node-no-tags {
   fill: var(--muted);
   font-size: 10px;
   opacity: 0.7;
+  pointer-events: none;
 }
 </style>
