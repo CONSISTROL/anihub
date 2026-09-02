@@ -71,7 +71,7 @@ const VIS_LABEL = { insider: '仅内部可见', private: '仅管理员可见' }
 </script>
 
 <template>
-  <div class="post-list">
+  <div class="post-list" :class="category">
     <div class="toolbar">
       <form class="search" @submit.prevent="onSearch">
         <input v-model.trim="q" placeholder="搜索标题 / 内容 / 标签…" />
@@ -219,6 +219,48 @@ const VIS_LABEL = { insider: '仅内部可见', private: '仅管理员可见' }
   transform: translateX(2px) scale(0.995);
   transition-duration: 70ms;
   transition-timing-function: var(--ease-ios);
+}
+
+/* Wiki 列表：不占用整行，改为自适应多列卡片，减少横向空白 */
+.wiki .post-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 12px;
+}
+
+.wiki .post-item {
+  padding: 14px 16px;
+}
+
+.wiki .post-body {
+  align-items: flex-start;
+}
+
+.wiki .post-title {
+  white-space: normal;
+  line-height: 1.45;
+  margin-bottom: 6px;
+}
+
+.wiki .post-summary {
+  -webkit-line-clamp: 3;
+}
+
+.wiki .post-meta {
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+.wiki .post-go {
+  display: none;
+}
+
+.wiki .post-item:hover {
+  transform: translateY(-2px);
+}
+
+.wiki .post-item:active {
+  transform: scale(0.985);
 }
 
 /* 置顶公告条目高亮 */
