@@ -163,7 +163,7 @@ onUnmounted(() => {
     <!-- 一键回到顶部 / 回到底部 -->
     <BackToTop v-if="!isGame" />
     <BackToBottom v-if="!isGame" />
-    <!-- 桌宠（可见性由设置页 pet 权限控制，默认仅登录可见；手机端不显示完整桌宠） -->
+    <!-- 桌宠（可见性由设置页 pet 权限控制，默认内部人员可见、游客不可见；手机端不显示完整桌宠） -->
     <Mascot v-if="showPet" @hide="hidePet" />
     <!-- 桌宠隐藏/手机端时显示紧凑图标按钮，点击重新召唤桌宠 -->
     <PetButton v-else-if="!isGame" @click="summonPet" />
