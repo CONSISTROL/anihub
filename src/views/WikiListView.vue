@@ -3,11 +3,31 @@
 // 视图状态同时保存在 URL query 与 localStorage 中：
 // - URL 带 ?view=graph 时优先按 URL 显示（支持分享/前进后退）
 // - URL 不带 view 时使用上次选择，因此从其它页面回到 /wiki 仍能保持拓扑图
-import { ref, watch } from 'vue'
+import { defineAsyncComponent, h, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PostList from '../components/PostList.vue'
-import WikiGraphView from '../components/WikiGraphView.vue'
 import AppIcon from '../components/AppIcon.vue'
+
+// 拓扑图组件（含力导向布局 + SVG 渲染）只在切到“拓扑图”时下载/解析，
+// 默认列表视图不加载它，Wiki 首屏能少下载一块 JS。
+const WikiGraphView = defineAsyncComponent({
+  loader: () => import('../components/WikiGraphView.vue'),
+  loadingComponent: {
+    render: () =>
+      h(
+        'p',
+        {
+          style: {
+            color: 'var(--muted)',
+            fontSize: '14px',
+            textAlign: 'center',
+            padding: '48px 0',
+          },
+        },
+        '图谱加载中…'
+      ),
+  },
+})
 
 const route = useRoute()
 const router = useRouter()

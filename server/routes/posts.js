@@ -14,20 +14,32 @@ const POST_FIELDS = `
   u.username AS author_name
 `
 
+// 列表/搜索/公告等摘要场景：不读取正文列，避免把可能很大的 Wiki HTML/Markdown
+// 全文随列表一起返回（一条数百 KB 的完整 HTML 文档会让 /wiki 列表、站内搜索和拓扑图都变慢）
+const POST_META_FIELDS = `
+  p.id, p.category, p.title, p.slug, p.summary,
+  p.format, p.tags, p.visibility, p.pinned, p.author_id, p.created_at, p.updated_at,
+  u.username AS author_name
+`
+
 function parseTags(raw) {
   try { return JSON.parse(raw) } catch { return [] }
 }
 
 function toPost(row) {
+  const format = row.format || 'md'
   return {
     id: row.id,
     category: row.category,
     title: row.title,
     slug: row.slug,
     summary: row.summary,
-    contentMd: row.content_md,
-    contentHtml: row.content_html,
-    format: row.format || 'md',
+    // 详情/编辑只需当前格式对应的正文列：md 只回 contentMd、html 只回 contentHtml。
+    // 数据库里旧数据/切换历史可能在另一列残留副本（如完整 HTML 同时存在于两列），
+    // 不再返回可让详情 JSON 体积减半，也避免前端拿到无意义的大字符串。
+    contentMd: format === 'html' ? '' : (row.content_md ?? ''),
+    contentHtml: format === 'html' ? (row.content_html ?? '') : '',
+    format,
     tags: parseTags(row.tags),
     visibility: row.visibility,
     pinned: !!row.pinned,
@@ -89,15 +101,12 @@ router.get('/', optionalAuth, (req, res) => {
 
   const total = db.prepare(`SELECT count(*) AS n FROM posts p ${whereSql}`).get(...params).n
   const rows = db
-    .prepare(`SELECT ${POST_FIELDS} FROM posts p JOIN users u ON u.id = p.author_id ${whereSql} ORDER BY p.pinned DESC, p.created_at DESC LIMIT ? OFFSET ?`)
+    .prepare(`SELECT ${POST_META_FIELDS} FROM posts p JOIN users u ON u.id = p.author_id ${whereSql} ORDER BY p.pinned DESC, p.created_at DESC LIMIT ? OFFSET ?`)
     .all(...params, pageSize, (page - 1) * pageSize)
 
   const uid = req.user ? Number(req.user.sub) : null
   res.json({
-    items: rows.map((r) => {
-      const { content_md, ...rest } = r
-      return { ...toPost({ ...r, content_md: '' }), canEdit: uid === r.author_id }
-    }),
+    items: rows.map((r) => ({ ...toPost(r), canEdit: uid === r.author_id })),
     total,
     page,
     pageSize,
@@ -110,7 +119,7 @@ router.get('/announcement', optionalAuth, (req, res) => {
   const vis = visibilityClause(req.user)
   const row = db
     .prepare(
-      `SELECT ${POST_FIELDS} FROM posts p JOIN users u ON u.id = p.author_id
+      `SELECT ${POST_META_FIELDS} FROM posts p JOIN users u ON u.id = p.author_id
        WHERE p.pinned = 1 AND p.category = 'blog' ${vis ? `AND ${vis}` : ''}
        ORDER BY p.updated_at DESC LIMIT 1`
     )
@@ -119,7 +128,7 @@ router.get('/announcement', optionalAuth, (req, res) => {
     return res.status(404).json({ error: { code: 'NOT_FOUND', message: '暂无公告' } })
   }
   // 公告只需标题/摘要，不返回正文
-  res.json(toPost({ ...row, content_md: '', content_html: '' }))
+  res.json(toPost(row))
 })
 
 // 详情：按 id 或 slug 查（带 canEdit 供前端显示编辑按钮）
