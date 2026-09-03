@@ -14,7 +14,8 @@ const { isLoggedIn } = useAuth()
 const items = ref([])
 const total = ref(0)
 const page = ref(1)
-const pageSize = ref(10)
+// Wiki 卡片较紧凑，一页多拉一些，避免高分辨率屏只显示几行很空；博客保持 10 篇
+const pageSize = ref(props.category === 'wiki' ? 24 : 10)
 const q = ref('')
 const loading = ref(true)
 const error = ref('')
@@ -40,7 +41,11 @@ async function load() {
   }
 }
 
-watch(() => props.category, () => { page.value = 1; load() }, { immediate: true })
+watch(() => props.category, () => {
+  pageSize.value = props.category === 'wiki' ? 24 : 10
+  page.value = 1
+  load()
+}, { immediate: true })
 
 const totalPages = () => Math.max(1, Math.ceil(total.value / pageSize.value))
 
@@ -123,7 +128,7 @@ const VIS_LABEL = { insider: '仅内部可见', private: '仅管理员可见' }
 
     <div v-if="totalPages() > 1" class="pager">
       <button class="btn" :disabled="page <= 1" @click="page--; load()"><AppIcon name="chevron-left" :size="13" /> 上一页</button>
-      <span class="pager-info">{{ page }} / {{ totalPages() }} · 共 {{ total }} 篇</span>
+      <span class="pager-info">{{ page }} / {{ totalPages() }} · 共 {{ total }} {{ category === 'blog' ? '篇' : '条' }}</span>
       <button class="btn" :disabled="page >= totalPages()" @click="page++; load()">下一页 <AppIcon name="chevron-right" :size="13" /></button>
     </div>
   </div>
@@ -224,8 +229,8 @@ const VIS_LABEL = { insider: '仅内部可见', private: '仅管理员可见' }
 /* Wiki 列表：不占用整行，改为自适应多列卡片，减少横向空白 */
 .wiki .post-items {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: 14px;
 }
 
 .wiki .post-item {
