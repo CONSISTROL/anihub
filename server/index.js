@@ -13,6 +13,7 @@ import monitorRouter, { serverStats } from './routes/monitor.js'
 import consoleRouter from './routes/console.js'
 import upgradeRouter, { finalizeUpgradeState } from './routes/upgrade.js'
 import visitsRouter, { recordPageVisit } from './routes/visits.js'
+import localWebRouter, { proxyRouter as localWebProxy } from './routes/localWeb.js'
 import { attachConsoleSocket } from './consoleSocket.js'
 import { startMonitor } from './monitorCollector.js'
 import { captureConsole } from './logger.js'
@@ -22,17 +23,17 @@ import { WALLPAPER_DIR } from './config.js'
 captureConsole()
 
 const app = express()
-// 文章正文允许完整 HTML 文档（Archify 等导出可能 >500KB），JSON body 放宽到 20mb
-app.use(express.json({ limit: '20mb' }))
-
-// 请求计数（服务器监控用）
+// 本地 Web 反向代理必须放在 express.json 之前挂载：
+// 代理需要把请求体原样转发给本机服务，不能被 JSON body parser 提前消费。
+// 同时放在访问记录之前，避免把代理访问统计成网站页面访问。
 app.use((req, res, next) => {
   serverStats.requests++
   next()
 })
-
-// 访问记录（仅记录页面文档请求，跳过 API / 静态资源）
+app.use('/local-web', localWebProxy)
 app.use(recordPageVisit)
+// 文章正文允许完整 HTML 文档（Archify 等导出可能 >500KB），JSON body 放宽到 20mb
+app.use(express.json({ limit: '20mb' }))
 
 app.use('/api/auth', authRouter)
 app.use('/api/posts', postsRouter)
@@ -44,6 +45,7 @@ app.use('/api/monitor', monitorRouter)
 app.use('/api/console', consoleRouter)
 app.use('/api/upgrade', upgradeRouter)
 app.use('/api/visits', visitsRouter)
+app.use('/api/local-web', localWebRouter)
 
 // 上传的图片静态托管（dev 模式由 vite 代理 /uploads 到本服务）
 const uploads = path.join(import.meta.dirname, 'uploads')

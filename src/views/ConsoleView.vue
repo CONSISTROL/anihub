@@ -5,6 +5,7 @@
 import { ref } from 'vue'
 import ConsoleTerminal from '../components/ConsoleTerminal.vue'
 import FileManager from '../components/FileManager.vue'
+import LocalWebPanel from '../components/LocalWebPanel.vue'
 import AppIcon from '../components/AppIcon.vue'
 
 // 供 <KeepAlive> 按组件名缓存，离开控制台再回来时保留终端会话和文件管理器状态
@@ -12,7 +13,7 @@ defineOptions({ name: 'ConsoleView' })
 
 const tabs = ref([{ id: 1, title: '终端 1' }])
 const activeId = ref(1)
-const mode = ref('terminal') // 'terminal' | 'files'
+const mode = ref('terminal') // 'terminal' | 'files' | 'local'
 let nextId = 2
 
 function addTab() {
@@ -33,6 +34,10 @@ function closeTab(id) {
 
 function openFiles() {
   mode.value = 'files'
+}
+
+function openLocalWeb() {
+  mode.value = 'local'
 }
 </script>
 
@@ -57,13 +62,22 @@ function openFiles() {
         title="文件管理"
         @click="openFiles"
       ><AppIcon name="folder" :size="14" /> 文件管理</button>
+      <button
+        class="tab local-tab"
+        :class="{ active: mode === 'local' }"
+        title="本地 Web 服务"
+        @click="openLocalWeb"
+      ><AppIcon name="globe" :size="14" /> 本地 Web</button>
     </div>
 
-    <!-- v-show 而非 v-if：切换视图时终端组件保持挂载，会话不被释放 -->
+    <!-- v-show 而非 v-if：切换视图时组件保持挂载，终端会话/文件状态不被释放 -->
     <div v-show="mode === 'files'" class="file-area">
       <FileManager />
     </div>
-    <div v-show="mode !== 'files'" class="term-area">
+    <div v-show="mode === 'local'" class="file-area">
+      <LocalWebPanel />
+    </div>
+    <div v-show="mode !== 'files' && mode !== 'local'" class="term-area">
       <section v-for="t in tabs" :key="t.id" v-show="t.id === activeId" class="term-panel">
         <ConsoleTerminal :active="t.id === activeId && mode === 'terminal'" />
       </section>

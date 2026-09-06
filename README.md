@@ -85,7 +85,7 @@
 - **Anime 成人内容**：同样**按身份控制**——勾选「游客可见成人内容 / 内部人员可见成人内容」（默认仅管理员可见），决定 Anime 日历与站内搜索是否展示标注为成人的番剧
 - **服务器监控**：设置页底部实时显示服务器状态（每 5 秒自动刷新，仅管理员可见）——运行时长、收到请求数、系统内存 / 进程 RSS / 堆内存占用、磁盘使用容量 / 系统负载、CPU 核数、Node 版本、系统平台、主机名、数据库大小（含 WAL）与文章数；百分比使用率（系统内存 / 本进程 RSS / 磁盘容量）使用**动态液体液面卡片**展示，不同卡片使用不同颜色；并有**监控图表**：CPU 使用率、内存使用、网络带宽（入网/出网）、系统盘读写，**时间范围可选 小时 / 天 / 周 / 月 / 自定义**（悬停显示各序列数值）。指标由后端每 5 秒采样（CPU/内存用 node:os；网络 Linux 读 /proc/net/dev、Windows 用 netstat；磁盘 Linux 读 /proc/diskstats、Windows 用 Get-Counter）存入 SQLite，保留 35 天，按范围自动分桶聚合
 - **访问统计**：设置页新增“访问统计”（仅管理员可见）——总访问量 / 今日 / 昨日 / 独立 IP、近 30 天访问趋势、热门页面与热门 IP、按时间倒序的访问记录（IP、IP 归属地、路径、来源页、User-Agent），支持按 IP / 路径 / UA 搜索与分页；**点击热门页面**可查看访问过该页面的 IP 列表（按访问次数排序，支持分页与继续查看 IP 详情）；**点击任意访问记录行**可查看该条完整详情（完整路径 / Referer / UA 等），点击 IP 可继续打开 **IP 来源详情**（完整归属地、ISP、经纬度、访问汇总、路径/UA 分布与最近访问记录）；并内置 **IP 来源地图**（Leaflet + OpenStreetMap），用圆点标注访问量、热力图显示热点区域；热力层不会遮挡圆点点击，点击圆点弹窗后还可继续点击“查看 IP 详情”查看该热点下的 IP 列表。生产模式由 Express 记录整页加载，SPA 内部路由切换由前端自动上报，避免重复计数；IP 归属地使用 ip-api.com 免费接口按需异步解析并缓存到 SQLite（含经纬度）
-- **管理员控制台**（`/console`，登录后导航栏入口）：**多终端标签页**（＋新建 / ✕关闭，后台标签页会话保持运行，与 Xshell 一致）；每个标签页是**真正的终端模拟器（xterm.js）**——`htop`/`vim`/`top` 等全屏程序正常显示（Linux 下经伪终端 PTY + 原始字节流，ANSI 由终端层解析）；**bash 原生能力**：Tab 补全、提示符、方向键历史、Ctrl+C 中断、Ctrl+D 退出 shell、cd 均与本地终端一致；**Ctrl+C / ⏹ 停止**中断（PTY 发 SIGINT，真终端行为，连续 3 次强制 SIGKILL；超时硬杀兜底）；**终端内查找**（Enter 下一个 / Shift+Enter 上一个，显示匹配位置）；2000 行滚动回看；会话退出后可一键重启；全宽全高铺满页面（服务器日志直接在终端里 `journalctl -u anihub` / `tail -f` 查看）。仅管理员可用：路由守卫 401 + 服务端 `authRequired` + WebSocket token 三重校验。**提权**：部署脚本给运行用户配了免密 sudo（`/etc/sudoers.d/anihub`），控制台里可 `sudo -i` 进 root shell、`sudo bash deploy/update.sh` 一键更新网站（见下方部署章节）
+- **管理员控制台**（`/console`，登录后导航栏入口）：**多终端标签页**（＋新建 / ✕关闭，后台标签页会话保持运行，与 Xshell 一致）；每个标签页是**真正的终端模拟器（xterm.js）**——`htop`/`vim`/`top` 等全屏程序正常显示（Linux 下经伪终端 PTY + 原始字节流，ANSI 由终端层解析）；**bash 原生能力**：Tab 补全、提示符、方向键历史、Ctrl+C 中断、Ctrl+D 退出 shell、cd 均与本地终端一致；**Ctrl+C / ⏹ 停止**中断（PTY 发 SIGINT，真终端行为，连续 3 次强制 SIGKILL；超时硬杀兜底）；**终端内查找**（Enter 下一个 / Shift+Enter 上一个，显示匹配位置）；2000 行滚动回看；会话退出后可一键重启；全宽全高铺满页面（服务器日志直接在终端里 `journalctl -u anihub` / `tail -f` 查看）。仅管理员可用：路由守卫 401 + 服务端 `authRequired` + WebSocket token 三重校验。**提权**：部署脚本给运行用户配了免密 sudo（`/etc/sudoers.d/anihub`），控制台里可 `sudo -i` 进 root shell、`sudo bash deploy/update.sh` 一键更新网站（见下方部署章节）。**本地 Web 访问**：控制台新增「本地 Web」标签页，自动扫描服务器本机监听的 TCP 端口并列出，也可手动输入 `127.0.0.1:端口` / `localhost:端口/路径`；点击后在**新标签页**通过本站反向代理打开（仅允许回环地址，避免 SSRF；自动注入/改写 HTML `<base>`、改写 JS 中常见 `baseURL`、注册 Service Worker 把页面发出的根路径请求改写到代理前缀，支持 Vue Router 等 history 路由的 SPA）。
 - **内部人员身份**：只读的中间身份。点击顶栏「键盘」按钮打开网页内虚拟键盘，输入 `inside` 并回车即获取（口令见 `server/.env` 的 `INSIDER_KEYWORD`，默认 `inside`），导航栏出现「🔑 内部模式」徽标，可点 ✕ 退出；内部人员能看到游客看不到的页面与文章，但不能编辑、不能进设置页；**进入内部模式后全站页面都显示壁纸背景**（与 Anime 页共用同一套壁纸与缓存）
 - **隐藏登录入口**：界面不显示任何登录按钮，点击顶栏「键盘」按钮打开网页内虚拟键盘，输入 `login` 并回车弹出登录框（Esc 或点击遮罩关闭）；已登录右上角显示当前站点版本号与提交 ID（格式 `版本号.提交ID`）以及 设置 / 退出 按钮
 
@@ -199,6 +199,7 @@ sudo -i                       # 或直接进 root shell（su 需 root 密码，s
 │   ├── routes/wallpapers.js      # 壁纸目录扫描（GET /api/wallpapers → 图片 URL 列表）
 │   ├── routes/monitor.js         # 服务器监控（实时状态 + 历史图表分桶查询）
 │   ├── routes/console.js         # 管理员控制台（执行命令 / 查看服务端日志）
+│   ├── routes/localWeb.js        # 本地 Web 代理（会话 Cookie / 本机端口扫描 / 回环反向代理）
 │   ├── logger.js                 # console 输出捕获（环形缓冲，供控制台查看）
 │   ├── monitorCollector.js       # 指标采集器（每 5s 采样 CPU/内存/网络/磁盘 → SQLite metrics）
 │   ├── uploads/                  # 上传的图片（gitignore，运行时生成）
@@ -213,6 +214,7 @@ sudo -i                       # 或直接进 root shell（su 需 root 密码，s
     │   ├── http.js               # fetch 封装（/api 前缀、Bearer、401 自动登出）
     │   ├── posts.js              # 文章接口（含置顶 / 公告）
     │   ├── settings.js           # 设置接口
+    │   ├── localWeb.js           # 本地 Web 访问接口（扫描/会话）
     │   └── anilist.js            # Anime 服务端缓存接口封装（/api/anime）
     ├── composables/
     │   ├── useAuth.js            # 登录状态（管理员 token + 内部人员 token，localStorage 持久化）
@@ -281,6 +283,7 @@ sudo -i                       # 或直接进 root shell（su 需 root 密码，s
 
 ## 已知说明
 
+- **本地 Web 代理是路径前缀反向代理**（`/local-web/http/<host>:<port>/...`），适合纯静态页面、支持子路径部署的服务和简单 HTTP 服务；如果目标服务硬编码从根路径发起 `/api` 等请求且不支持配置 base URL，可能需要先在服务自身配置子路径前缀，或使用控制台/SSH 做端口转发访问。
 - **中文标题与中文简介为人工维护的映射表**（AniList 不提供中文标题/简介字段）：标题见 [src/data/zhTitles.js](src/data/zhTitles.js)、简介见 [src/data/zhDescriptions.js](src/data/zhDescriptions.js)、类型标签中文翻译见 [src/data/zhGenres.js](src/data/zhGenres.js)，均完整覆盖 2026 夏季档全部正常向作品（成人向除外）；语言为中文时点开详情会优先显示中文简介，未收录的动画回退显示罗马音标题与英文简介。新增条目时在文件中按 `AniList id: '内容'` 追加即可（id 可在动画详情弹窗的 AniList 链接中查到）
 - 档期内已完结 / 未开播 / 缺排期的动画不出现在日历上，会列在日历下方
 - 日历数据由服务器按需回源 AniList 并缓存（外网需可达）；首次请求或缓存过期时服务器拉取，之后页面只读服务器缓存。AniList 官方故障时若服务器已有缓存仍可正常显示，无缓存时日历会显示错误提示，其余页面不受影响

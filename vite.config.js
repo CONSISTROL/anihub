@@ -27,6 +27,8 @@ export default defineConfig({
       // dev 模式下 /api 与上传图片转发到后端（生产由 Express 直接托管，无需代理）
       '/api': 'http://localhost:3001',
       '/uploads': 'http://localhost:3001',
+      // 本地 Web 代理：控制台新标签页打开 /local-web/http/... 时转发到后端
+      '/local-web': 'http://localhost:3001',
       // 控制台 WebSocket 实时输出
       '/ws': { target: 'http://localhost:3001', ws: true },
     },
