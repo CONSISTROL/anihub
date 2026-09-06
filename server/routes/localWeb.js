@@ -391,11 +391,16 @@ function rewriteSetCookie(endpoint, cookie) {
   return normalized.join('; ')
 }
 
-/** 改写外部 JS 里常见的 API baseURL：例如 axios.create({ baseURL: "/api" })。
- *  不能像 HTML 一样把所有根路径字符串都改写，否则会破坏前端路由字符串。 */
+/** 改写外部 JS 里常见的 API 根路径：
+ *  1. axios.create({ baseURL: "/api" })
+ *  2. 动态拼接的 /api/reports/xxx、/api/jobs/xxx 等字符串
+ *  不能把所有根路径字符串都改写，否则会破坏前端路由字符串。 */
 function rewriteLocalJavaScript(js, endpoint) {
   const prefix = proxyPrefix(endpoint)
-  return js.replace(/(\bbaseURL\s*[:=]\s*["'])\/(?!\/|local-web\/http\/)/g, `$1${prefix}/`)
+  let out = js.replace(/(\bbaseURL\s*[:=]\s*["'])\/(?!\/|local-web\/http\/)/g, `$1${prefix}/`)
+  // 只处理 /api/ 这种明确是后端接口的根路径；不碰 /dashboard、/selection 等前端路由
+  out = out.replace(/(["'`])\/api\//g, `$1${prefix}/api/`)
+  return out
 }
 
 function handleProxy(req, res) {

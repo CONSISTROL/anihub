@@ -100,10 +100,25 @@
 # 1. 安装依赖
 npm install
 
-# 2. 终端 A：启动后端 API（端口 3001，--watch 自动重启）
+# 2. 一键启动前后端（推荐）
+npm run dev:all
+# Windows 也可以直接双击 dev.bat；Linux/macOS 可执行 bash dev.sh
+```
+
+上面命令会同时启动：
+
+- 后端 API：`http://localhost:3001`（`--watch` 自动重启）
+- 前端 Vite：`http://localhost:5173`
+
+按 `Ctrl+C` 会同时停止前后端。
+
+如果不想用一键脚本，也可以手动分两个终端：
+
+```bash
+# 终端 A：启动后端 API（端口 3001，--watch 自动重启）
 npm run dev:server
 
-# 3. 终端 B：启动前端开发服务器
+# 终端 B：启动前端开发服务器
 npm run dev
 ```
 
