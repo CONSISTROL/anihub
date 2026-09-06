@@ -120,11 +120,11 @@ const FALLBACK_DURATION = 10.09 // 与原始 client 一致，加载前先按 10s
 // 随机闲聊文案（站点原有轻交互保留）
 const LINES = ['你好呀～', '今天也要加油！', '呜…想摸鱼了', '外面在忙什么呢', '要不要陪我玩？']
 
-const videoEl = ref(null)
+const videoAEl = ref(null)
+const videoBEl = ref(null)
+const frontVideo = ref(0)
 const state = ref('idle')
 const animName = ref(IDLE)
-const src = computed(() => WEBM(animName.value))
-const loop = ref(false)
 const flipped = ref(false) // 朝右移动/站姿时水平翻转（素材默认朝左）
 // 停靠角落：右下角（left = 视口宽 - 宠物宽 - 边距）
 const HOME_X = () => Math.max(MARGIN, window.innerWidth - PET_W - MARGIN)
@@ -151,40 +151,70 @@ let movePlan = null
 let dragStartX = 0
 let dragBaseX = 0
 let moved = false
+let switchToken = 0
 
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)]
 const randomBetween = (min, max) => Math.floor(min + Math.random() * (max - min))
 
-/* —— 播放底层 —— */
-function applySource(path, loopFlag) {
-  const video = videoEl.value
-  if (!video) return
-  if (video.src) {
-    try {
-      const current = new URL(video.src).pathname
-      if (current === new URL(path, window.location.origin).pathname) {
-        video.loop = loopFlag
-        if (video.ended || video.paused) {
-          video.currentTime = 0
-          video.play().catch(() => {})
-        }
-        return
-      }
-    } catch {
-      /* 忽略 URL 解析失败 */
-    }
+/* —— 播放底层（双缓冲：新视频加载完成后再淡入，避免切换闪白/黑） —— */
+function videoByIndex(i) {
+  return i === 0 ? videoAEl.value : videoBEl.value
+}
+
+function currentVideo() {
+  return videoByIndex(frontVideo.value)
+}
+
+function samePath(video, path) {
+  if (!video?.src) return false
+  try {
+    return new URL(video.src).pathname === new URL(path, window.location.origin).pathname
+  } catch {
+    return false
   }
-  video.loop = loopFlag
-  video.src = path
-  video.currentTime = 0
-  video.play().catch(() => {})
+}
+
+function applySource(path, loopFlag) {
+  const old = currentVideo()
+  // 前台已经是同一段动画：如果播完/暂停就原地重播，不切缓冲
+  if (old && samePath(old, path)) {
+    old.loop = loopFlag
+    if (old.ended || old.paused) {
+      old.currentTime = 0
+      old.play().catch(() => {})
+    }
+    return
+  }
+
+  const token = ++switchToken
+  const next = videoByIndex(1 - frontVideo.value)
+  if (!next) return
+
+  next.loop = loopFlag
+  next.src = path
+  next.currentTime = 0
+  next.classList.remove('is-front')
+  next.load()
+
+  const onReady = () => {
+    next.removeEventListener('loadeddata', onReady)
+    if (token !== switchToken) return // 已被更新的切换取代
+    next.classList.add('is-front')
+    if (old && old !== next) {
+      old.classList.remove('is-front')
+      old.pause() // 停掉旧视频，避免残留 ended 打断新动画
+    }
+    frontVideo.value = 1 - frontVideo.value
+    next.play().catch(() => {})
+  }
+  next.addEventListener('loadeddata', onReady)
+  if (next.readyState >= 2) onReady()
 }
 
 function switchAnim(name, kind) {
   stopMove()
   state.value = kind
   animName.value = name
-  loop.value = false
   applySource(WEBM(name), false)
 }
 
@@ -200,7 +230,6 @@ function playDrag() {
   stopMove()
   state.value = 'drag'
   animName.value = DRAG
-  loop.value = true
   applySource(WEBM(DRAG), true)
 }
 
@@ -253,7 +282,9 @@ function pickNext() {
   playRandomAction()
 }
 
-function onVideoEnded() {
+function onVideoEnded(e) {
+  const el = e?.currentTarget
+  if (el && el !== currentVideo()) return // 只处理当前前台视频的 ended，避免后台残留事件打断动画
   if (state.value === 'drag') {
     if (dragging.value) return
     playIdle()
@@ -288,7 +319,7 @@ function tryMove(preferredName = null) {
   const rightBound = window.innerWidth - MARGIN - halfW
   if (targetCenter < leftBound || targetCenter > rightBound) return false
 
-  const video = videoEl.value
+  const video = currentVideo()
   const duration = video && Number.isFinite(video.duration) && video.duration > 0 ? video.duration : FALLBACK_DURATION
   movePlan = {
     startLeft: posX.value,
@@ -300,7 +331,6 @@ function tryMove(preferredName = null) {
   }
   state.value = 'move'
   animName.value = chosen.name
-  loop.value = false
   applySource(WEBM(chosen.name), false)
   lastMoveRaf(performance.now())
   return true
@@ -308,7 +338,7 @@ function tryMove(preferredName = null) {
 
 function lastMoveRaf(now) {
   if (!movePlan) return
-  const video = videoEl.value
+  const video = currentVideo()
   const t = video?.currentTime || 0
   const d = movePlan.duration || FALLBACK_DURATION
   const lead = movePlan.leadSec
@@ -533,9 +563,20 @@ onUnmounted(() => {
   >
     <div class="pet-stage" :class="{ flip: flipped }">
       <video
-        ref="videoEl"
-        :src="src"
-        :loop="loop"
+        ref="videoAEl"
+        class="video-layer"
+        :class="{ 'is-front': frontVideo === 0 }"
+        muted
+        playsinline
+        autoplay
+        preload="auto"
+        aria-hidden="true"
+        @ended="onVideoEnded"
+      ></video>
+      <video
+        ref="videoBEl"
+        class="video-layer"
+        :class="{ 'is-front': frontVideo === 1 }"
         muted
         playsinline
         autoplay
@@ -623,10 +664,18 @@ onUnmounted(() => {
 }
 
 .pet-stage video {
-  display: block;
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
+  object-fit: fill;
   pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+.pet-stage video.is-front {
+  opacity: 1;
 }
 
 /* 状态气泡 */
