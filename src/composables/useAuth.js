@@ -34,6 +34,12 @@ function clearSession() {
   user.value = null
   localStorage.removeItem(TOKEN_KEY)
   localStorage.removeItem(USER_KEY)
+  // 同时清除本地 Web 代理的 HttpOnly Cookie，避免退出登录后仍能访问 /local-web/*
+  try {
+    fetch('/api/local-web/session', { method: 'DELETE', credentials: 'same-origin' }).catch(() => {})
+  } catch {
+    /* 清除失败不影响本地退出逻辑 */
+  }
 }
 
 function enterInsider(t) {

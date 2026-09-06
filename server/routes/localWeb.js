@@ -16,16 +16,16 @@ const apiRouter = Router()
 const proxyRouter = Router()
 
 const COOKIE_NAME = 'anihub_local_web'
-const COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000
 const SCAN_TTL_MS = 30000
 const UPSTREAM_TIMEOUT_MS = 30000
 
 /* -------------------- 会话 Cookie（供新标签页全页代理鉴权） -------------------- */
 
 apiRouter.post('/session', authRequired, (req, res) => {
-  // 这个 Cookie 只发给 /local-web/*，不会随网站其它页面 / API 发送
+  // 这个 Cookie 只发给 /local-web/*，不会随网站其它页面 / API 发送。
+  // 不设置 maxAge = 会话 Cookie：关闭浏览器即失效；退出登录时前端也会主动删除。
   const token = jwt.sign(
-    { role: 'admin', sub: req.user.sub, username: req.user.username, purpose: 'local-web' },
+    { role: 'admin', sub: req.user.sub, username: req.user.username, purpose: 'local-web', v: 2 },
     JWT_SECRET,
     { expiresIn: '7d' }
   )
@@ -33,7 +33,16 @@ apiRouter.post('/session', authRequired, (req, res) => {
     httpOnly: true,
     sameSite: 'lax',
     path: '/local-web',
-    maxAge: COOKIE_MAX_AGE,
+  })
+  res.json({ ok: true })
+})
+
+// 退出登录时由前端调用，清除本地 Web 专用 Cookie，避免登出后仍能访问代理
+apiRouter.delete('/session', (req, res) => {
+  res.clearCookie(COOKIE_NAME, {
+    httpOnly: true,
+    sameSite: 'lax',
+    path: '/local-web',
   })
   res.json({ ok: true })
 })
@@ -260,7 +269,7 @@ function localWebAuth(req, res, next) {
   let ok = false
   try {
     const payload = jwt.verify(token || '', JWT_SECRET)
-    ok = payload?.role === 'admin' && payload?.purpose === 'local-web'
+    ok = payload?.role === 'admin' && payload?.purpose === 'local-web' && payload?.v === 2
   } catch {
     ok = false
   }
