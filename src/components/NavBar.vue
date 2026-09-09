@@ -83,15 +83,34 @@ const scrolled = ref(false)
 function onScroll() {
   scrolled.value = (window.scrollY || document.documentElement.scrollTop || 0) > 8
 }
+
+// 壁纸对齐基准：让全站 body 壁纸与 Wiki 拓扑图一样以「导航栏下方内容区中心」取景。
+// 实时测量导航栏实际高度（折叠/换行/登录按钮出现都会变），把壁纸中心下移 navH/2。
+const navEl = ref(null)
+let navRo = null
+function syncWpShift() {
+  const h = navEl.value ? navEl.value.offsetHeight : 0
+  document.documentElement.style.setProperty('--wp-shift', h / 2 + 'px')
+}
 onMounted(() => {
   onScroll()
   window.addEventListener('scroll', onScroll, { passive: true })
+  syncWpShift()
+  if (navEl.value && typeof ResizeObserver !== 'undefined') {
+    navRo = new ResizeObserver(() => syncWpShift())
+    navRo.observe(navEl.value)
+  }
+  window.addEventListener('resize', syncWpShift)
 })
-onUnmounted(() => window.removeEventListener('scroll', onScroll))
+onUnmounted(() => {
+  window.removeEventListener('scroll', onScroll)
+  navRo?.disconnect()
+  window.removeEventListener('resize', syncWpShift)
+})
 </script>
 
 <template>
-  <nav class="navbar" :class="{ scrolled }">
+  <nav ref="navEl" class="navbar" :class="{ scrolled }">
     <div class="brand-wrap" @mouseleave="menuHidden = false">
       <router-link to="/" class="brand" @click="onBrandClick">AniHub</router-link>
       <!-- 手机比例：鼠标悬停 AniHub 时展开，菜单位置紧贴品牌下方 -->
@@ -142,9 +161,11 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
   align-items: center;
   gap: 10px 24px;
   padding: 10px 24px;
-  background: color-mix(in srgb, var(--panel) 85%, transparent);
-  backdrop-filter: blur(8px);
-  border-bottom: 1px solid var(--border);
+  /* 半透明液态玻璃：只保留少量面板底色，让壁纸从导航条中透出 */
+  background: color-mix(in srgb, var(--panel) 55%, transparent);
+  backdrop-filter: blur(18px) saturate(1.5);
+  -webkit-backdrop-filter: blur(18px) saturate(1.5);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   transition:
     box-shadow var(--dur-ios-2) var(--ease-ios-expo),
     background-color var(--dur-ios-2) var(--ease-ios-expo),

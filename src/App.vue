@@ -7,6 +7,7 @@ import LoginModal from './components/LoginModal.vue'
 import InsiderBackground from './components/InsiderBackground.vue'
 import BackToTop from './components/BackToTop.vue'
 import BackToBottom from './components/BackToBottom.vue'
+import ScrollIndicator from './components/ScrollIndicator.vue'
 import Mascot from './components/Mascot.vue'
 import PetButton from './components/PetButton.vue'
 import VirtualKeyboard from './components/VirtualKeyboard.vue'
@@ -163,6 +164,8 @@ onUnmounted(() => {
     <!-- 一键回到顶部 / 回到底部 -->
     <BackToTop v-if="!isGame" />
     <BackToBottom v-if="!isGame" />
+    <!-- 右侧悬浮磁贴滚动指示条（仅页面可滚动时出现；非游戏页） -->
+    <ScrollIndicator v-if="!isGame" />
     <!-- 桌宠（可见性由设置页 pet 权限控制，默认内部人员可见、游客不可见；手机端不显示完整桌宠） -->
     <Mascot v-if="showPet" @hide="hidePet" />
     <!-- 桌宠隐藏/手机端时显示紧凑图标按钮，点击重新召唤桌宠 -->

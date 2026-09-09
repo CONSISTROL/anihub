@@ -195,6 +195,7 @@ function makeBackgroundStars() {
   }
   const g = new THREE.BufferGeometry()
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+  // 深空底下的白色星点（与站点主题无关）
   const m = new THREE.PointsMaterial({ color: 0xffffff, size: 1.6, sizeAttenuation: true, transparent: true, opacity: 0.7, depthWrite: false })
   const p = new THREE.Points(g, m)
   scene.add(p)
@@ -282,13 +283,8 @@ function wrapFull(text, font, maxPx) {
 }
 
 function themeTextColor() {
-  try {
-    const v = getComputedStyle(document.documentElement).getPropertyValue('--text').trim()
-    if (v) return new THREE.Color(v)
-  } catch (_) {
-    /* 忽略 */
-  }
-  return new THREE.Color('#e8eaf0')
+  // 星系区域恒为深色背景，文字统一用浅色保证可读
+  return new THREE.Color('#ffffff')
 }
 
 function makeLabelSprite(text, tint) {
@@ -643,11 +639,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div
-          v-if="hoverInfo"
-          class="graph-tooltip"
-          :style="{ left: hoverPos.x + 'px', top: hoverPos.y + 'px' }"
-        >
+        <div v-if="hoverInfo" class="graph-tooltip">
           <div class="tt-title">{{ hoverInfo.title }}</div>
           <div v-if="hoverInfo.tags.length" class="tt-tags">
             {{ hoverInfo.tags.slice(0, 5).map((t) => '#' + t).join(' ') }}
@@ -796,7 +788,7 @@ onBeforeUnmount(() => {
 
 .hud-stat {
   font-size: 12px;
-  color: #c3cde0;
+  color: #dbe4f5;
   background: rgba(16, 21, 36, 0.72);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 999px;
@@ -815,7 +807,7 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 999px;
   background: rgba(16, 21, 36, 0.8);
-  color: #c3cde0;
+  color: #dbe4f5;
   font: inherit;
   font-size: 12px;
   cursor: pointer;
@@ -833,17 +825,20 @@ onBeforeUnmount(() => {
 /* —— 悬停信息卡 —— */
 .graph-tooltip {
   position: absolute;
+  top: 12px;
+  left: 14px;
   z-index: 5;
-  transform: translate(16px, -55%);
-  max-width: 340px;
-  min-width: 200px;
-  padding: 10px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  max-width: 320px;
+  min-width: 170px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 12px;
-  background: rgba(13, 18, 32, 0.94);
-  backdrop-filter: blur(10px);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
-  color: #edf1f7;
+  /* 深空底上的玻璃卡：固定浅色文字，深浅主题都可读；半透明不遮节点 */
+  background: rgba(10, 15, 28, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.3);
+  color: #eef2fa;
   font-size: 12px;
   line-height: 1.5;
   pointer-events: none;
@@ -860,7 +855,7 @@ onBeforeUnmount(() => {
 }
 
 .tt-links {
-  color: #9aa7c4;
+  color: #9db2d6;
   margin-top: 3px;
 }
 
@@ -868,7 +863,7 @@ onBeforeUnmount(() => {
   list-style: none;
   margin: 6px 0 0;
   padding: 6px 0 0;
-  border-top: 1px dashed rgba(255, 255, 255, 0.14);
+  border-top: 1px dashed rgba(255, 255, 255, 0.16);
 }
 
 .tt-neighbors li {
@@ -876,7 +871,7 @@ onBeforeUnmount(() => {
   align-items: baseline;
   gap: 8px;
   margin-top: 2px;
-  color: #edf1f7;
+  color: #eef2fa;
 }
 
 .tt-neighbors li .tt-shared {
@@ -887,7 +882,38 @@ onBeforeUnmount(() => {
 }
 
 .tt-more {
-  color: #9aa7c4;
+  color: #9db2d6;
   margin-top: 4px;
 }
+
+/* —— 星系内固定深色玻璃样式（不随站点深浅主题变化，保证切换主题时可读） —— */
+.filter-bar .filter-label {
+  color: #9db2d6;
+}
+
+.filter-bar button {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #cfd9ec;
+}
+
+.filter-bar button:hover {
+  color: #fff;
+  border-color: #8ab4ff;
+}
+
+.filter-bar button.on {
+  background: #7aa7ff;
+  border-color: #7aa7ff;
+  color: #fff;
+}
+
+.filter-bar .filter-clear {
+  border-style: dashed;
+}
+
+.graph-hint {
+  color: #9db2d6;
+}
+
 </style>

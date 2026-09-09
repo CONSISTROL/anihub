@@ -1,6 +1,8 @@
 <script setup>
-// 一键回到底部：页面不在底部时显示右下角按钮，点击平滑滚动到底部
-import { onMounted, onUnmounted, ref } from 'vue'
+// 一键回到底部：页面不在底部时显示右下角按钮，点击平滑滚动到底部。
+// 沉浸式整页视图（如 wiki 拓扑图）中隐藏：页面内容≈视口，滚动到底无意义。
+import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { immersiveView } from '../composables/uiOverlay'
 import AppIcon from './AppIcon.vue'
 
 const HIDE_NEAR_BOTTOM = 300 // 距底部小于该距离时隐藏
@@ -10,8 +12,11 @@ function onScroll() {
   const doc = document.documentElement
   const max = doc.scrollHeight - window.innerHeight
   const y = window.scrollY || doc.scrollTop || 0
-  visible.value = max > 0 && y < max - HIDE_NEAR_BOTTOM
+  visible.value = !immersiveView.value && max > 0 && y < max - HIDE_NEAR_BOTTOM
 }
+
+// 进入/退出沉浸视图也要即时响应（期间可能没有 scroll 事件）
+watch(immersiveView, () => onScroll())
 
 function toBottom() {
   window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' })

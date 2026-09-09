@@ -27,6 +27,13 @@
   --muted: #6a7284;
   --accent: #4a6cf7;
   --accent-hover: #3d5ee8;
+  /* 悬浮滚动条（液态玻璃）：浅色主题用偏灰玻璃保证可见度 */
+  --sbar-track-1: rgba(255, 255, 255, 0.9);
+  --sbar-track-2: rgba(255, 255, 255, 0.45);
+  --sbar-track-3: rgba(255, 255, 255, 0.62);
+  --sbar-track-brd: rgba(96, 106, 130, 0.38);
+  --sbar-thumb-1: rgba(96, 106, 130, 0.72);
+  --sbar-thumb-2: rgba(96, 106, 130, 0.42);
   color-scheme: light;
 }
 
@@ -41,6 +48,13 @@
   --muted: #8b93a7;
   --accent: #6c8cff;
   --accent-hover: #7d9aff;
+  /* 悬浮滚动条（液态玻璃）：深色主题用亮白玻璃 */
+  --sbar-track-1: rgba(255, 255, 255, 0.34);
+  --sbar-track-2: rgba(255, 255, 255, 0.1);
+  --sbar-track-3: rgba(255, 255, 255, 0.2);
+  --sbar-track-brd: rgba(255, 255, 255, 0.4);
+  --sbar-thumb-1: rgba(255, 255, 255, 0.95);
+  --sbar-thumb-2: rgba(255, 255, 255, 0.55);
   color-scheme: dark;
 }
 
@@ -67,7 +81,8 @@ body {
   padding: 0;
 }
 
-/* 始终保留主滚动条空间，避免进度条/滚动条出现时页面宽度跳动 */
+/* 始终保留主滚动条空间，避免进度条/滚动条出现时页面宽度跳动；
+   Firefox 端滚动条配色/宽度在下方“滚动条”区块统一设置 */
 html {
   overflow-y: scroll;
   scrollbar-gutter: stable;
@@ -75,16 +90,18 @@ html {
 
 body {
   background-color: var(--bg);
-  /* Anime 页壁纸：--wallpaper-url 由 index.html 内联脚本 / AnimeBackground.vue 设置，
-     叠加同色半透明遮罩（等效原来的低透明度 img）；其余页面无壁纸时仅显示纯色背景 */
+  /* 全站壁纸：--wallpaper-url 由 useWallpaper 管理器 / index.html 内联脚本设置（按身份）,
+     同色半透明遮罩仅保留少量底色以保证文字可读，壁纸约透出 38%（浅色主题更淡见下）。
+     取景与 Wiki 拓扑图统一：以「导航栏下方内容区中心」为基准
+     （--wp-shift = 导航栏高度一半，由 NavBar 实时测量写入） */
   background-image:
     linear-gradient(
-      color-mix(in srgb, var(--bg) 85%, transparent),
-      color-mix(in srgb, var(--bg) 85%, transparent)
+      color-mix(in srgb, var(--bg) 62%, transparent),
+      color-mix(in srgb, var(--bg) 62%, transparent)
     ),
     var(--wallpaper-url, none);
   background-size: cover;
-  background-position: center;
+  background-position: center calc(50% + var(--wp-shift, 0px));
   background-attachment: fixed;
   color: var(--text);
   font-family:
@@ -94,12 +111,12 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* 浅色主题：壁纸更淡（对应原来的 0.09 透明度） */
+/* 浅色主题：壁纸稍淡（约透出 28%），避免浅色底 + 强壁纸对比过高 */
 :root[data-theme='light'] body {
   background-image:
     linear-gradient(
-      color-mix(in srgb, var(--bg) 91%, transparent),
-      color-mix(in srgb, var(--bg) 91%, transparent)
+      color-mix(in srgb, var(--bg) 72%, transparent),
+      color-mix(in srgb, var(--bg) 72%, transparent)
     ),
     var(--wallpaper-url, none);
 }
@@ -266,23 +283,37 @@ a {
   background: color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
-/* 滚动条 */
+/* 滚动条：主滚动条统一美化（透明轨道 + 圆角半透明主题滑块，深浅主题都好看） */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 4px;
+  background: color-mix(in srgb, var(--text) 26%, transparent);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
   transition: background var(--dur-ios-1) var(--ease-ios-expo);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--muted);
+  background: color-mix(in srgb, var(--text) 44%, transparent);
 }
 
 ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 去掉滚动条上下箭头按钮与角落 */
+::-webkit-scrollbar-button {
+  width: 0;
+  height: 0;
+  display: none;
+  background: transparent;
+}
+
+::-webkit-scrollbar-corner {
   background: transparent;
 }
 
@@ -298,16 +329,18 @@ a {
   display: none;
 }
 
+/* 根滚动条不显示（Chromium/Firefox），页面仍可滚轮/触控/键盘滚动；
+   隐藏后无箭头、无白条，且因无滚动条视觉，宽度恒定 */
 html,
 body {
-  scrollbar-width: auto;
+  scrollbar-width: none;
 }
 
 html::-webkit-scrollbar,
 body::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-  display: block;
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 /* 全站通用的入场关键帧：组件内引用（页面切换动画在 App.vue 定义） */

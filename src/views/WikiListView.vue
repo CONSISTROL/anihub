@@ -6,10 +6,11 @@
 // 切换动画：悬浮的“列表/拓扑图”按钮常驻，在两种视图各自锚点间平滑滑行；
 // 视图内容以淡出/上移缩放过渡（列表 ↔ 星系）。
 import { defineAsyncComponent, h, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import PostList from '../components/PostList.vue'
 import AppIcon from '../components/AppIcon.vue'
 import { useAuth } from '../composables/useAuth'
+import { immersiveView } from '../composables/uiOverlay'
 import { exportWikiZip, importWikiZip } from '../api/posts'
 
 // 拓扑图组件（three.js 星系渲染）只在切到“拓扑图”时下载/解析
@@ -64,17 +65,44 @@ function setMode(mode) {
   router.replace({ query })
 }
 
-// 拓扑图整页铺满时锁定页面滚动，避免切换瞬间滚动条出现/消失造成背景抖动
-function applyBodyLock() {
-  const on = viewMode.value === 'graph'
-  if (on) document.documentElement.style.overflow = 'hidden'
-  else if (document.documentElement.style.overflow === 'hidden') document.documentElement.style.overflow = ''
+// 拓扑图是“沉浸式整页视图”：置位全局标志，让回到底部/回到顶部等
+// 文档滚动辅助按钮隐藏（拓扑页本身不可滚，出现即无意义）
+function syncImmersive() {
+  immersiveView.value = viewMode.value === 'graph'
+}
+
+// 拓扑图整页铺满：不改动站点滚动条/滚动条槽位设置（宽度恒定，离场不跳位），
+// 高度按导航实际高度动态计算（消除底部白边），全站已有 scrollbar-gutter: stable 兜住右侧。
+const graphFullEl = ref(null)// 星系区域底色（用于 .wiki-view 背景过渡 + 盖住右侧滚动条槽）
+const GRAPH_BG = '#0b1322'
+// 拓扑模式：不动 overflow / gutter / scrollbar 宽度（宽度恒定），
+// 把根背景设为深空色并临时用 color-scheme: dark 让原生滚动条变深色 ——
+// 右侧既无白条也无宽度/形态变化；离开时恢复。
+function applyGraphLock(on) {
+  const html = document.documentElement
+  if (on) {
+    html.style.backgroundColor = GRAPH_BG
+    html.style.colorScheme = 'dark'
+  } else {
+    html.style.backgroundColor = ''
+    html.style.colorScheme = ''
+  }
+}
+function syncGraphHeight() {
+  if (viewMode.value !== 'graph') return
+  const nav = document.querySelector('.navbar')
+  const top = nav ? Math.ceil(nav.getBoundingClientRect().bottom) : 0
+  const h = Math.max(200, Math.floor(window.innerHeight - top))
+  // 用 CSS 变量先于视图挂载定好高度：进场即正确尺寸，不会“先大后小”缩放
+  document.documentElement.style.setProperty('--graph-h', h + 'px')
+}
+function onWindowResizeGraph() {
+  if (viewMode.value === 'graph') syncGraphHeight()
 }
 
 // 背景色淡入淡出（列表透明 ↔ 拓扑底色）。无论从哪个入口进入/切到拓扑图都会播放：
 // 先置透明 → 下一帧再写入目标色，让 CSS transition 真正产生过渡。
 const wikiViewEl = ref(null)
-const GRAPH_BG = 'color-mix(in srgb, var(--panel-2) 55%, var(--bg))'
 let bgRaf = 0
 function setPageBg(mode, animate) {
   const el = wikiViewEl.value
@@ -99,30 +127,37 @@ function setPageBg(mode, animate) {
 }
 
 watch(viewMode, (v) => {
-  applyBodyLock()
   setPageBg(v, true)
+  applyGraphLock(v === 'graph')
+  syncImmersive()
+  if (v === 'graph') {
+    // 立刻写好高度变量（新视图尚未挂载也不会有“先大后小”）
+    syncGraphHeight()
+    requestAnimationFrame(() => requestAnimationFrame(syncGraphHeight))
+    window.addEventListener('resize', onWindowResizeGraph)
+  } else {
+    window.removeEventListener('resize', onWindowResizeGraph)
+  }
 })
+function onViewEnter() {
+  requestAnimationFrame(() => requestAnimationFrame(syncGraphHeight))
+}
 onMounted(() => {
-  applyBodyLock()
   // 直接进入拓扑页（其它页面导航过来 / 刷新 / 分享链接）也要有背景淡入
   setPageBg(viewMode.value, viewMode.value === 'graph')
+  applyGraphLock(viewMode.value === 'graph')
+  syncImmersive()
+  if (viewMode.value === 'graph') {
+    syncGraphHeight()
+    window.addEventListener('resize', onWindowResizeGraph)
+    requestAnimationFrame(() => requestAnimationFrame(syncGraphHeight))
+  }
 })
 onBeforeUnmount(() => {
   cancelAnimationFrame(bgRaf)
-  document.documentElement.style.overflow = ''
-})
-
-// 离开拓扑图到其它页面：先把 page 背景色淡出（再交给 App 的内容淡出），避免硬切
-let leaveTimer = 0
-onBeforeRouteLeave(() => {
-  if (viewMode.value !== 'graph') return true
-  const el = wikiViewEl.value
-  if (!el) return true
-  el.style.transition = 'background-color 0.38s ease'
-  el.style.backgroundColor = 'transparent'
-  return new Promise((resolve) => {
-    leaveTimer = setTimeout(() => resolve(true), 400)
-  })
+  window.removeEventListener('resize', onWindowResizeGraph)
+  applyGraphLock(false)
+  syncImmersive()
 })
 
 // —— 管理员批量导出 / 导入（wiki）——
@@ -190,10 +225,13 @@ async function onImportFile(e) {
 <template>
   <div ref="wikiViewEl" class="wiki-view">
     <!-- 视图内容（淡出 → 进入，带轻微上移/缩放） -->
-    <Transition name="view" mode="out-in">
+    <Transition name="view" mode="out-in" @after-enter="onViewEnter">
       <div :key="viewMode" :class="['view-body', viewMode]">
         <!-- 拓扑图：整页星系（不显示页面标题 / 批量管理） -->
-        <div v-if="viewMode === 'graph'" class="graph-full">
+        <div v-if="viewMode === 'graph'" ref="graphFullEl" class="graph-full">
+          <!-- 天幕背景层：半透明深空面纱 + 站点壁纸（无壁纸时退化为纯色，观感不变）。
+               透明度见下方 .graph-sky 的 --graph-sky-alpha 注释 -->
+          <div class="graph-sky" aria-hidden="true"></div>
           <WikiGraphView />
         </div>
 
@@ -228,7 +266,12 @@ async function onImportFile(e) {
     </Transition>
 
     <!-- 视图切换按钮：两种视图固定在同一位置（右上角），不移动不跳变 -->
-    <div class="view-float" role="tablist" aria-label="Wiki 视图切换">
+    <div
+      class="view-float"
+      :class="{ 'on-graph': viewMode === 'graph' }"
+      role="tablist"
+      aria-label="Wiki 视图切换"
+    >
       <button
         type="button"
         role="tab"
@@ -271,7 +314,7 @@ async function onImportFile(e) {
   opacity: 0;
 }
 
-/* —— 视图切换按钮：固定在 page 右上角（导航条下方），列表/拓扑图同一位置 —— */
+/* —— 视图切换按钮：固定在 page 右上角（导航条下方），列表/拓扑图同一位置；随主题配色 —— */
 .view-float {
   position: absolute;
   top: 12px;
@@ -281,11 +324,11 @@ async function onImportFile(e) {
   align-items: center;
   gap: 2px;
   padding: 3px;
-  background: rgba(10, 14, 26, 0.62);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: color-mix(in srgb, var(--panel) 84%, transparent);
+  border: 1px solid var(--border);
   border-radius: 10px;
   backdrop-filter: blur(8px);
-  box-shadow: 0 6px 18px rgb(0 0 0 / 0.22);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
   animation: float-in 0.4s ease var(--dur-ios-1) backwards;
 }
 
@@ -304,7 +347,7 @@ async function onImportFile(e) {
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: #cfd8ea;
+  color: var(--muted);
   font: inherit;
   font-size: 12px;
   font-weight: 600;
@@ -316,20 +359,51 @@ async function onImportFile(e) {
 }
 
 .view-float button:hover {
-  color: #fff;
+  color: var(--text);
 }
 
 .view-float button.on {
-  background: #7aa7ff;
+  background: var(--accent);
+  color: #fff;
+}
+
+/* 在拓扑图（深空区）里：切换按钮固定为深色玻璃浅字，不随站点主题变浅 */
+.view-float.on-graph {
+  background: rgba(16, 21, 36, 0.82);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.view-float.on-graph button {
+  color: #cfd9ec;
+}
+
+.view-float.on-graph button:hover {
   color: #fff;
 }
 
 .graph-full {
   position: relative;
   width: 100%;
-  height: calc(100vh - 58px);
+  /* 高度由 JS 在进入视图前算好写入 --graph-h，避免进场后收缩；兜底铺满视口 */
+  height: var(--graph-h, 100dvh);
   min-height: 560px;
   overflow: hidden;
+}
+
+/* 天幕背景层：最底为不透明深空色（无壁纸时的观感与原来一致），
+   中间叠站点壁纸（--wallpaper-url，继承自 <html>），最上罩半透明深空面纱。
+   面纱 alpha = 0.8：壁纸透过 20%；数值调小壁纸更明显（可读性下降），调大则更接近纯深空。 */
+.graph-sky {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-color: #0b1322;
+  background-image:
+    linear-gradient(180deg, rgba(11, 19, 34, 0.8), rgba(11, 19, 34, 0.8)),
+    var(--wallpaper-url, none);
+  background-size: auto, cover;
+  background-position: center;
 }
 
 .graph-full :deep(.wiki-graph) {
@@ -337,6 +411,8 @@ async function onImportFile(e) {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  position: relative;
+  z-index: 1; /* 盖在天幕背景层之上 */
 }
 
 .graph-full :deep(.filter-bar) {

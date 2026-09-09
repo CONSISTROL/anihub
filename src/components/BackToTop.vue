@@ -1,14 +1,20 @@
 <script setup>
-// 一键回到顶部：页面滚动超过阈值后右下角显示圆形按钮，点击平滑回到顶部
-import { onMounted, onUnmounted, ref } from 'vue'
+// 一键回到顶部：页面滚动超过阈值后右下角显示圆形按钮，点击平滑回到顶部。
+// 沉浸式整页视图（如 wiki 拓扑图）中隐藏。
+import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { immersiveView } from '../composables/uiOverlay'
 import AppIcon from './AppIcon.vue'
 
 const SHOW_AFTER = 300 // 滚动超过该距离（px）才显示
 const visible = ref(false)
 
 function onScroll() {
-  visible.value = (window.scrollY || document.documentElement.scrollTop || 0) > SHOW_AFTER
+  visible.value =
+    !immersiveView.value && (window.scrollY || document.documentElement.scrollTop || 0) > SHOW_AFTER
 }
+
+// 进入/退出沉浸视图也要即时响应
+watch(immersiveView, () => onScroll())
 
 function toTop() {
   window.scrollTo({ top: 0, behavior: 'smooth' })
