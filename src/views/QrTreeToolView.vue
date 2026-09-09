@@ -38,13 +38,16 @@ const PETAL_TIP = 0xfff4f8 // 花瓣亮色点缀
 const LAWN_LIGHT = 0xb7f0c3 // 二维码浅色模块 → 嫩绿
 const LAWN_DARK = 0x2c9e55 // 二维码深色模块 → 深草绿
 
-/* —— 相机：3D = 45° 俯视、草坪一个角正对前方；俯视 = 垂直看草坪 —— */
-const CAM_YAW = (Math.PI * 3) / 4 // 前左角对向相机（与俯视切换时旋转最小的一组角之一）
-const CAM_PITCH = Math.PI / 4 // 45° 俯视
-const CAM_R = 15
-const VIEW_TARGET_Y = 3.2 // 3D 视角注视高度（树冠中下部）
-const TOP_POS = new THREE.Vector3(0, 17.5, 0.02)
-const TOP_LOOK = new THREE.Vector3(0, 0, 0)
+/* —— 相机轨迹：3D（45° 俯视、草坪一角正对前方）↔ 俯视（近乎垂直） —— */
+const CAM_YAW = (Math.PI * 3) / 4 // 3D 时方位角（前左角对向相机）
+const CAM_PITCH = Math.PI / 4 // 3D 时俯仰角（与地面夹角）45°
+const TOP_EL = (87.5 * Math.PI) / 180 // 俯视时几乎垂直（避开正对 +Y 的退化朝向）
+const CAM_R = 15 // 相机到注视点距离（两种视角一致，过渡无缩放跳变）
+const VIEW_TARGET_Y = 3.2 // 3D 时注视高度（树冠中下部）；俯视时注视草坪(0)
+
+/* —— 过渡动画 —— */
+const MORPH_DUR = 1350 // 3D ↔ 俯视完整过渡时长（ms）
+const GROW_SPAN = 3 // 体素平滑生长带（体素层数）：每层有一段渐显过渡，消除“逐层弹跳”
 
 /* —— 场景对象 —— */
 const mount = ref(null)
@@ -56,7 +59,6 @@ let lawnMesh = null
 let treeMesh = null
 let voxels = [] // { x, z, j, l, color }
 let rafId = 0
-let lastTs = 0
 let disposed = false
 let animating = false
 let debounceTimer = null
@@ -74,14 +76,15 @@ let frustNeededH = 0
 // 变形进度：1 = 3D 树，0 = 俯视草坪（体素收回地面）
 let morphT = 1
 let morphTarget = 1
+// 过渡时间轴（按 rAF 时间戳推进，动画时长固定，与帧率无关）
+let animFrom = 0 // 本次过渡的起始值（0 或 1）
+let animStart = 0 // 本次过渡开始时间戳（ms）
 
 const _dummy = new THREE.Object3D()
 const _color = new THREE.Color()
 const _corner = new THREE.Vector3()
-const _look = new THREE.Vector3()
-const _camPos = new THREE.Vector3()
-const _cam3dPos = new THREE.Vector3()
-const _cam3dLook = new THREE.Vector3()
+const _posePos = new THREE.Vector3()
+const _poseLook = new THREE.Vector3()
 
 /* —— 工具 —— */
 function hashText(s) {
@@ -100,8 +103,8 @@ function mulberry32(seed) {
   }
 }
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
-function easeInOutCubic(t) {
-  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+function easeInOutQuint(t) {
+  return t < 0.5 ? 16 * t * t * t * t * t : 1 - Math.pow(-2 * t + 2, 5) / 2
 }
 function pickColor(rng, palette, sat = 0.07, lit = 0.06) {
   const c = new THREE.Color(palette[Math.floor(rng() * palette.length)])
@@ -332,21 +335,25 @@ function buildTree(text) {
   world.add(treeMesh)
 }
 
-/* —— 更新体素矩阵（m: 1 = 树形，0 = 收回地面） —— */
-function updateVoxels(m) {
+/* —— 更新体素矩阵（P: 1 = 树形，0 = 收回地面） —— */
+function updateVoxels(P) {
   if (!treeMesh) return
-  const e = easeInOutCubic(clamp(m, 0, 1))
+  const p = clamp(P, 0, 1)
+  // 生长波前沿（层单位）：0 → 树顶
+  const front = p * treeLayers
   for (let i = 0; i < voxels.length; i++) {
     const v = voxels[i]
-    // 整树从地面逐层长高：第 j 层体素约在 e = j / treeLayers 时出现，
-    // 在其层位窗口内从地面升到最终高度、由细变粗（树干先出、树冠随后，不会悬浮）
-    const q = clamp(e * treeLayers - v.j, 0, 1)
-    if (q <= 0.004) {
+    // 平滑生长带：体素并不“弹跳”出现，而是在波前沿扫过其层位时
+    // 经 GROW_SPAN 层宽的过渡带内连续升到最终高度（smoothstep 缓变）
+    const q01 = clamp((front - v.j) / GROW_SPAN, 0, 1)
+    const s = q01 * q01 * (3 - 2 * q01)
+    if (s <= 0.002) {
       _dummy.position.set(v.x, 0, v.z)
       _dummy.scale.set(0.001, 0.001, 0.001)
     } else {
-      _dummy.position.set(v.x, (v.j + 0.5) * VOX * q, v.z)
-      _dummy.scale.set(q < 1 ? 0.6 + 0.4 * q : 1, q, q < 1 ? 0.6 + 0.4 * q : 1)
+      _dummy.position.set(v.x, (v.j + 0.5) * VOX * s, v.z)
+      const sxz = q01 < 1 ? 0.6 + 0.4 * s : 1
+      _dummy.scale.set(sxz, s, sxz)
     }
     _dummy.rotation.set(0, 0, 0)
     _dummy.updateMatrix()
@@ -355,27 +362,35 @@ function updateVoxels(m) {
   treeMesh.instanceMatrix.needsUpdate = true
 }
 
-function snapVoxels() {
+// 直接落到当前变形进度的静止姿态（体素矩阵 + 相机）
+function snapScene() {
   if (treeMesh) updateVoxels(morphT)
+  updateCamera(morphT)
 }
 
-/* —— 相机 —— */
-function get3DPose() {
-  const ce = Math.cos(CAM_PITCH)
-  _cam3dPos.set(Math.cos(CAM_YAW) * ce * CAM_R, Math.sin(CAM_PITCH) * CAM_R, Math.sin(CAM_YAW) * ce * CAM_R)
-  _cam3dPos.y += VIEW_TARGET_Y
-  _cam3dLook.set(0, VIEW_TARGET_Y, 0)
-  return { pos: _cam3dPos, look: _cam3dLook }
+/* —— 相机：按 P∈[0,1] 在「俯视」与「3D 45° 俯视」之间取连续位姿 —— */
+function poseFor(P) {
+  const p = clamp(P, 0, 1)
+  // 俯仰 87.5° → 45°、方位 0° → 135°、注视高度 0 → 3.2：
+  // 相机沿平滑弧线从草坪正上方落到“二维码一角对向自己”的 45° 视角，
+  // 无生硬旋转跳变，2D/3D 之间旋转量最小
+  const el = TOP_EL + (CAM_PITCH - TOP_EL) * p
+  const az = CAM_YAW * p
+  const ce = Math.cos(el)
+  _poseLook.set(0, VIEW_TARGET_Y * p, 0)
+  _posePos.set(
+    ce * Math.cos(az) * CAM_R,
+    Math.sin(el) * CAM_R + _poseLook.y,
+    ce * Math.sin(az) * CAM_R
+  )
+  return { pos: _posePos, look: _poseLook }
 }
 
-function updateCamera(m) {
+function updateCamera(P) {
   if (!camera) return
-  const e = easeInOutCubic(clamp(m, 0, 1))
-  const p3 = get3DPose()
-  _camPos.lerpVectors(TOP_POS, p3.pos, e)
-  _look.lerpVectors(TOP_LOOK, p3.look, e)
-  camera.position.copy(_camPos)
-  camera.lookAt(_look)
+  const pose = poseFor(P)
+  camera.position.copy(pose.pos)
+  camera.lookAt(pose.look)
 }
 
 // 测量某相机姿态下内容包围盒所需的屏幕半宽/半高（世界单位）
@@ -412,11 +427,17 @@ function fitFrustum() {
   const el = mount.value
   if (!el || !camera) return
   const aspect = (el.clientWidth || 720) / (el.clientHeight || 480)
-  const p3 = get3DPose()
-  const a = measurePose(p3.pos, p3.look)
-  const b = measurePose(TOP_POS, TOP_LOOK)
-  frustNeededV = Math.max(a.vh, b.vh)
-  frustNeededH = Math.max(a.hh, b.hh)
+  // 沿整条相机轨迹采样度量后取并集：过渡任意中间姿态内容都不会出画
+  let needV = 0
+  let needH = 0
+  for (let k = 0; k <= 10; k++) {
+    const p = poseFor(k / 10)
+    const m = measurePose(p.pos, p.look)
+    needV = Math.max(needV, m.vh)
+    needH = Math.max(needH, m.hh)
+  }
+  frustNeededV = needV
+  frustNeededH = needH
   applyFrustum(aspect, frustNeededV, frustNeededH)
 }
 
@@ -461,17 +482,20 @@ function generate() {
   }
   lastGenerated = text
   // 更新字符串：不做过渡动画，直接展示新生成的 3D 树
+  animating = false
   morphT = 1
   morphTarget = 1
   view.value = '3d'
   busy.value = false
-  snapVoxels()
-  updateCamera(1)
+  snapScene()
   status.value = '完成：已生成 3D 樱花二维码树。点击画面可切换俯视草坪 / 3D。'
 }
 
 function toggleView() {
   if (animating) return
+  animFrom = morphT // 已静止，取值 0 或 1
+  animStart = performance.now()
+  animating = true
   if (view.value === '3d') {
     view.value = 'top'
     morphTarget = 0
@@ -489,28 +513,25 @@ function toggleView() {
 function tick(ts) {
   if (disposed) return
   rafId = requestAnimationFrame(tick)
-  if (!lastTs) lastTs = ts
-  const dt = Math.min(0.05, (ts - lastTs) / 1000)
-  lastTs = ts
 
-  const diff = morphTarget - morphT
-  if (Math.abs(diff) > 0.0006) {
-    animating = true
-    // 帧率无关的指数趋近，约 1.2s 完成
-    morphT += diff * (1 - Math.exp(-dt * 3.1))
-    updateVoxels(morphT)
-    updateCamera(morphT)
-  } else {
-    if (animating) {
+  if (animating) {
+    const pr = (ts - animStart) / MORPH_DUR
+    if (pr >= 1) {
+      // 精确收尾到终点姿态，避免浮点残差
       animating = false
       busy.value = false
       morphT = morphTarget
-      snapVoxels()
-      updateCamera(morphT)
+      snapScene()
       status.value =
         morphTarget === 1
           ? '完成：已生成 3D 樱花二维码树。点击画面可切换俯视草坪 / 3D。'
           : '俯视：二维码草坪可直接扫码，无多余边距。点击画面回到 3D 树。'
+    } else {
+      // 固定时长 + easeInOutQuint：起止平滑无顿挫，与帧率无关
+      const eased = easeInOutQuint(pr)
+      morphT = animFrom + (morphTarget - animFrom) * eased
+      updateVoxels(morphT)
+      updateCamera(morphT)
     }
   }
   renderer.render(scene, camera)
@@ -542,13 +563,11 @@ onMounted(() => {
   try {
     rebuildScene(initText)
     lastGenerated = initText
-    snapVoxels()
-    updateCamera(1)
+    snapScene() // 初次进入直接展示 3D 树（不做入场过渡）
     status.value = '完成：已生成 3D 樱花二维码树。点击画面可切换俯视草坪 / 3D。'
   } catch (e) {
     error.value = `生成失败：${e?.message || e}`
   }
-  lastTs = 0
   rafId = requestAnimationFrame(tick)
 })
 
