@@ -135,6 +135,8 @@ a {
   gap: 5px;
   padding: 7px 14px;
   font-size: 13px;
+  line-height: 1.5; /* 统一按钮与链接型按钮（router-link <a>）的行高，消除高度差 */
+  text-decoration: none; /* 链接型按钮（如“新建条目”是 <a>）也不显示下划线 */
   color: var(--text);
   background: var(--panel-2);
   border: 1px solid var(--border);

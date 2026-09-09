@@ -1,8 +1,9 @@
 <script setup>
-// Wiki 拓扑视图（三维）：以「关联最多的条目」为核（太阳），其余条目像电子/行星一样沿各自的
-// 3D 轨道绕行；共享 ≥1 个标签的条目之间画发光连线（拓扑信息保留），线越亮关联越强。
-// 交互：拖拽旋转 / 滚轮缩放 / 悬停高亮（变暗无关节点与连线）/ 标签筛选 / 点击打开条目 / 可暂停绕行。
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+// Wiki 拓扑视图（旋臂盘状星系 · three.js）
+// - 条目按标签主题分到几条旋臂上，沿螺线铺开，星系整体缓慢绕中心公转；
+// - 共享标签的条目之间有极淡的关联线（悬停时提亮相连线、点亮邻接点）；
+// - 悬停看详情浮层，点击打开对应 Wiki；标签筛选变淡无关内容；可暂停公转。
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
@@ -14,584 +15,465 @@ const loading = ref(true)
 const error = ref('')
 const countInfo = reactive({ nodes: 0, edges: 0 })
 const filterTags = ref([])
-const paused = ref(false)
+const spinning = ref(true)
 const hoverId = ref(null)
 const hoverPos = reactive({ x: 0, y: 0 })
 const hostEl = ref(null)
 const reducedMotion =
   typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
-// ================= 数据（非响应式，运行期常量） =================
-const nodes = [] // { idx, id, slug, title, tags, degree }
-const edgeList = [] // { a, b, shared }
-const edgeIndexByNode = new Map() // nodeIdx -> edgeIdx[]
-const NODE_IDX = new Map() // post.id -> nodeIdx
-let hubIdx = -1 // 核节点下标；-1 = 没有可用的共享标签，只画装饰核心
+// ================= 数据 =================
+const nodes = [] // { id, slug, title, tags, degree, arm, r, th }
+const edges = [] // { a, b, shared }
+const NODE_IDX = new Map()
 let maxShared = 1
-let viewScale = 1
 
-// ================= 文本测量 =================
-let measureCtx = null
-function textWidth(text, size) {
-  const s = String(text || '')
-  if (!measureCtx) {
-    measureCtx = typeof document !== 'undefined' ? document.createElement('canvas').getContext('2d') : null
-  }
-  if (!measureCtx) return s.length * size * 0.62
-  measureCtx.font = `600 ${size}px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif`
-  return measureCtx.measureText(s).width
-}
-// 标题标签单行显示：不换行。宽度能放下就完整显示，超过宽度上限才在末尾加省略号。
-function lineFit(text, size, maxPx) {
-  const s = String(text || '')
-  if (!s || textWidth(s, size) <= maxPx) return s
-  const chars = Array.from(s)
-  const ell = '…'
-  let lo = 0
-  let hi = chars.length
-  while (lo < hi) {
-    const mid = Math.ceil((lo + hi) / 2)
-    if (textWidth(chars.slice(0, mid).join('') + ell, size) <= maxPx) lo = mid
-    else hi = mid - 1
-  }
-  return (lo ? chars.slice(0, lo).join('') : '') + ell
-}
-
-// ================= 主题色 =================
-function cssColor(name, fallback) {
-  try {
-    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
-    return v ? new THREE.Color(v) : new THREE.Color(fallback)
-  } catch (_) {
-    return new THREE.Color(fallback)
-  }
-}
-function shade(col, t) {
-  const c = col.clone()
-  return t >= 0 ? c.lerp(new THREE.Color('#ffffff'), t) : c.lerp(new THREE.Color('#000000'), -t)
-}
-
-// ================= three.js 状态 =================
+// ================= three.js =================
 let renderer = null
 let scene = null
 let camera = null
 let controls = null
 let clock = null
 let raf = 0
-let resizeObs = null
-let stars = null
-let hubGroup = null
-let hubMesh = null
-let satellites = [] // { n, i, shell, R, phase, speed, q, pos, group, mesh, mat, label }
-let satByIndex = new Map()
-let edgeSegs = null
-let edgePosAttr = null
-let edgeColAttr = null
-let edgeBaseCol = []
-let shellGuides = []
-const ORIGIN = new THREE.Vector3()
-let accentColor = new THREE.Color('#5b8cff')
-let textColor = new THREE.Color('#e8e8f0')
+let ro = null
+let galaxy = null
+let isoGroup = null
+let markers = [] // 与 nodes 对齐 { mesh, mat, nd, color, label, labelMat }
+let edgeLines = [] // 与 edges 对齐 { line, mat }
+let lastW = 800
+let lastH = 600
+let armAngle = 0
+
+const R_MAX = 240
+const R_IN = 40
+const ARM_SWEEP = 4.4
+let armCount = 3
+const PALETTE = ['#8fb7ff', '#7fe0d0', '#ffb86b', '#e29cff', '#ff8fa3', '#9fe36b']
 
 // ================= 构图 =================
 function buildGraph(list) {
   nodes.length = 0
-  edgeList.length = 0
-  edgeIndexByNode.clear()
+  edges.length = 0
   NODE_IDX.clear()
-  edgeBaseCol.length = 0
-
   list.forEach((p, i) => {
-    nodes.push({ idx: i, id: p.id, slug: p.slug, title: p.title, tags: Array.isArray(p.tags) ? p.tags : [] })
+    nodes.push({
+      idx: i,
+      id: p.id,
+      slug: p.slug,
+      title: p.title,
+      tags: Array.isArray(p.tags) ? p.tags : [],
+      degree: 0,
+      arm: 0,
+      r: 0,
+      th: 0,
+    })
     NODE_IDX.set(p.id, i)
-    edgeIndexByNode.set(i, [])
   })
-
   for (let i = 0; i < nodes.length; i++) {
     for (let j = i + 1; j < nodes.length; j++) {
       const shared = nodes[i].tags.filter((t) => nodes[j].tags.includes(t))
-      if (shared.length) {
-        edgeList.push({ a: i, b: j, shared })
-        edgeIndexByNode.get(i).push(edgeList.length - 1)
-        edgeIndexByNode.get(j).push(edgeList.length - 1)
-      }
+      if (shared.length) edges.push({ a: i, b: j, shared })
     }
   }
-  maxShared = edgeList.length ? Math.max(...edgeList.map((e) => e.shared.length)) : 1
+  maxShared = edges.length ? Math.max(...edges.map((e) => e.shared.length)) : 1
   nodes.forEach((n, i) => {
-    n.degree = (edgeIndexByNode.get(i) || []).length
+    n.degree = edges.reduce((acc, e) => acc + (e.a === i || e.b === i ? 1 : 0), 0)
   })
-
-  hubIdx = -1
-  if (nodes.length === 1) {
-    hubIdx = 0
-  } else {
-    let best = 0
-    nodes.forEach((n, i) => {
-      if (n.degree > best) {
-        best = n.degree
-        hubIdx = i
-      }
-    })
-    if (best === 0) hubIdx = -1 // 没有共享标签 → 装饰核心
-  }
   countInfo.nodes = nodes.length
-  countInfo.edges = edgeList.length
+  countInfo.edges = edges.length
 }
 
-// BFS 距核层数 → 环
-function shellOf(idx) {
-  if (hubIdx < 0 || idx === hubIdx) return 0
-  const dist = new Array(nodes.length).fill(-1)
-  dist[hubIdx] = 0
-  const q = [hubIdx]
-  while (q.length) {
-    const cur = q.shift()
-    for (const ei of edgeIndexByNode.get(cur) || []) {
-      const e = edgeList[ei]
-      const nxt = e.a === cur ? e.b : e.a
-      if (dist[nxt] === -1) {
-        dist[nxt] = dist[cur] + 1
-        q.push(nxt)
+// 有关联的条目分到旋臂；完全无关联的放到星系外围 3D 稀疏区（不属于星系，不随盘转）
+function assignArms() {
+  const connected = nodes.filter((n) => n.degree > 0)
+  const iso = nodes.filter((n) => n.degree === 0)
+  const n = connected.length
+  armCount = n ? Math.min(5, Math.max(1, Math.round(n / 9))) : 1
+  if (n >= 1 && n < 4) armCount = 1
+  const freq = new Map()
+  for (const nd of connected) for (const t of nd.tags || []) freq.set(t, (freq.get(t) || 0) + 1)
+  const themes = [...freq.keys()].sort((a, b) => freq.get(b) - freq.get(a)).slice(0, armCount)
+  const fill = new Array(armCount).fill(0)
+  const least = () => {
+    let k = 0
+    for (let i = 1; i < armCount; i++) if (fill[i] < fill[k]) k = i
+    return k
+  }
+  for (const nd of connected) {
+    let pick = -1
+    let best = Infinity
+    for (let a = 0; a < themes.length; a++) {
+      if ((nd.tags || []).includes(themes[a]) && fill[a] < best) {
+        pick = a
+        best = fill[a]
       }
     }
+    nd.arm = pick >= 0 ? pick : least()
+    fill[nd.arm]++
   }
-  const d = dist[idx]
-  if (d <= 1) return 0
-  if (d === 2) return 1
-  return 2
+  const byArm = new Map()
+  for (let a = 0; a < armCount; a++) byArm.set(a, [])
+  for (const nd of connected) byArm.get(nd.arm).push(nd)
+  for (let a = 0; a < armCount; a++) {
+    const arr = byArm.get(a).sort((x, y) => y.degree - x.degree || x.idx - y.idx)
+    const c = arr.length
+    arr.forEach((nd, j) => {
+      const t = c <= 1 ? 0.5 : j / (c - 1)
+      nd.r = R_IN + (R_MAX - R_IN) * Math.pow(t, 0.9)
+      nd.th = (a / armCount) * Math.PI * 2 + t * ARM_SWEEP + (Math.random() - 0.5) * 0.16
+      // 3D 厚度：核心区鼓起来、外盘变薄 → 立体星系
+      const sigma = 3 + 26 * Math.exp(-nd.r / 95)
+      nd.y = (Math.random() * 2 - 1) * sigma
+    })
+  }
+  // 无关联条目：星系外围稀疏静置
+  iso.forEach((nd, i) => {
+    nd.iso = true
+    nd.r = R_MAX + 100 + (i % 3) * 45 + (Math.random() * 30 - 15)
+    nd.th = (i / Math.max(1, iso.length)) * Math.PI * 2 + Math.random() * 0.6
+    nd.y = (Math.random() * 2 - 1) * 130
+  })
 }
 
-function shellRadius(shell) {
-  const base = [175, 265, 360]
-  return base[Math.min(shell, base.length - 1)] * viewScale
+function nodeLocalPos(nd) {
+  return new THREE.Vector3(Math.cos(nd.th) * nd.r, nd.y || 0, Math.sin(nd.th) * nd.r)
 }
 
-// ================= 场景搭建 =================
+// ================= 场景 =================
 function initScene() {
   if (renderer || !hostEl.value) return
-  accentColor = cssColor('--accent', '#5b8cff')
-  textColor = cssColor('--text', '#e8e8f0')
-
   scene = new THREE.Scene()
-  camera = new THREE.PerspectiveCamera(50, 1, 1, 30000)
+  camera = new THREE.PerspectiveCamera(50, 1, 1, 6000)
   try {
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
   } catch (e) {
-    error.value = '当前环境不支持 WebGL，无法显示三维拓扑'
+    error.value = '当前环境不支持 WebGL，无法显示星系拓扑'
     return
   }
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
   renderer.setClearColor(0x000000, 0)
   hostEl.value.appendChild(renderer.domElement)
   clock = new THREE.Clock()
-
   controls = new OrbitControls(camera, renderer.domElement)
   controls.enableDamping = true
   controls.dampingFactor = 0.08
-  controls.rotateSpeed = 0.6
-  controls.zoomSpeed = 0.9
+  controls.target.set(0, 0, 0)
+  camera.position.set(170, 290, 420)
+  controls.minDistance = 110
+  controls.maxDistance = 2200
+  controls.update()
 
-  makeStars()
+  makeBackgroundStars()
+  galaxy = new THREE.Group()
+  scene.add(galaxy)
+  isoGroup = new THREE.Group()
+  scene.add(isoGroup)
+  makeCenter()
+  makeDust()
+  makeMarkers()
+  makeEdges()
+
+  ro = new ResizeObserver(resize)
+  ro.observe(hostEl.value)
   resize()
-  resizeObs = new ResizeObserver(resize)
-  resizeObs.observe(hostEl.value)
 
   renderer.domElement.addEventListener('pointermove', onPointerMove)
   renderer.domElement.addEventListener('pointerdown', onPointerDown)
   renderer.domElement.addEventListener('pointerup', onPointerUp)
   renderer.domElement.addEventListener('pointerleave', onPointerLeave)
-  renderer.domElement.addEventListener('pointermove', onCanvasMoveCapture)
-
   tick()
 }
 
-function makeStars() {
-  const n = 600
-  const pos = new Float32Array(n * 3)
-  const rad = 9000
-  for (let i = 0; i < n; i++) {
-    const v = new THREE.Vector3().randomDirection().multiplyScalar(rad * (0.7 + Math.random() * 0.6))
+function makeBackgroundStars() {
+  const count = 700
+  const pos = new Float32Array(count * 3)
+  for (let i = 0; i < count; i++) {
+    const v = new THREE.Vector3().randomDirection().multiplyScalar(700 + Math.random() * 1000)
     pos[i * 3] = v.x
     pos[i * 3 + 1] = v.y
     pos[i * 3 + 2] = v.z
   }
   const g = new THREE.BufferGeometry()
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
-  stars = new THREE.Points(
-    g,
-    new THREE.PointsMaterial({
-      color: 0xffffff,
-      size: 2.2,
-      sizeAttenuation: true,
-      transparent: true,
-      opacity: 0.5,
-      depthWrite: false,
-    })
-  )
-  scene.add(stars)
+  const m = new THREE.PointsMaterial({ color: 0xffffff, size: 1.6, sizeAttenuation: true, transparent: true, opacity: 0.7, depthWrite: false })
+  const p = new THREE.Points(g, m)
+  scene.add(p)
 }
 
-const LABEL_FONT_PX = 40 // 画布字号：越小，同一行能放的字符越多（同时显示得更小）
-const LABEL_MAX_W = 760 // 画布宽度上限：一行能容纳约 19 个汉字 / 38 个西文字符
-function makeLabelSprite(text, tint) {
-  const s = lineFit(text, LABEL_FONT_PX, LABEL_MAX_W)
-  const font = `600 ${LABEL_FONT_PX}px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif`
-  const lineH = 50
-  const padX = 10
-  const padTop = 3
-  const padBottom = 7
+function glowTexture() {
   const c = document.createElement('canvas')
-  c.width = Math.ceil(textWidth(s, LABEL_FONT_PX)) + padX * 2
-  c.height = lineH + padTop + padBottom
-  const ctx = c.getContext('2d')
-  ctx.font = font
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.shadowColor = 'rgba(0,0,0,0.8)'
-  ctx.shadowBlur = 8
-  ctx.fillStyle = '#ffffff'
-  ctx.fillText(s, c.width / 2, padTop + lineH / 2 + 2)
-  ctx.shadowBlur = 0
+  c.width = 128
+  c.height = 128
+  const x = c.getContext('2d')
+  const g = x.createRadialGradient(64, 64, 0, 64, 64, 64)
+  g.addColorStop(0, 'rgba(255,255,255,1)')
+  g.addColorStop(0.25, 'rgba(255,255,255,0.55)')
+  g.addColorStop(0.6, 'rgba(255,255,255,0.12)')
+  g.addColorStop(1, 'rgba(255,255,255,0)')
+  x.fillStyle = g
+  x.fillRect(0, 0, 128, 128)
+  return new THREE.CanvasTexture(c)
+}
+
+function makeCenter() {
+  const spr = new THREE.Sprite(
+    new THREE.SpriteMaterial({ map: glowTexture(), color: 0xffffff, transparent: true, opacity: 0.95, depthWrite: false, blending: THREE.AdditiveBlending })
+  )
+  spr.scale.set(150, 150, 1)
+  galaxy.add(spr)
+  const core = new THREE.Mesh(new THREE.SphereGeometry(6, 24, 20), new THREE.MeshBasicMaterial({ color: 0xffffff }))
+  galaxy.add(core)
+}
+
+function makeDust() {
+  const total = 3400
+  const armPts = Math.floor(total * 0.85)
+  const pos = new Float32Array(total * 3)
+  let k = 0
+  for (let i = 0; i < armPts; i++) {
+    const a = Math.floor(Math.random() * armCount)
+    const t = Math.pow(Math.random(), 0.9) // 与节点同一半径分布
+    // 与节点使用同一曲线（含更弯的 sweep），只加少量弧向/径向散布 → 星尘带贴合旋臂
+    const r = R_IN + (R_MAX + 18 - R_IN) * t + (Math.random() * 2 - 1) * 6
+    const th = (a / armCount) * Math.PI * 2 + t * ARM_SWEEP + (Math.random() - 0.5) * 0.3
+    const sigma = 3 + 24 * Math.exp(-r / 110)
+    pos[k * 3] = Math.cos(th) * r
+    pos[k * 3 + 1] = (Math.random() * 2 - 1) * sigma
+    pos[k * 3 + 2] = Math.sin(th) * r
+    k++
+  }
+  for (; k < total; k++) {
+    const r = Math.pow(Math.random(), 0.5) * R_IN * 1.7
+    const th = Math.random() * Math.PI * 2
+    pos[k * 3] = Math.cos(th) * r
+    pos[k * 3 + 1] = (Math.random() - 0.5) * 18
+    pos[k * 3 + 2] = Math.sin(th) * r
+  }
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+  const m = new THREE.PointsMaterial({ color: 0xa9c3ff, size: 1.1, sizeAttenuation: true, transparent: true, opacity: 0.35, depthWrite: false })
+  const p = new THREE.Points(g, m)
+  galaxy.add(p)
+}
+
+let _labelCtx = null
+function labelWidth(text, font) {
+  if (!_labelCtx) _labelCtx = document.createElement('canvas').getContext('2d')
+  _labelCtx.font = font
+  return _labelCtx.measureText(String(text || '')).width
+}
+// 完整标题换行（不截断省略）：按行宽折行
+function wrapFull(text, font, maxPx) {
+  const s = String(text || '')
+  const chars = Array.from(s)
+  const lines = []
+  let cur = ''
+  for (const ch of chars) {
+    const t = cur + ch
+    if (cur && labelWidth(t, font) > maxPx) {
+      lines.push(cur)
+      cur = ch
+    } else {
+      cur = t
+    }
+  }
+  if (cur || !lines.length) lines.push(cur)
+  return lines
+}
+
+function themeTextColor() {
+  try {
+    const v = getComputedStyle(document.documentElement).getPropertyValue('--text').trim()
+    if (v) return new THREE.Color(v)
+  } catch (_) {
+    /* 忽略 */
+  }
+  return new THREE.Color('#e8eaf0')
+}
+
+function makeLabelSprite(text, tint) {
+  const font = '600 30px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif'
+  const maxPx = 560
+  const lines = wrapFull(text, font, maxPx)
+  const lineH = 36
+  const padX = 10
+  const padY = 6
+  const maxW = Math.max(...lines.map((l) => labelWidth(l, font)))
+  const c = document.createElement('canvas')
+  c.width = Math.ceil(maxW) + padX * 2
+  c.height = lines.length * lineH + padY * 2
+  const x = c.getContext('2d')
+  x.font = font
+  x.textAlign = 'center'
+  x.textBaseline = 'middle'
+  x.shadowColor = 'rgba(0,0,0,0.85)'
+  x.shadowBlur = 6
+  x.fillStyle = '#ffffff'
+  lines.forEach((ln, i) => {
+    x.fillText(ln, c.width / 2, padY + lineH * i + lineH / 2 + 1)
+  })
+  x.shadowBlur = 0
   const tex = new THREE.CanvasTexture(c)
-  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, color: tint.clone() })
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, color: tint.clone(), opacity: 0.9 })
   const sp = new THREE.Sprite(mat)
-  // 单行标签世界高度：值越小默认视角下字越小（随缩放按景深放大）。
-  const worldH = 18
+  // 世界尺寸：每行约 10 单位高，行多则整体变高（宽度按同比例）
+  const worldH = lines.length * 10 + (lines.length - 1) * 2.5 + 3
   sp.scale.set(worldH * (c.width / c.height), worldH, 1)
   return sp
 }
 
-function radialTexture(alpha) {
-  const size = 256
-  const c = document.createElement('canvas')
-  c.width = size
-  c.height = size
-  const ctx = c.getContext('2d')
-  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2)
-  g.addColorStop(0, `rgba(255,255,255,${alpha})`)
-  g.addColorStop(0.3, `rgba(255,255,255,${alpha * 0.45})`)
-  g.addColorStop(0.65, `rgba(255,255,255,${alpha * 0.1})`)
-  g.addColorStop(1, 'rgba(255,255,255,0)')
-  ctx.fillStyle = g
-  ctx.fillRect(0, 0, size, size)
-  return new THREE.CanvasTexture(c)
-}
-
-function createVisuals() {
-  if (!scene) return
-  const satCols = [shade(accentColor, 0.52), shade(accentColor, 0.18), accentColor.clone()]
-
-  // —— 核（太阳）——
-  if (hubIdx >= 0) {
-    const core = nodes[hubIdx]
-    hubGroup = new THREE.Group()
-    hubMesh = new THREE.Mesh(
-      new THREE.SphereGeometry(24, 32, 24),
-      new THREE.MeshBasicMaterial({ color: shade(accentColor, 0.55), transparent: true, opacity: 1 })
-    )
-    hubMesh.userData.idx = hubIdx
-    hubGroup.add(hubMesh)
-
-    const glow = new THREE.Sprite(
-      new THREE.SpriteMaterial({
-        map: radialTexture(0.9),
-        color: shade(accentColor, 0.35),
-        transparent: true,
-        opacity: 0.6,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      })
-    )
-    glow.scale.set(220, 220, 1)
-    hubGroup.add(glow)
-
-    const lab = makeLabelSprite(core.title, shade(textColor, 0.12))
-    lab.position.set(0, 24 + 8 + lab.scale.y / 2, 0)
-    lab.renderOrder = 20
-    hubGroup.add(lab)
-    scene.add(hubGroup)
-  } else {
-    const deco = new THREE.Sprite(
-      new THREE.SpriteMaterial({
-        map: radialTexture(0.5),
-        color: new THREE.Color('#aab3c8'),
-        transparent: true,
-        opacity: 0.7,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      })
-    )
-    deco.scale.set(90, 90, 1)
-    scene.add(deco)
-  }
-
-  // —— 轨道卫星（电子/行星）——
-  satByIndex.clear()
-  for (const s of satellites) {
-    const col = satCols[Math.min(s.shell, satCols.length - 1)]
-    const r = 4.6 + Math.min(4, s.n.degree) * 0.85 + Math.random() * 1.1
-    const mat = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 1 })
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(r, 20, 16), mat)
-    mesh.userData.idx = s.i
-    const label = makeLabelSprite(s.n.title, shade(textColor, 0.08))
-    label.position.set(0, r + 6 + label.scale.y / 2, 0)
-    label.renderOrder = 10
-
-    const g = new THREE.Group()
-    g.add(mesh)
-    g.add(label)
-    scene.add(g)
-
-    s.group = g
-    s.mesh = mesh
-    s.mat = mat
-    s.label = label
-    s.pos = new THREE.Vector3()
-    satByIndex.set(s.i, s)
+function makeMarkers() {
+  for (let i = 0; i < nodes.length; i++) {
+    const nd = nodes[i]
+    const isIso = !!nd.iso
+    const color = new THREE.Color(isIso ? '#8a94a8' : PALETTE[nd.arm % PALETTE.length])
+    const r = 1.8 + Math.min(2.2, nd.degree * 0.12) + (isIso ? 0.6 : 0)
+    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: isIso ? 0.55 : 1 })
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 14), mat)
+    mesh.userData.idx = i
+    const pos = nodeLocalPos(nd)
+    mesh.position.copy(pos)
+    ;(isIso ? isoGroup : galaxy).add(mesh)
+    // 标题标签（完整标题，可多行，浮在节点上方；颜色跟随主题保证两种背景下可读）
+    const label = makeLabelSprite(nodes[i].title, themeTextColor())
+    label.userData.idx = i
+    label.position.set(pos.x, pos.y + (r + 2 + label.scale.y / 2), pos.z)
+    label.renderOrder = 2
+    ;(isIso ? isoGroup : galaxy).add(label)
+    markers.push({ mesh, mat, nd, color, label, labelMat: label.material })
   }
 }
 
-function createEdges() {
-  if (!scene) return
-  if (edgeSegs) {
-    scene.remove(edgeSegs)
-    edgeSegs.geometry.dispose()
-    edgeSegs.material.dispose()
-    edgeSegs = null
+function makeEdges() {
+  for (const e of edges) {
+    const a = markers[e.a]
+    const b = markers[e.b]
+    const g = new THREE.BufferGeometry().setFromPoints([a.mesh.position.clone(), b.mesh.position.clone()])
+    const mat = new THREE.LineBasicMaterial({ color: 0x8ab4ff, transparent: true, opacity: 0.05, depthWrite: false })
+    const line = new THREE.Line(g, mat)
+    galaxy.add(line)
+    edgeLines.push({ line, mat, e })
   }
-  const count = edgeList.length
-  const geo = new THREE.BufferGeometry()
-  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(count * 6), 3))
-  geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(count * 6), 3))
-  geo.setDrawRange(0, count * 2)
-  edgeSegs = new THREE.LineSegments(
-    geo,
-    new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9, depthWrite: false })
-  )
-  edgeSegs.frustumCulled = false
-  edgeSegs.renderOrder = 1
-  scene.add(edgeSegs)
-  edgePosAttr = geo.attributes.position
-  edgeColAttr = geo.attributes.color
-
-  edgeBaseCol.length = 0
-  const faint = shade(textColor, -0.35)
-  for (const e of edgeList) {
-    const s = Math.min(1, e.shared.length / maxShared)
-    const c = accentColor.clone().multiplyScalar(0.22 + 0.78 * s)
-    c.lerp(faint, (1 - s) * 0.5)
-    edgeBaseCol.push(c)
-  }
-  refreshEdgeColors()
-}
-
-function makeShellGuides() {
-  shellGuides.forEach(removeObject)
-  shellGuides = []
-  if (!scene || !satellites.length) return
-  let maxShell = 0
-  for (const s of satellites) maxShell = Math.max(maxShell, s.shell)
-  for (let shell = 0; shell <= Math.min(maxShell, 2); shell++) {
-    const wire = new THREE.LineSegments(
-      new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(shellRadius(shell), 1)),
-      new THREE.LineBasicMaterial({
-        color: shade(accentColor, 0.35),
-        transparent: true,
-        opacity: shell === 0 ? 0.1 : 0.06,
-        depthWrite: false,
-      })
-    )
-    scene.add(wire)
-    shellGuides.push(wire)
-  }
-}
-
-function setupLayout() {
-  if (!scene) return
-  viewScale = 1 + Math.max(0, (nodes.length - 30) / 130)
-  satellites.forEach((s) => s.group && removeObject(s.group))
-  satellites = []
-  satByIndex.clear()
-  if (hubGroup) removeObject(hubGroup)
-  hubGroup = null
-  hubMesh = null
-
-  nodes.forEach((n, i) => {
-    if (i === hubIdx) return
-    const shell = Math.min(shellOf(i), 2)
-    const R = shellRadius(shell) * (1 + (Math.random() * 2 - 1) * 0.08)
-    const eul = new THREE.Euler(
-      (Math.random() * 1.1 - 0.55) * (shell === 0 ? 0.6 : 1),
-      Math.random() * Math.PI * 2,
-      (Math.random() * 1.1 - 0.55) * (shell === 0 ? 0.6 : 1)
-    )
-    const q = new THREE.Quaternion().setFromEuler(eul)
-    const speed = (0.2 + Math.random() * 0.14) * Math.sqrt(175 / R) * (reducedMotion ? 0.25 : 1)
-    satellites.push({ n, i, shell, R, phase: Math.random() * Math.PI * 2, speed, q })
-  })
-
-  createVisuals()
-  createEdges()
-  makeShellGuides()
-  fitCamera()
-}
-
-function updateSatPositions() {
-  for (const s of satellites) {
-    const x = Math.cos(s.phase) * s.R
-    const z = Math.sin(s.phase) * s.R
-    s.pos.set(x, 0, z).applyQuaternion(s.q)
-    s.group.position.copy(s.pos)
-  }
-}
-
-function contentRadius() {
-  let rMax = 0
-  for (const s of satellites) rMax = Math.max(rMax, s.R + 70)
-  if (hubMesh || hubIdx >= 0) rMax = Math.max(rMax, 190)
-  if (!satellites.length && hubIdx < 0) rMax = 120
-  return rMax || 220
-}
-
-function fitCamera() {
-  if (!camera || !hostEl.value || !controls) return
-  const w = hostEl.value.clientWidth || 800
-  const h = hostEl.value.clientHeight || 560
-  camera.aspect = w / h
-  camera.updateProjectionMatrix()
-  const vfov = (camera.fov * Math.PI) / 180
-  const hfov = 2 * Math.atan(Math.tan(vfov / 2) * camera.aspect)
-  const distH = w / 2 / Math.tan(hfov / 2)
-  const rMax = contentRadius()
-  const dist = Math.max(rMax * 1.9, distH, 420)
-  camera.position.set(0, dist * 0.58, dist * 0.85)
-  controls.target.set(0, 0, 0)
-  controls.minDistance = Math.max(90, rMax * 0.3)
-  controls.maxDistance = Math.max(rMax * 6, 3000)
-  controls.update()
 }
 
 function resize() {
-  if (!hostEl.value || !renderer || !camera) return
-  const w = hostEl.value.clientWidth
-  const h = hostEl.value.clientHeight
-  if (!w || !h) return
+  if (!hostEl.value || !renderer) return
+  const w = hostEl.value.clientWidth || 800
+  const h = hostEl.value.clientHeight || 600
+  lastW = w
+  lastH = h
+  renderer.setSize(w, h)
   camera.aspect = w / h
   camera.updateProjectionMatrix()
-  renderer.setSize(w, h)
 }
 
-// ================= 渲染循环 =================
-function endpointPos(i) {
-  if (i === hubIdx) return ORIGIN
-  const s = satByIndex.get(i)
-  return s ? s.pos : ORIGIN
-}
-
+// ================= 帧循环 =================
 function tick() {
   raf = requestAnimationFrame(tick)
   const dt = Math.min(clock.getDelta(), 0.05)
-
-  if (!paused.value) {
-    for (const s of satellites) {
-      s.phase += s.speed * dt
-      const x = Math.cos(s.phase) * s.R
-      const z = Math.sin(s.phase) * s.R
-      s.pos.set(x, 0, z).applyQuaternion(s.q)
-      s.group.position.copy(s.pos)
-    }
-    if (edgeSegs) {
-      const arr = edgePosAttr.array
-      for (let i = 0; i < edgeList.length; i++) {
-        const e = edgeList[i]
-        const pa = endpointPos(e.a)
-        const pb = endpointPos(e.b)
-        arr[i * 6] = pa.x
-        arr[i * 6 + 1] = pa.y
-        arr[i * 6 + 2] = pa.z
-        arr[i * 6 + 3] = pb.x
-        arr[i * 6 + 4] = pb.y
-        arr[i * 6 + 5] = pb.z
-      }
-      edgePosAttr.needsUpdate = true
-    }
+  if (spinning.value) {
+    armAngle += dt * (reducedMotion ? 0.02 : 0.045)
+    galaxy.rotation.y = armAngle
   }
-
-  animateAppearance(dt)
-  if (controls) controls.update()
-  if (renderer) renderer.render(scene, camera)
+  controls.update()
+  scene.updateMatrixWorld()
+  applyStates(dt)
+  renderer.render(scene, camera)
 }
 
-function isNeighbor(i, hover) {
-  const list = edgeIndexByNode.get(hover)
-  if (!list) return false
-  for (const ei of list) {
-    const e = edgeList[ei]
-    if (e.a === i || e.b === i) return true
+function isNeighbor(i, h) {
+  for (const e of edges) {
+    if ((e.a === h && e.b === i) || (e.b === h && e.a === i)) return true
   }
   return false
 }
-
-function matchesFilter(n) {
+function matchesFilter(nd) {
   if (!filterTags.value.length) return true
-  return (n.tags || []).some((t) => filterTags.value.includes(t))
+  return (nd.tags || []).some((t) => filterTags.value.includes(t))
 }
 
-function animateAppearance(dt) {
-  const k = 1 - Math.exp(-dt * 7)
+const _tmpV = new THREE.Vector3()
+const _tmpP = new THREE.Vector3()
+function applyStates(dt) {
+  const k = 1 - Math.exp(-dt * 10)
   const hover = hoverId.value == null ? -1 : NODE_IDX.get(hoverId.value)
 
-  const targetFor = (i) => {
+  // 边
+  for (let i = 0; i < edgeLines.length; i++) {
+    const el = edgeLines[i]
+    const s = Math.min(1, el.e.shared.length / maxShared)
+    let target
     if (hover >= 0) {
-      if (i === hover) return 1
-      return isNeighbor(i, hover) ? 0.9 : 0.1
-    }
-    if (filterTags.value.length) return matchesFilter(nodes[i]) ? 1 : 0.08
-    return 1
-  }
-
-  for (const s of satellites) {
-    const target = targetFor(s.i)
-    s.mat.opacity += (target - s.mat.opacity) * k
-    s.label.material.opacity += (target * 0.95 - s.label.material.opacity) * k
-    const wantS = s.i === hover ? 1.45 : 1
-    const sc = s.mesh.scale.x + (wantS - s.mesh.scale.x) * k
-    s.mesh.scale.set(sc, sc, sc)
-  }
-  if (hubMesh && hubGroup) {
-    const target = targetFor(hubIdx)
-    hubMesh.material.opacity += (target - hubMesh.material.opacity) * k
-    const wantS = hover === hubIdx ? 1.1 : 1
-    const sc = hubMesh.scale.x + (wantS - hubMesh.scale.x) * k
-    hubMesh.scale.set(sc, sc, sc)
-  }
-}
-
-function refreshEdgeColors() {
-  if (!edgeSegs) return
-  const hover = hoverId.value == null ? -1 : NODE_IDX.get(hoverId.value)
-  const arr = edgeColAttr.array
-  const bright = accentColor.clone().lerp(new THREE.Color('#ffffff'), 0.45)
-  const faintC = shade(textColor, -0.55)
-  for (let i = 0; i < edgeList.length; i++) {
-    const e = edgeList[i]
-    let c
-    if (hover >= 0) {
-      c = e.a === hover || e.b === hover ? bright : faintC
+      target = el.e.a === hover || el.e.b === hover ? 0.5 + s * 0.45 : 0.012
     } else if (filterTags.value.length) {
-      c = matchesFilter(nodes[e.a]) && matchesFilter(nodes[e.b]) ? edgeBaseCol[i].clone().lerp(bright, 0.3) : faintC.clone()
+      target = matchesFilter(nodes[el.e.a]) && matchesFilter(nodes[el.e.b]) ? 0.12 + s * 0.2 : 0.008
     } else {
-      c = edgeBaseCol[i]
+      target = 0.035 + s * 0.045
     }
-    arr[i * 6] = c.r
-    arr[i * 6 + 1] = c.g
-    arr[i * 6 + 2] = c.b
-    arr[i * 6 + 3] = c.r
-    arr[i * 6 + 4] = c.g
-    arr[i * 6 + 5] = c.b
+    el.mat.opacity += (target - el.mat.opacity) * k
   }
-  edgeColAttr.needsUpdate = true
+
+  // 节点 + 标题候选
+  const cand = []
+  for (let i = 0; i < markers.length; i++) {
+    const mk = markers[i]
+    let target
+    if (hover >= 0) {
+      target = i === hover ? 1 : isNeighbor(i, hover) ? 0.95 : 0.12
+    } else if (filterTags.value.length) {
+      target = matchesFilter(nodes[i]) ? (mk.nd.iso ? 0.6 : 1) : 0.06
+    } else {
+      target = mk.nd.iso ? 0.5 : 0.85
+    }
+    mk.mat.opacity += (target - mk.mat.opacity) * k
+    const want = i === hover ? 2.6 : 1
+    const sc = mk.mesh.scale.x + (want - mk.mesh.scale.x) * k
+    mk.mesh.scale.set(sc, sc, sc)
+    mk._lab = Math.max(0, Math.min(0.95, target * 0.95))
+    // 投影成屏幕矩形，用于防重叠
+    if (!mk.label) continue
+    mk.label.getWorldPosition(_tmpV)
+    _tmpP.copy(_tmpV).project(camera)
+    if (_tmpP.z <= 0 || _tmpP.z >= 1) continue
+    const dist = _tmpV.distanceTo(camera.position)
+    const perUnit = (lastH / 2) / (Math.max(0.01, dist) * Math.tan((camera.fov * Math.PI) / 360))
+    cand.push({
+      i,
+      x: (_tmpP.x * 0.5 + 0.5) * lastW,
+      y: (-_tmpP.y * 0.5 + 0.5) * lastH,
+      w: mk.label.scale.x * perUnit,
+      h: mk.label.scale.y * perUnit,
+      pri: i === hover ? 1e6 : isNeighbor(i, hover) ? 1000 : mk.nd.degree,
+      show: mk._lab >= 0.45,
+    })
+  }
+
+  // 贪心防重叠：优先级高者占位，相交的低优先标题淡出（保证呈现的互不重叠）
+  cand.sort((a, b) => b.pri - a.pri || Number(b.show) - Number(a.show) || b.i - a.i)
+  const taken = []
+  const shown = new Set()
+  for (const cd of cand) {
+    if (!cd.show) continue
+    let ok = true
+    for (const t of taken) {
+      const m = 6
+      if (Math.abs(cd.x - t.x) < (cd.w + t.w) / 2 + m && Math.abs(cd.y - t.y) < (cd.h + t.h) / 2 + m) {
+        ok = false
+        break
+      }
+    }
+    if (ok) {
+      taken.push(cd)
+      shown.add(cd.i)
+    }
+  }
+  for (let i = 0; i < markers.length; i++) {
+    const mk = markers[i]
+    if (!mk.labelMat) continue
+    const wantL = shown.has(i) && mk._lab >= 0.45 ? mk._lab : 0
+    mk.labelMat.opacity += (wantL - mk.labelMat.opacity) * k
+    mk.label.visible = wantL > 0.02
+  }
 }
 
 // ================= 交互 =================
@@ -601,25 +483,25 @@ let downPos = null
 let downTime = 0
 let dragged = false
 
-function pickables() {
-  const arr = satellites.map((s) => s.mesh)
-  if (hubMesh) arr.push(hubMesh)
-  return arr
-}
-
 function onPointerMove(e) {
-  if (!hostEl.value || !camera) return
-  const rect = hostEl.value.getBoundingClientRect()
+  if (!renderer) return
+  const rect = renderer.domElement.getBoundingClientRect()
   ndc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
   ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
   raycaster.setFromCamera(ndc, camera)
-  const hit = raycaster.intersectObjects(pickables(), false)[0]
-  const idx = hit && hit.object.userData.idx != null ? hit.object.userData.idx : null
+  // 节点球与标题精灵都可命中（标题同样可查看节点信息）
+  const targets = []
+  for (const m of markers) {
+    targets.push(m.mesh)
+    if (m.label) targets.push(m.label)
+  }
+  const hits = raycaster.intersectObjects(targets, false)
+  const idx = hits.length && hits[0].object.userData.idx != null ? hits[0].object.userData.idx : null
   const next = idx == null ? null : nodes[idx].id
   if (next !== hoverId.value) hoverId.value = next
   hoverPos.x = e.clientX - rect.left
   hoverPos.y = e.clientY - rect.top
-  hostEl.value.style.cursor = next != null ? 'pointer' : 'grab'
+  renderer.domElement.style.cursor = idx != null ? 'pointer' : 'grab'
 }
 function onPointerDown(e) {
   downPos = { x: e.clientX, y: e.clientY }
@@ -635,16 +517,13 @@ function onPointerUp(e) {
   const idx = hoverId.value != null ? NODE_IDX.get(hoverId.value) : null
   if (idx != null) router.push(`/wiki/${nodes[idx].slug}`)
 }
-function onCanvasMoveCapture(e) {
-  if (downPos && Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y) > 6) dragged = true
-}
 function onPointerLeave() {
   hoverId.value = null
+  dragged = false
+  downPos = null
 }
 
-watch(hoverId, () => refreshEdgeColors())
-
-// ================= 标签筛选 / 工具 =================
+// ================= 工具 / 浮层 =================
 function allTags() {
   const counts = new Map()
   for (const n of nodes) for (const t of n.tags || []) counts.set(t, (counts.get(t) || 0) + 1)
@@ -654,125 +533,90 @@ function toggleTag(tag) {
   const i = filterTags.value.indexOf(tag)
   if (i >= 0) filterTags.value.splice(i, 1)
   else filterTags.value.push(tag)
-  refreshEdgeColors()
-}
-function reLayout() {
-  for (const s of satellites) {
-    s.phase = Math.random() * Math.PI * 2
-    const eul = new THREE.Euler(
-      (Math.random() * 1.1 - 0.55) * (s.shell === 0 ? 0.6 : 1),
-      Math.random() * Math.PI * 2,
-      (Math.random() * 1.1 - 0.55) * (s.shell === 0 ? 0.6 : 1)
-    )
-    s.q.setFromEuler(eul)
-  }
-  updateSatPositions()
 }
 
-// ================= 悬停信息 =================
 const hoverInfo = computed(() => {
   if (hoverId.value == null) return null
   const idx = NODE_IDX.get(hoverId.value)
   if (idx == null) return null
   const n = nodes[idx]
-  const list = edgeIndexByNode.get(idx) || []
+  const ns = []
   const byTags = new Map()
-  const neighbors = []
-  for (const ei of list) {
-    const e = edgeList[ei]
-    const other = e.a === idx ? e.b : e.a
-    neighbors.push({ title: nodes[other].title, shared: e.shared })
+  for (const e of edges) {
+    let other = -1
+    if (e.a === idx) other = e.b
+    else if (e.b === idx) other = e.a
+    else continue
+    ns.push({ title: nodes[other].title, shared: e.shared })
     for (const t of e.shared) byTags.set(t, (byTags.get(t) || 0) + 1)
   }
   const topTags = [...byTags.entries()].sort((x, y) => y[1] - x[1]).slice(0, 3).map((x) => '#' + x[0])
   return {
     title: n.title,
     tags: n.tags || [],
-    isHub: idx === hubIdx,
-    edgeCount: list.length,
+    edgeCount: ns.length,
     topTags,
-    neighbors: neighbors.slice(0, 6),
-    more: Math.max(0, neighbors.length - 6),
+    neighbors: ns.slice(0, 6),
+    more: Math.max(0, ns.length - 6),
   }
 })
 
-const coreTitle = computed(() => (hubIdx >= 0 ? nodes[hubIdx].title : ''))
-
-// ================= 数据加载 =================
+// ================= 加载 =================
 async function load() {
   loading.value = true
   error.value = ''
   try {
     const data = await listPosts({ category: 'wiki', page: 1, pageSize: 100 })
     buildGraph(data.items || [])
+    if (nodes.length) assignArms()
   } catch (e) {
     error.value = e.message
   } finally {
     loading.value = false
-    // 3D 容器（.graph-3d）在 v-else 分支里，要等 loading=false 渲染出来后再建场景
     if (!error.value && nodes.length) {
-      nextTick(() => {
-        initScene()
-        setupLayout()
-      })
+      nextTick(() => initScene())
     }
   }
 }
 
 // ================= 清理 =================
-function removeObject(obj) {
-  if (!obj || !scene) return
-  scene.remove(obj)
-  obj.traverse((o) => {
-    if (o.geometry) o.geometry.dispose()
-    if (o.material) {
-      const mats = Array.isArray(o.material) ? o.material : [o.material]
-      mats.forEach((m) => {
-        if (m.map) m.map.dispose()
-        m.dispose()
-      })
-    }
-  })
-}
-
 onMounted(load)
 onBeforeUnmount(() => {
   cancelAnimationFrame(raf)
-  if (resizeObs) resizeObs.disconnect()
+  if (ro) ro.disconnect()
   if (hostEl.value && renderer && renderer.domElement.parentNode === hostEl.value) {
     hostEl.value.removeChild(renderer.domElement)
   }
-  const objs = [hubGroup, edgeSegs, stars, ...shellGuides]
-  objs.forEach((o) => o && removeObject(o))
-  satellites.forEach((s) => s.group && removeObject(s.group))
+  const disposeObj = (o) => {
+    if (!o) return
+    o.traverse((x) => {
+      if (x.geometry) x.geometry.dispose()
+      if (x.material) {
+        const arr = Array.isArray(x.material) ? x.material : [x.material]
+        arr.forEach((m) => {
+          if (m.map) m.map.dispose()
+          m.dispose()
+        })
+      }
+    })
+  }
+  disposeObj(scene)
   if (controls) controls.dispose()
   if (renderer) renderer.dispose()
-  scene = null
   renderer = null
-  controls = null
-  satellites = []
-  satByIndex.clear()
+  scene = null
+  camera = null
+  markers = []
+  edgeLines = []
 })
 </script>
 
 <template>
   <div class="wiki-graph">
     <p v-if="error" class="graph-error">{{ error }}</p>
-    <p v-else-if="loading" class="graph-hint">加载条目中…</p>
-    <p v-else-if="!countInfo.nodes" class="graph-hint">还没有 Wiki 条目</p>
+    <p v-else-if="!loading && !countInfo.nodes" class="graph-hint">还没有 Wiki 条目</p>
 
-    <template v-else>
-      <div class="graph-head">
-        <span class="graph-tip">
-          <span class="dot"></span>
-          <template v-if="coreTitle">
-            核心「{{ coreTitle }}」为关联最多的条目，其余条目沿 3D 轨道绕行；连线 = 共享标签，越亮关联越强
-          </template>
-          <template v-else>条目之间暂无共享标签，自由绕行中</template>
-        </span>
-        <span class="graph-count">{{ countInfo.nodes }} 个条目 · {{ countInfo.edges }} 条关联</span>
-      </div>
-
+    <template v-else-if="!loading && countInfo.nodes">
       <div v-if="allTags().length" class="filter-bar">
         <span class="filter-label">标签筛选</span>
         <button
@@ -789,13 +633,12 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <div ref="hostEl" class="graph-3d" role="img" aria-label="Wiki 条目标签关联三维拓扑图">
+      <div ref="hostEl" class="graph-space" role="img" aria-label="Wiki 旋臂星系拓扑图">
         <div class="graph-hud">
-          <span class="hud-hint">拖拽旋转 · 滚轮缩放 · 悬停高亮 · 点击打开条目</span>
+          <span class="hud-stat">{{ countInfo.nodes }} 个条目 · {{ countInfo.edges }} 条关联</span>
           <div class="hud-actions">
-            <button type="button" title="重新随机轨道相位与倾角" @click="reLayout">重新排布</button>
-            <button type="button" @click="paused = !paused">
-              {{ paused ? '继续' : '暂停' }}绕行
+            <button type="button" @click="spinning = !spinning">
+              {{ spinning ? '暂停' : '继续' }}公转
             </button>
           </div>
         </div>
@@ -805,10 +648,7 @@ onBeforeUnmount(() => {
           class="graph-tooltip"
           :style="{ left: hoverPos.x + 'px', top: hoverPos.y + 'px' }"
         >
-          <div class="tt-title">
-            {{ hoverInfo.title }}
-            <span v-if="hoverInfo.isHub" class="tt-hub">核心</span>
-          </div>
+          <div class="tt-title">{{ hoverInfo.title }}</div>
           <div v-if="hoverInfo.tags.length" class="tt-tags">
             {{ hoverInfo.tags.slice(0, 5).map((t) => '#' + t).join(' ') }}
             <span v-if="hoverInfo.tags.length > 5">+{{ hoverInfo.tags.length - 5 }}</span>
@@ -882,11 +722,10 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  margin-bottom: 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--panel) 72%, transparent);
+  padding: 8px 14px;
+  border: 0;
+  /* 透明：背景统一交给外层 page 容器做淡入淡出 */
+  background: transparent;
 }
 
 .filter-label {
@@ -926,42 +765,40 @@ onBeforeUnmount(() => {
   border-style: dashed;
 }
 
-/* —— 3D 画布 —— */
-.graph-3d {
+/* —— 星系画布 —— */
+.graph-space {
   position: relative;
-  height: min(76vh, 720px);
-  min-height: 520px;
+  height: min(94vh, 1000px);
+  min-height: 760px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 14px;
-  background:
-    radial-gradient(circle at 50% 44%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 62%),
-    var(--panel);
+  background: transparent;
   touch-action: none;
 }
 
-.graph-3d :deep(canvas) {
+.graph-space :deep(canvas) {
   display: block;
+  cursor: grab;
 }
 
 .graph-hud {
   position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: 12px;
+  left: 14px;
+  bottom: 14px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
   pointer-events: none;
+  z-index: 4;
 }
 
-.hud-hint {
+.hud-stat {
   font-size: 12px;
-  color: var(--muted);
-  background: color-mix(in srgb, var(--panel) 80%, transparent);
-  border: 1px solid var(--border);
+  color: #c3cde0;
+  background: rgba(16, 21, 36, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 999px;
   padding: 5px 12px;
   backdrop-filter: blur(6px);
@@ -975,23 +812,22 @@ onBeforeUnmount(() => {
 
 .hud-actions button {
   padding: 5px 12px;
-  border: 1px solid var(--border);
+  border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--panel) 85%, transparent);
-  color: var(--muted);
+  background: rgba(16, 21, 36, 0.8);
+  color: #c3cde0;
   font: inherit;
   font-size: 12px;
   cursor: pointer;
   backdrop-filter: blur(6px);
   transition:
     border-color var(--dur-ios-1) var(--ease-ios-expo),
-    color var(--dur-ios-1) var(--ease-ios-expo),
-    background var(--dur-ios-1) var(--ease-ios-expo);
+    color var(--dur-ios-1) var(--ease-ios-expo);
 }
 
 .hud-actions button:hover {
-  color: var(--text);
-  border-color: var(--accent);
+  color: #fff;
+  border-color: #7aa7ff;
 }
 
 /* —— 悬停信息卡 —— */
@@ -1002,12 +838,12 @@ onBeforeUnmount(() => {
   max-width: 340px;
   min-width: 200px;
   padding: 10px 12px;
-  border: 1px solid var(--border);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  background: rgba(13, 18, 32, 0.94);
   backdrop-filter: blur(10px);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
-  color: var(--text);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
+  color: #edf1f7;
   font-size: 12px;
   line-height: 1.5;
   pointer-events: none;
@@ -1016,27 +852,15 @@ onBeforeUnmount(() => {
 .tt-title {
   font-size: 14px;
   font-weight: 700;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.tt-hub {
-  font-size: 10px;
-  font-weight: 700;
-  color: #fff;
-  background: var(--accent);
-  border-radius: 999px;
-  padding: 1px 7px;
 }
 
 .tt-tags {
-  color: var(--accent);
+  color: #8ab4ff;
   margin-top: 3px;
 }
 
 .tt-links {
-  color: var(--muted);
+  color: #9aa7c4;
   margin-top: 3px;
 }
 
@@ -1044,7 +868,7 @@ onBeforeUnmount(() => {
   list-style: none;
   margin: 6px 0 0;
   padding: 6px 0 0;
-  border-top: 1px dashed var(--border);
+  border-top: 1px dashed rgba(255, 255, 255, 0.14);
 }
 
 .tt-neighbors li {
@@ -1052,18 +876,18 @@ onBeforeUnmount(() => {
   align-items: baseline;
   gap: 8px;
   margin-top: 2px;
-  color: var(--text);
+  color: #edf1f7;
 }
 
 .tt-neighbors li .tt-shared {
-  color: var(--muted);
+  color: #8ab4ff;
   font-size: 11px;
   margin-left: auto;
   white-space: nowrap;
 }
 
 .tt-more {
-  color: var(--muted);
+  color: #9aa7c4;
   margin-top: 4px;
 }
 </style>

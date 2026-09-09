@@ -86,6 +86,8 @@ const VIS_LABEL = { insider: '仅内部可见', private: '仅管理员可见' }
         <AppIcon name="plus" :size="13" :stroke-width="2" />
         新建{{ category === 'blog' ? '文章' : '条目' }}
       </router-link>
+      <!-- 供页面注入的管理操作（如 Wiki 批量导出/导入），紧随搜索与新建入口 -->
+      <slot name="actions" />
     </div>
 
     <p v-if="error" class="list-error">{{ error }}</p>
@@ -138,7 +140,8 @@ const VIS_LABEL = { insider: '仅内部可见', private: '仅管理员可见' }
 .toolbar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  flex-wrap: wrap;
   margin-bottom: 16px;
 }
 
