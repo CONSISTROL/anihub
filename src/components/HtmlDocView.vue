@@ -150,10 +150,95 @@ const REPORT_JS = `<script>
   })
 })()
 <\/script>`
+// 完整文档里的代码块复制：iframe 是 sandbox="allow-scripts" 的无源（opaque）iframe，
+// 无源环境非 secure context，navigator.clipboard 不可用，只能走 execCommand('copy')；
+// Chrome 136+ 把 execCommand 也纳入 clipboard-write 权限策略，故 iframe 需加 allow="clipboard-write" 放行。
+// 复制时不新建 textarea 也不调 focus()：沙箱 iframe 内一旦 focus，父页面 activeElement 会变成该 iframe，
+// Chrome 会滚动父页面把 iframe 拉回视口 → 表现为“点击复制后页面跳到顶部/别处”。
+// 用户点击复制按钮时 iframe 文档本身已有焦点，直接选中 <pre> 内容 execCommand('copy') 即可，
+// 不改动焦点、不触发父页面任何滚动，也不产生 DOM 变更。
+// 按钮用注入的 <style> + 类名控制（悬浮显现 / 触屏常驻 / 隐藏时不拦截指针），
+// 复制文本在点击时才从 <pre> 取（textContent 不依赖布局）；纯空块不挂按钮（也不打标记）。
+const COPY_JS = `<script>
+(function () {
+  var CSS =
+    '.ah-copy-wrap{position:relative}' +
+    '.ah-copy-wrap .ah-copy-btn{position:absolute;top:8px;right:8px;z-index:2147483647;' +
+    'display:inline-flex;align-items:center;justify-content:center;padding:3px 10px;' +
+    'font:12px/1.5 system-ui,sans-serif;color:#444;background:rgba(255,255,255,.92);' +
+    'border:1px solid rgba(0,0,0,.18);border-radius:6px;cursor:pointer;' +
+    'user-select:none;-webkit-user-select:none;box-shadow:0 1px 4px rgba(0,0,0,.15);' +
+    'opacity:0;pointer-events:none;' +
+    'transition:opacity .15s ease,color .15s ease,border-color .15s ease}' +
+    '.ah-copy-wrap:hover .ah-copy-btn,.ah-copy-btn:focus-visible{opacity:1;pointer-events:auto}' +
+    '@media(hover:none){.ah-copy-btn{opacity:1;pointer-events:auto;padding:2px 8px;font-size:11px;top:6px;right:6px}}'
+  function copyPre(pre) {
+    var el = pre.querySelector('code') || pre
+    var range = document.createRange()
+    range.selectNodeContents(el)
+    var sel = window.getSelection()
+    sel.removeAllRanges()
+    sel.addRange(range)
+    var ok = false
+    try { ok = document.execCommand('copy') } catch (e) { ok = false }
+    sel.removeAllRanges()
+    return ok
+  }
+  function isEmpty(pre) {
+    var el = pre.querySelector('code') || pre
+    return !(el.textContent || '').replace(/\\s+$/, '')
+  }
+  function run() {
+    var pres = document.querySelectorAll('pre')
+    for (var i = 0; i < pres.length; i++) {
+      var pre = pres[i]
+      if (pre.getAttribute('data-cc') === '1') continue
+      if (pre.classList && pre.classList.contains('mermaid')) continue
+      if (pre.querySelector('button')) continue
+      if (isEmpty(pre)) continue
+      pre.setAttribute('data-cc', '1')
+      var wrap = document.createElement('div')
+      wrap.className = 'ah-copy-wrap'
+      pre.parentNode.insertBefore(wrap, pre)
+      wrap.appendChild(pre)
+      var btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'ah-copy-btn'
+      btn.textContent = '复制'
+      btn.setAttribute('aria-label', '复制代码')
+      wrap.appendChild(btn)
+      ;(function (b, codePre) {
+        var token = 0
+        b.addEventListener('click', function () {
+          var t = ++token
+          var done = copyPre(codePre)
+          if (t !== token) return
+          b.textContent = done ? '已复制' : '复制失败'
+          setTimeout(function () { if (t === token) b.textContent = '复制' }, done ? 1600 : 2400)
+        })
+      })(btn, pre)
+    }
+  }
+  function start() {
+    var st = document.createElement('style')
+    st.textContent = CSS
+    ;(document.head || document.documentElement).appendChild(st)
+    if (!document.body) { document.addEventListener('DOMContentLoaded', start); return }
+    run()
+    var n = 0
+    var iv = setInterval(function () { if (++n > 10) { clearInterval(iv); return } run() }, 300)
+    try {
+      new MutationObserver(run).observe(document.body, { childList: true, subtree: true })
+    } catch (e) {}
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start)
+  else start()
+})()
+<\/script>`
 const srcdoc = computed(() => {
   const src = repairMermaid(props.source)
   const m = src.match(/<head[^>]*>/i)
-  return m ? src.replace(m[0], m[0] + REPORT_JS) : src + REPORT_JS
+  return m ? src.replace(m[0], m[0] + REPORT_JS + COPY_JS) : src + REPORT_JS + COPY_JS
 })
 </script>
 
@@ -166,6 +251,7 @@ const srcdoc = computed(() => {
       :srcdoc="srcdoc"
       :style="{ height: height + 'px' }"
       sandbox="allow-scripts"
+      allow="clipboard-write"
       loading="lazy"
       title="HTML 文档"
       @load="onFrameLoad"

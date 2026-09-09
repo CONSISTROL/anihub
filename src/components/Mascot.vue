@@ -319,44 +319,58 @@ function tryMove(preferredName = null) {
   const rightBound = window.innerWidth - MARGIN - halfW
   if (targetCenter < leftBound || targetCenter > rightBound) return false
 
-  const video = currentVideo()
-  const duration = video && Number.isFinite(video.duration) && video.duration > 0 ? video.duration : FALLBACK_DURATION
+  // 注意：不能拿 currentVideo()（还是被替换掉的旧动画）的时长/进度当时间轴——
+  // 跑步素材要等 applySource 双缓冲切换后才在前台开播。位移统一由 moveTick 在
+  // 跑步素材真正开播后按它自己的 currentTime/duration 驱动（见下）。
   movePlan = {
     startLeft: posX.value,
     targetLeft: clamp(targetCenter - halfW, MARGIN, window.innerWidth - PET_W - MARGIN),
     dir,
     leadSec: params.leadSec,
     tailSec: params.tailSec,
-    duration,
+    path: WEBM(chosen.name),
+    duration: 0, // 延迟到素材实际开播时按其真实时长解析
   }
   state.value = 'move'
   animName.value = chosen.name
-  applySource(WEBM(chosen.name), false)
-  lastMoveRaf(performance.now())
+  applySource(movePlan.path, false)
+  rafId = requestAnimationFrame(moveTick)
   return true
 }
 
-function lastMoveRaf(now) {
-  if (!movePlan) return
+/* 位移驱动：只认跑步素材自己的时间轴。
+   素材还没切到前台开播（旧动画在播/新素材缓冲中）→ 停在起点继续等；
+   一旦跑步素材在前台播放，lead 段原地起跑、travel 段匀速位移、tail 段到达终点原地跑。 */
+function moveTick() {
+  if (!movePlan) {
+    rafId = null
+    return
+  }
   const video = currentVideo()
-  const t = video?.currentTime || 0
-  const d = movePlan.duration || FALLBACK_DURATION
+  let d = movePlan.duration && movePlan.duration > 0 ? movePlan.duration : FALLBACK_DURATION
+  let t = 0
+  if (video && samePath(video, movePlan.path)) {
+    // 前台已切到跑步素材：以它自己的实时进度/真实时长为准
+    // （不做 paused/ended 门槛——暂停也只是停在原进度，用它反而避免瞬移回起点）
+    if (Number.isFinite(video.duration) && video.duration > 0) d = video.duration
+    movePlan.duration = d
+    t = video.currentTime
+  }
+  // 前台还是被替换掉的旧动画（新素材缓冲中）→ t 保持 0，原地停在起点等待开播
   const lead = movePlan.leadSec
   const tail = movePlan.tailSec
-  const travelWindow = Math.max(0.1, d - lead - tail)
   if (t <= lead) {
     posX.value = movePlan.startLeft
   } else if (t >= d - tail) {
     posX.value = movePlan.targetLeft
+    rafId = null
+    return // 尾部原地跑，等视频自然 ended 由 onVideoEnded 接续
   } else {
+    const travelWindow = Math.max(0.1, d - lead - tail)
     const ratio = (t - lead) / travelWindow
     posX.value = movePlan.startLeft + (movePlan.targetLeft - movePlan.startLeft) * ratio
   }
-  if (t < d - tail) {
-    rafId = requestAnimationFrame(lastMoveRaf)
-  } else {
-    rafId = null
-  }
+  rafId = requestAnimationFrame(moveTick)
 }
 
 function stopMove() {

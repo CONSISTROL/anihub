@@ -7,8 +7,10 @@ import { defineAsyncComponent, h, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PostList from '../components/PostList.vue'
 import AppIcon from '../components/AppIcon.vue'
+import { useAuth } from '../composables/useAuth'
+import { exportWikiZip, importWikiZip } from '../api/posts'
 
-// 拓扑图组件（含力导向布局 + SVG 渲染）只在切到“拓扑图”时下载/解析，
+// 拓扑图组件（three.js 三维「电子绕核/行星绕日」渲染）只在切到“拓扑图”时下载/解析，
 // 默认列表视图不加载它，Wiki 首屏能少下载一块 JS。
 const WikiGraphView = defineAsyncComponent({
   loader: () => import('../components/WikiGraphView.vue'),
@@ -67,6 +69,67 @@ function setMode(mode) {
   else delete query.view
   router.replace({ query })
 }
+
+// —— 管理员批量导出 / 导入（wiki）——
+const { isLoggedIn } = useAuth() // 登录即管理员（个人站不开放注册）
+const xferBusy = ref(false)
+const xferMsg = ref('')
+const xferErr = ref(false)
+const fileInput = ref(null)
+
+function stamp() {
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`
+}
+
+async function doExport() {
+  xferBusy.value = true
+  xferMsg.value = ''
+  xferErr.value = false
+  try {
+    const blob = await exportWikiZip()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `wiki-backup-${stamp()}.zip`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 2000)
+    xferMsg.value = `已导出 ${a.download}（${(blob.size / 1024).toFixed(0)} KB）`
+  } catch (e) {
+    xferErr.value = true
+    xferMsg.value = `导出失败：${e.message}`
+  } finally {
+    xferBusy.value = false
+  }
+}
+
+async function onImportFile(e) {
+  const f = e.target.files && e.target.files[0]
+  e.target.value = ''
+  if (!f) return
+  xferBusy.value = true
+  xferMsg.value = ''
+  xferErr.value = false
+  try {
+    const r = await importWikiZip(f)
+    const parts = [`新增 ${r.imported}`, `跳过 ${r.skipped}`]
+    if (r.images) parts.push(`图片：写入 ${r.images.written} / 已存在 ${r.images.skipped} / 缺失 ${r.images.missing}`)
+    xferMsg.value = `导入完成：${parts.join(' · ')}`
+    if (r.errors && r.errors.length) {
+      xferErr.value = true
+      xferMsg.value += `（${r.errors.length} 条问题，详见控制台）`
+      console.warn('[wiki-import]', r.errors)
+    }
+  } catch (err) {
+    xferErr.value = true
+    xferMsg.value = `导入失败：${err.message}`
+  } finally {
+    xferBusy.value = false
+  }
+}
 </script>
 
 <template>
@@ -93,6 +156,26 @@ function setMode(mode) {
           拓扑图
         </button>
       </div>
+    </div>
+
+    <!-- 管理员：批量导出 / 导入 wiki -->
+    <div v-if="isLoggedIn" class="admin-bar">
+      <span class="admin-label">批量管理</span>
+      <button type="button" class="admin-btn" :disabled="xferBusy" @click="doExport">
+        导出全部 Wiki (.zip)
+      </button>
+      <button type="button" class="admin-btn" :disabled="xferBusy" @click="fileInput?.click()">
+        导入 Wiki 备份
+      </button>
+      <input
+        ref="fileInput"
+        type="file"
+        accept=".zip,application/zip"
+        class="file-input"
+        @change="onImportFile"
+      />
+      <span v-if="xferBusy" class="admin-status">处理中…</span>
+      <span v-else-if="xferMsg" class="admin-status" :class="{ err: xferErr }">{{ xferMsg }}</span>
     </div>
 
     <PostList v-if="viewMode === 'list'" category="wiki" />
@@ -158,6 +241,65 @@ function setMode(mode) {
 .view-switch button.on {
   background: var(--accent);
   color: #fff;
+}
+
+/* —— 管理员批量导出/导入 —— */
+.admin-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: -4px 0 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel) 80%, transparent);
+}
+
+.admin-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-right: 2px;
+}
+
+.admin-btn {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-ios-1) var(--ease-ios-expo),
+    color var(--dur-ios-1) var(--ease-ios-expo),
+    background var(--dur-ios-1) var(--ease-ios-expo);
+}
+
+.admin-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.admin-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.file-input {
+  display: none;
+}
+
+.admin-status {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.admin-status.err {
+  color: #ff9d9d;
 }
 
 @media (max-width: 640px) {

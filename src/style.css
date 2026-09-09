@@ -193,6 +193,73 @@ a {
   width: 100%;
 }
 
+/* 阅读页代码块复制按钮（MarkdownView / RichTextView 动态生成的 DOM，须用全局样式） */
+.code-wrap {
+  position: relative;
+}
+
+.code-copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  font-family: inherit;
+  color: var(--text);
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  /* 隐藏时完全不拦截鼠标：右上角代码仍可框选/点击，悬停/聚焦才变为可点 */
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--dur-ios-1) var(--ease-ios-expo),
+    color var(--dur-ios-1) var(--ease-ios-expo),
+    border-color var(--dur-ios-1) var(--ease-ios-expo),
+    transform var(--dur-ios-1) var(--ease-ios-spring);
+}
+
+.code-wrap:hover .code-copy,
+.code-copy:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.code-copy:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.code-copy:active {
+  transform: scale(0.94);
+}
+
+.code-copy.done {
+  opacity: 1;
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+/* 触屏没有 hover：复制按钮常驻（须恢复可点击），做得更紧凑减少遮挡代码 */
+@media (hover: none) {
+  .code-copy {
+    opacity: 1;
+    pointer-events: auto;
+    padding: 2px 8px;
+    font-size: 11px;
+    top: 6px;
+    right: 6px;
+  }
+}
+
 ::selection {
   background: color-mix(in srgb, var(--accent) 40%, transparent);
 }

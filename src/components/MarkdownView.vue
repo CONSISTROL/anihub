@@ -1,20 +1,30 @@
 <script setup>
 // Markdown 渲染：marked 解析 + DOMPurify 消毒（多用户内容必须防 XSS）
-import { computed } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
+import { enhanceCodeBlocks } from '../utils/codeCopy'
 
 const props = defineProps({
   source: { type: String, default: '' },
 })
 
+const root = ref(null)
+
 const html = computed(() =>
   DOMPurify.sanitize(marked.parse(props.source, { gfm: true, breaks: true }))
 )
+
+// v-html 每次替换 DOM 后给 <pre> 补上复制按钮（新 DOM 无标记，需重跑）
+function afterRender() {
+  nextTick(() => enhanceCodeBlocks(root.value))
+}
+onMounted(afterRender)
+watch(html, afterRender)
 </script>
 
 <template>
-  <div class="markdown-body" v-html="html" />
+  <div ref="root" class="markdown-body" v-html="html" />
 </template>
 
 <style scoped>

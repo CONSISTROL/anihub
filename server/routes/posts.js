@@ -1,11 +1,17 @@
 // 文章路由：博客与 Wiki 共用的 CRUD（category 区分），支持 md / html 两种正文格式
 import { Router } from 'express'
+import express from 'express'
+import JSZip from 'jszip'
+import fs from 'node:fs'
+import path from 'node:path'
 import db from '../db.js'
 import { slugify } from '../lib/slugify.js'
 import { validateCategory, validateFormat, validatePostInput } from '../lib/validate.js'
 import { authRequired, optionalAuth } from '../middleware/auth.js'
 
 const router = Router()
+
+const UPLOAD_DIR = path.join(import.meta.dirname, '..', 'uploads')
 
 const POST_FIELDS = `
   p.id, p.category, p.title, p.slug, p.summary,
@@ -310,5 +316,233 @@ router.delete('/:id', authRequired, (req, res) => {
   db.prepare('DELETE FROM posts WHERE id = ?').run(id)
   res.status(204).end()
 })
+
+// ================= Wiki 批量导出 / 导入（仅管理员） =================
+// 导出：全部 wiki 条目（含内部/私密）打包为 zip：
+//   manifest.json（元数据+正文）+ uploads/<文件名>（正文引用的图片）
+const UPLOAD_REF_RE = /\/uploads\/([A-Za-z0-9][A-Za-z0-9._-]*)/g
+
+function collectUploadRefs(...texts) {
+  const names = []
+  const seen = new Set()
+  for (const text of texts) {
+    if (typeof text !== 'string') continue
+    UPLOAD_REF_RE.lastIndex = 0
+    let m
+    while ((m = UPLOAD_REF_RE.exec(text))) {
+      const name = m[1]
+      if (!seen.has(name)) {
+        seen.add(name)
+        names.push(name)
+      }
+    }
+  }
+  return names.filter((name) => name === path.basename(name)) // 只接受纯文件名，防路径穿越
+}
+
+router.get('/wiki/export', authRequired, async (req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT ${POST_FIELDS} FROM posts p JOIN users u ON u.id = p.author_id
+       WHERE p.category = 'wiki' ORDER BY p.created_at`
+    )
+    .all()
+  const posts = rows.map((r) => {
+    const format = r.format === 'html' ? 'html' : 'md'
+    return {
+      title: r.title,
+      slug: r.slug,
+      summary: r.summary,
+      format,
+      content_md: format === 'md' ? r.content_md : '',
+      content_html: format === 'html' ? r.content_html : '',
+      tags: parseTags(r.tags),
+      visibility: r.visibility,
+      pinned: !!r.pinned,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    }
+  })
+  const refs = []
+  for (const p of posts) refs.push(...collectUploadRefs(p.content_md, p.content_html))
+  const uploads = [...new Set(refs)]
+
+  const zip = new JSZip()
+  zip.file(
+    'manifest.json',
+    JSON.stringify({ app: 'anihub', kind: 'wiki-backup', version: 1, exportedAt: new Date().toISOString(), posts, uploads }, null, 2)
+  )
+  // 每条 wiki 正文单独成文件（wiki/<slug>.md|.html），方便人直接查看/比对；
+  // 导入只认 manifest.json + uploads/，这些附加文件不影响导入。
+  posts.forEach((p, i) => {
+    const safe = String(p.slug || 'entry-' + (i + 1)).replace(/[\\/:*?"<>|]/g, '-')
+    const ext = p.format === 'html' ? 'html' : 'md'
+    const body = p.format === 'html' ? p.content_html : p.content_md
+    // html 条目（独立文档）原样保存，保证仍是完整可打开的 HTML；
+    // md 条目加一段人类可读的头部说明。
+    const content =
+      p.format === 'html'
+        ? body
+        : `# ${p.title}\n\n` +
+          (p.summary ? `> ${p.summary}\n\n` : '') +
+          `标签：${(p.tags || []).join('、') || '无'}\n` +
+          `可见性：${p.visibility}\n\n` +
+          '---\n\n' +
+          body
+    zip.file(`wiki/${safe}.${ext}`, content)
+  })
+  zip.file(
+    'README.txt',
+    `AniHub Wiki 备份（${posts.length} 条）
+====================
+- manifest.json  机器可读清单（导入时使用；含标题/slug/标签/可见性/时间等）
+- wiki/          每条 Wiki 的正文原文，命名 wiki/<slug>.md|.html，方便直接查看
+- uploads/       正文里引用的图片
+
+导入方法：管理员在 Wiki 页点「导入 Wiki 备份」，选择本 zip；
+同名（同 slug）条目已存在时会自动跳过，不覆盖。
+`
+  )
+  for (const name of uploads) {
+    const file = path.join(UPLOAD_DIR, name)
+    try {
+      if (fs.existsSync(file)) zip.file('uploads/' + name, fs.readFileSync(file))
+    } catch (_) {
+      /* 读取失败则跳过该图（导入端会报告缺失） */
+    }
+  }
+  const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })
+  const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
+  res.setHeader('Content-Type', 'application/zip')
+  res.setHeader('Content-Disposition', `attachment; filename="wiki-backup-${stamp}.zip"`)
+  res.send(buf)
+})
+
+// 导入：上传导出的 zip；同 slug 已存在（wiki）→ 跳过，其余按“当前管理员”新建。
+// 图片文件名沿用导出时的名字，同名文件已存在则跳过写入（不覆盖）。
+const SAFE_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+const TIME_RE = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}/
+
+router.post(
+  '/wiki/import',
+  authRequired,
+  express.raw({ type: ['application/zip', 'application/x-zip-compressed', 'application/octet-stream'], limit: '200mb' }),
+  async (req, res) => {
+    if (!req.body || !req.body.length) {
+      return res.status(400).json({ error: { code: 'EMPTY', message: '上传内容为空' } })
+    }
+    const result = { imported: 0, skipped: 0, images: { written: 0, skipped: 0, missing: 0 }, errors: [] }
+    let zip
+    let manifest
+    try {
+      zip = await JSZip.loadAsync(req.body)
+      const mf = zip.file('manifest.json')
+      if (!mf) throw new Error('缺少 manifest.json，不是有效的 Wiki 备份包')
+      manifest = JSON.parse(await mf.async('string'))
+    } catch (e) {
+      return res.status(400).json({ error: { code: 'BAD_ARCHIVE', message: '无法解析备份包：' + e.message } })
+    }
+    if (!manifest || manifest.kind !== 'wiki-backup' || !Array.isArray(manifest.posts)) {
+      return res.status(400).json({ error: { code: 'BAD_ARCHIVE', message: 'manifest 结构不正确，不是有效的 Wiki 备份包' } })
+    }
+
+    // 1) 图片：写 uploads/（已存在则跳过，不覆盖现有文件）
+    for (const name of manifest.uploads || []) {
+      if (typeof name !== 'string' || !SAFE_FILE.test(name)) {
+        result.errors.push(`图片名不合法，已忽略：${String(name).slice(0, 60)}`)
+        continue
+      }
+      const dest = path.join(UPLOAD_DIR, name)
+      if (path.dirname(dest) !== UPLOAD_DIR) {
+        result.errors.push(`图片路径不合法，已忽略：${name}`)
+        continue
+      }
+      try {
+        if (fs.existsSync(dest)) {
+          result.images.skipped++
+          continue
+        }
+        const entry = zip.file('uploads/' + name)
+        if (!entry) {
+          result.images.missing++
+          continue
+        }
+        fs.writeFileSync(dest, await entry.async('nodebuffer'))
+        result.images.written++
+      } catch (e) {
+        result.errors.push(`图片写入失败 ${name}：${e.message}`)
+      }
+    }
+
+    // 2) 条目：同 slug 的 wiki 已存在 → 跳过；否则新建，作者 = 当前管理员
+    const me = Number(req.user.sub)
+    const insert = db.prepare(
+      `INSERT INTO posts (category, title, slug, summary, content_md, content_html, format, tags, visibility, pinned, author_id, created_at, updated_at)
+       VALUES ('wiki', ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
+    )
+    db.exec('BEGIN')
+    try {
+      for (const p of manifest.posts || []) {
+        const pushErr = (msg) => result.errors.push(`「${String(p?.title || '').slice(0, 40)}」：${msg}`)
+        if (!p || typeof p !== 'object') {
+          result.errors.push('存在无效条目，已忽略')
+          continue
+        }
+        const title = typeof p.title === 'string' ? p.title.trim() : ''
+        const format = p.format === 'html' ? 'html' : 'md'
+        if (!title) {
+          pushErr('标题为空，已跳过')
+          result.skipped++
+          continue
+        }
+        if (!VISIBILITIES.includes(p.visibility)) {
+          pushErr('visibility 无效，已跳过')
+          result.skipped++
+          continue
+        }
+        const tags = Array.isArray(p.tags) ? p.tags.filter((t) => typeof t === 'string').slice(0, 50) : []
+        const contentMd = format === 'md' && typeof p.content_md === 'string' ? p.content_md : ''
+        const contentHtml = format === 'html' && typeof p.content_html === 'string' ? p.content_html : ''
+        if (contentMd.length > 5_000_000 || contentHtml.length > 5_000_000) {
+          pushErr('正文过大（>5M 字符），已跳过')
+          result.skipped++
+          continue
+        }
+
+        const base = typeof p.slug === 'string' && p.slug.trim() ? slugify(p.slug) : slugify(title)
+        const existing = db.prepare('SELECT category FROM posts WHERE slug = ?').get(base)
+        if (existing) {
+          if (existing.category === 'wiki') {
+            result.skipped++ // 决策：同 slug 的 wiki 已存在 → 跳过
+            continue
+          }
+          // 极少见：同 slug 被博客占用 → 自动追加 -2/-3 避免唯一约束冲突
+        }
+        const slug = uniqueSlug(base)
+        const created = TIME_RE.test(String(p.createdAt || '')) ? p.createdAt : undefined
+        const updated = TIME_RE.test(String(p.updatedAt || '')) ? p.updatedAt : undefined
+        insert.run(
+          title,
+          slug,
+          typeof p.summary === 'string' ? p.summary : '',
+          contentMd,
+          contentHtml,
+          format,
+          JSON.stringify(tags),
+          p.visibility,
+          me,
+          created || new Date().toISOString().replace('T', ' ').slice(0, 19),
+          updated || new Date().toISOString().replace('T', ' ').slice(0, 19)
+        )
+        result.imported++
+      }
+      db.exec('COMMIT')
+    } catch (e) {
+      db.exec('ROLLBACK')
+      result.errors.push('数据库写入失败：' + e.message)
+    }
+    res.json(result)
+  }
+)
 
 export default router
