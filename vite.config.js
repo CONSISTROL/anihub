@@ -27,6 +27,9 @@ export default defineConfig({
       // dev 模式下 /api 与上传图片转发到后端（生产由 Express 直接托管，无需代理）
       '/api': 'http://localhost:3001',
       '/uploads': 'http://localhost:3001',
+      // 在线阅读正文：必须走后端，不能由 vite 直接服务 public/，
+      // 否则本地的身份校验（booksGuard）会被绕过
+      '/books': 'http://localhost:3001',
       // 本地 Web 代理：控制台新标签页打开 /local-web/http/... 时转发到后端
       '/local-web': 'http://localhost:3001',
       // 控制台 WebSocket 实时输出

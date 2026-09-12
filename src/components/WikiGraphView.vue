@@ -181,7 +181,7 @@ function initScene() {
   renderer.domElement.addEventListener('pointerdown', onPointerDown)
   renderer.domElement.addEventListener('pointerup', onPointerUp)
   renderer.domElement.addEventListener('pointerleave', onPointerLeave)
-  tick()
+  // 帧循环由 load() 统一启动（见那里的注释），这里不再启动，避免起两个循环
 }
 
 function makeBackgroundStars() {
@@ -287,13 +287,95 @@ function themeTextColor() {
   return new THREE.Color('#ffffff')
 }
 
+// 标签光栅化的"超采样倍率"。
+//
+// 问题：标签是 Sprite + CanvasTexture，纹理在创建时就以固定的 30px 字号画好。
+// 透视相机拉近（OrbitControls 的 dolly）会把这个纹理放大呈现 —— 纹理像素被拉伸，
+// 于是越放大越糊。
+//
+// 修法：按"当前相机距离"推算出这个纹理在屏幕上最多会被放大多少倍，就按那个倍数
+// 提高光栅化分辨率（字号与画布同比放大），世界尺寸保持不变（视觉大小不变，只变清晰度）。
+// 只在需要更高倍率时重建，避免来回抖动时反复重画。
+//
+// 内存控制：标签纹理与 (倍率)² 成正比，因此上限按「最近机位实际需要多少」来定，
+// 而不是拍脑袋给个很大的值。LABEL_REF_DISTANCE / controls.minDistance ≈ 4.5，
+// 留些余量取 4.8；再大就只是浪费显存了。
+// 若将来节点数大幅增长，优先下调此上限或 makeLabelSprite 里的 maxPx。
+const LABEL_SS_MAX = 4.8
+const LABEL_SS_MIN = 1
+// 参照距离：标签纹理就是按这个距离对应的屏幕尺寸光栅化的（initScene 的初始机位约 504）。
+// 机位比它更远时精灵在屏幕上更小，纹理只多不少，因此不需要降低倍率。
+const LABEL_REF_DISTANCE = 500
+let labelSuperSample = LABEL_SS_MIN
+let labelRefreshTimer = null
+
+/** 根据相机距离算出需要的超采样倍率（永远取"够清晰"的那一档） */
+function neededSuperSample() {
+  if (!camera || !controls) return LABEL_SS_MIN
+  const d = Math.max(1, camera.position.distanceTo(controls.target))
+  const raw = LABEL_REF_DISTANCE / d
+  return Math.min(LABEL_SS_MAX, Math.max(LABEL_SS_MIN, raw))
+}
+
+/**
+ * 标记标签需要重建。
+ *
+ * 关键：定时器**只排一次**。这个函数每帧都会被调用（帧循环里判断是否需要提高倍率），
+ * 如果每帧都 clearTimeout + 重设，180ms 的定时器在持续缩放期间永远等不到触发时机，
+ * 标签纹理就永远停在初始倍率上 —— 这正是"放大后依然模糊"的原因。
+ * 因此这里只在没有待处理定时器时才排队。
+ */
+function scheduleLabelRefresh() {
+  if (!markers.length || labelRefreshTimer) return
+  const need = neededSuperSample()
+  // 只在"明显需要更清晰"时重建（留 15% 余量，避免临界点反复触发）
+  if (need <= labelSuperSample * 1.15) return
+  labelRefreshTimer = setTimeout(() => {
+    labelRefreshTimer = null
+    refreshLabels()
+  }, 180)
+}
+
+/** 用当前倍率重画所有标签纹理（只替换纹理，不动精灵与世界尺寸） */
+function refreshLabels() {
+  if (!markers.length) return
+  const next = neededSuperSample()
+  if (next <= labelSuperSample * 1.01) return
+  labelSuperSample = next
+  for (const m of markers) {
+    const old = m.label
+    if (!old) continue
+    const parent = old.parent
+    if (!parent) continue
+    const tint = old.material?.color?.clone() || themeTextColor()
+    const fresh = makeLabelSprite(m.nd.title, tint)
+    // 沿用原位置、缩放与可见性/透明度，保证视觉状态完全不变，只有清晰度变化
+    // （过滤、悬停等逻辑会直接改 label.visible / labelMat.opacity，重建时必须带走）
+    fresh.position.copy(old.position)
+    fresh.scale.copy(old.scale)
+    fresh.renderOrder = old.renderOrder
+    fresh.visible = old.visible
+    fresh.material.opacity = old.material.opacity
+    fresh.userData.idx = m.nd.idx
+    parent.add(fresh)
+    parent.remove(old)
+    old.material?.map?.dispose()
+    old.material?.dispose()
+    m.label = fresh
+    m.labelMat = fresh.material
+  }
+}
+
 function makeLabelSprite(text, tint) {
-  const font = '600 30px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif'
-  const maxPx = 560
+  // ss：光栅化倍率。字号/行高/内边距/画布尺寸全部同比放大，
+  // 最后 sp.scale 用"原始世界尺寸"（与 ss 无关），因此放大只提升清晰度、不改变视觉大小。
+  const ss = labelSuperSample
+  const font = `600 ${Math.round(30 * ss)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif`
+  const maxPx = 560 * ss
   const lines = wrapFull(text, font, maxPx)
-  const lineH = 36
-  const padX = 10
-  const padY = 6
+  const lineH = 36 * ss
+  const padX = 10 * ss
+  const padY = 6 * ss
   const maxW = Math.max(...lines.map((l) => labelWidth(l, font)))
   const c = document.createElement('canvas')
   c.width = Math.ceil(maxW) + padX * 2
@@ -303,13 +385,15 @@ function makeLabelSprite(text, tint) {
   x.textAlign = 'center'
   x.textBaseline = 'middle'
   x.shadowColor = 'rgba(0,0,0,0.85)'
-  x.shadowBlur = 6
+  x.shadowBlur = 6 * ss
   x.fillStyle = '#ffffff'
   lines.forEach((ln, i) => {
     x.fillText(ln, c.width / 2, padY + lineH * i + lineH / 2 + 1)
   })
   x.shadowBlur = 0
   const tex = new THREE.CanvasTexture(c)
+  // 各向异性过滤：斜视角下长文本的清晰度也靠它
+  tex.anisotropy = renderer?.capabilities?.getMaxAnisotropy?.() || 1
   const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, color: tint.clone(), opacity: 0.9 })
   const sp = new THREE.Sprite(mat)
   // 世界尺寸：每行约 10 单位高，行多则整体变高（宽度按同比例）
@@ -364,7 +448,21 @@ function resize() {
 }
 
 // ================= 帧循环 =================
+let hidden = false
+function onVisibility() {
+  hidden = document.hidden
+  if (hidden) {
+    // 标签页不可见：停掉帧循环，别在后台空烧 GPU
+    cancelAnimationFrame(raf)
+    raf = 0
+  } else if (renderer && !raf) {
+    clock.getDelta() // 丢弃切回瞬间的巨大 delta，避免画面跳一下
+    tick()
+  }
+}
+
 function tick() {
+  if (hidden) return
   raf = requestAnimationFrame(tick)
   const dt = Math.min(clock.getDelta(), 0.05)
   if (spinning.value) {
@@ -372,6 +470,9 @@ function tick() {
     galaxy.rotation.y = armAngle
   }
   controls.update()
+  // 拉近后标签纹理会不够清晰：这里只做"是否需要提高倍率"的判断（很轻），
+  // 真正的重画交给去抖后的 refreshLabels，不会每帧重建纹理。
+  scheduleLabelRefresh()
   scene.updateMatrixWorld()
   applyStates(dt)
   renderer.render(scene, camera)
@@ -558,6 +659,10 @@ const hoverInfo = computed(() => {
 })
 
 // ================= 加载 =================
+// 视图过渡时长（--dur-ios-2 = 260ms）：组件挂载后先让过渡动画走完，再构建 3D 场景，
+// 否则同步的建场景成本会打断过渡动画。加一点余量。
+const transitionGuardUntil = performance.now() + 340
+
 async function load() {
   loading.value = true
   error.value = ''
@@ -570,7 +675,25 @@ async function load() {
   } finally {
     loading.value = false
     if (!error.value && nodes.length) {
-      nextTick(() => initScene())
+      // 场景构建是同步的重活（建几何体 / 着色器 / 上传纹理，实测主线程约 130ms）。
+      // 若在挂载同一帧里做，会正好压在「列表 ↔ 拓扑」的视图过渡动画上（过渡 260ms），动画直接掉帧。
+      // 这里等过渡跑完再建场景：先让动画顺畅走完，再一次性构建。
+      // 用 rAF 链路往后推，比死等 setTimeout 更贴合实际帧节奏。
+      nextTick(() => {
+        requestAnimationFrame(function waitFrames() {
+          // 过渡时长 --dur-ios-2 = 260ms，留一点余量
+          if (performance.now() < transitionGuardUntil) {
+            requestAnimationFrame(waitFrames)
+            return
+          }
+          if (!error.value && nodes.length) {
+            initScene()
+            document.addEventListener('visibilitychange', onVisibility)
+            hidden = document.hidden
+            if (!hidden) tick()
+          }
+        })
+      })
     }
   }
 }
@@ -579,6 +702,11 @@ async function load() {
 onMounted(load)
 onBeforeUnmount(() => {
   cancelAnimationFrame(raf)
+  raf = 0
+  clearTimeout(labelRefreshTimer)
+  labelRefreshTimer = null
+  labelSuperSample = LABEL_SS_MIN
+  document.removeEventListener('visibilitychange', onVisibility)
   if (ro) ro.disconnect()
   if (hostEl.value && renderer && renderer.domElement.parentNode === hostEl.value) {
     hostEl.value.removeChild(renderer.domElement)

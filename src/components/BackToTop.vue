@@ -46,7 +46,7 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
   position: fixed;
   right: 22px;
   bottom: 179px; /* 抬到桌宠上方（桌宠高 165 + 底距 2 + 12 间隔），避免被右下角桌宠遮挡 */
-  z-index: 60; /* 低于登录弹窗（100），高于导航栏（50） */
+  z-index: 60; /* 低于登录弹窗（100）与页面级浮层（wiki 切换器 220）；导航栏为 250，但两者位置不重叠 */
   width: 42px;
   height: 42px;
   display: flex;

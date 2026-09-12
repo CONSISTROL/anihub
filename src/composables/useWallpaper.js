@@ -44,6 +44,18 @@ function pickRandom() {
   return images.value[list[Math.floor(Math.random() * list.length)]]
 }
 
+/** 空闲时预热一张图（只写浏览器缓存，不改动任何显示状态） */
+export function warmup(url) {
+  if (!url) return
+  const run = () => {
+    const img = new Image()
+    img.decoding = 'async'
+    img.src = url
+  }
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 4000 })
+  else setTimeout(run, 1200)
+}
+
 // 选一张并立即应用（预加载成功后才切换，避免空白闪烁）；全部失败则清除壁纸
 function applyRandom() {
   const url = pickRandom()
@@ -57,6 +69,9 @@ function applyRandom() {
       displayUrl.value = url
       localStorage.setItem(STORE_KEY, url)
       if (owners > 0) applyBody(url) // 期间若已无持有者则不再显示
+      // 当前壁纸已经显示出来，趁浏览器空闲把「下次访问要用的那张」也预热进缓存：
+      // 壁纸单张可达十几 MB，等刷新时才开始下载会明显白屏。
+      warmup(localStorage.getItem(STORE_KEY))
     })
     .catch(() => {
       failedIdxs.add(images.value.indexOf(url))
@@ -69,6 +84,7 @@ function prepareNext() {
   const url = pickRandom()
   if (!url || url === displayUrl.value) return
   localStorage.setItem(STORE_KEY, url)
+  warmup(url)
 }
 
 async function init() {
@@ -81,6 +97,7 @@ async function init() {
       if (images.value.length && owners > 0) applyRandom()
     })
   }
+  // 与调用方的 /api/settings 并行：壁纸列表是独立端点，没必要串在设置之后
   try {
     images.value = (await api('/wallpapers')).images || []
   } catch {

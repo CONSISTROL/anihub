@@ -1,15 +1,21 @@
 // 访问统计（仅管理员查看）：记录页面访问量 / 访问记录 / IP 来源。
 // - 记录来源：生产环境 Express 页面请求中间件（source=page）+ 前端 SPA 路由切换上报（source=spa）
 // - IP 归属地：使用 ip-api.com 免费接口按需异步解析，结果缓存到 ip_locations 表
+// - 写入策略：内存缓冲 + 定时批量落库（原先每个页面请求都同步 INSERT 并 fsync，见 db.js 的 synchronous 说明）
+// - 客户端 IP：统一走 lib/clientIp.js（取可信来源，修复 XFF 首段可伪造的问题）
 import { Router } from 'express'
 import db from '../db.js'
 import { authRequired } from '../middleware/auth.js'
+import { getClientIp } from '../lib/clientIp.js'
 
 const router = Router()
 
 /* ---------- IP 来源解析（异步、带缓存） ---------- */
 
 const resolving = new Set()
+const RESOLVE_CONCURRENCY = 2 // 同时最多 2 个 ip-api.com 外呼：防止伪造 IP 造成出网耗尽
+let activeResolves = 0
+const resolveQueue = []
 
 // SPA 上报接口的简单限流：防止恶意脚本刷访问量
 const trackRate = new Map()
@@ -29,20 +35,6 @@ function allowTrack(ip) {
   }
   rec.count++
   return rec.count <= TRACK_MAX_PER_WINDOW
-}
-
-function getClientIp(req) {
-  const xff = req.headers['x-forwarded-for']
-  let ip = ''
-  if (typeof xff === 'string' && xff.trim()) {
-    ip = xff.split(',')[0].trim()
-  } else if (Array.isArray(xff) && xff.length) {
-    ip = String(xff[0]).trim()
-  } else {
-    ip = req.socket?.remoteAddress || req.ip || ''
-  }
-  // Node 在 IPv6 映射地址下会给出 ::ffff:1.2.3.4，去掉前缀保留 IPv4
-  return ip.replace(/^::ffff:/i, '')
 }
 
 function isPrivateIp(ip) {
@@ -122,22 +114,77 @@ function queueResolve(ip) {
     const hasLocationInfo = row && (row.country || row.region || row.city)
     if (row && row.status === 'failed' && !hasLocationInfo && row.resolved_at > Math.floor(Date.now() / 1000) - 86400) return
     if (resolving.has(ip)) return
+    // 队列过长说明来源异常（例如被伪造 IP 刷）：丢弃后续任务，只保留已排队的
+    if (resolveQueue.length >= 200) return
     resolving.add(ip)
-    setImmediate(async () => {
-      try {
-        await resolveIp(ip)
-      } finally {
-        resolving.delete(ip)
-      }
-    })
+    resolveQueue.push(ip)
+    pumpResolve()
   } catch {
     /* IP 归属地解析失败不影响访问记录 */
   }
 }
 
-/* ---------- 记录写入 ---------- */
+/** 有并发上限的解析泵：最多 RESOLVE_CONCURRENCY 个外呼同时在飞 */
+function pumpResolve() {
+  while (activeResolves < RESOLVE_CONCURRENCY && resolveQueue.length) {
+    const ip = resolveQueue.shift()
+    activeResolves++
+    resolveIp(ip)
+      .catch(() => {})
+      .finally(() => {
+        activeResolves--
+        resolving.delete(ip)
+        pumpResolve()
+      })
+  }
+}
+
+/* ---------- 记录写入（内存缓冲 + 批量落库） ---------- */
 
 const ASSET_RE = /\.(?:js|mjs|css|png|jpe?g|gif|svg|webp|ico|woff2?|ttf|otf|map|txt|json|xml|mp4|webm|mp3|pdf)(?:\/|$)/i
+
+const FLUSH_INTERVAL_MS = 3000 // 最多积压 3 秒
+const FLUSH_BATCH = 50 // 或积满 50 条
+const MAX_PENDING = 2000 // 队列上限：异常刷量时只统计前 2000 条，避免内存膨胀
+let pending = []
+let flushTimer = null
+
+const insertVisitStmt = () => db.prepare(
+  'INSERT INTO visits (ts, ip, path, user_agent, referer, source) VALUES (?, ?, ?, ?, ?, ?)'
+)
+
+function flushVisits() {
+  if (!pending.length) return
+  const batch = pending
+  pending = []
+  try {
+    const stmt = insertVisitStmt()
+    // node:sqlite 的 DatabaseSync 是同步 API：逐条执行仍比「每次请求各自事务 fsync」快得多，
+    // 因为整批共享同一个 WAL 事务窗口。
+    for (const r of batch) {
+      stmt.run(r.ts, r.ip, r.path, r.ua, r.referer, r.source)
+    }
+  } catch {
+    /* 落库失败：丢弃本批，不影响主流程 */
+  }
+}
+
+function scheduleFlush() {
+  if (flushTimer) return
+  flushTimer = setTimeout(() => {
+    flushTimer = null
+    flushVisits()
+  }, FLUSH_INTERVAL_MS)
+  flushTimer.unref?.()
+}
+
+export function flushPendingVisits() {
+  if (flushTimer) {
+    clearTimeout(flushTimer)
+    flushTimer = null
+  }
+  flushVisits()
+}
 
 export function recordVisit({ ip, path, ua = '', referer = '', source = 'page' }) {
   if (!path || typeof path !== 'string' || !path.startsWith('/')) return
@@ -148,22 +195,26 @@ export function recordVisit({ ip, path, ua = '', referer = '', source = 'page' }
   const pathname = path.split('?')[0]
   if (ASSET_RE.test(pathname)) return
 
-  const now = Math.floor(Date.now() / 1000)
-  try {
-    db.prepare(
-      'INSERT INTO visits (ts, ip, path, user_agent, referer, source) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(
-      now,
-      String(ip || '').slice(0, 64),
-      path.slice(0, 500),
-      String(ua || '').slice(0, 500),
-      String(referer || '').slice(0, 500),
-      source === 'spa' ? 'spa' : 'page'
-    )
-  } catch {
-    return
+  const ipStr = String(ip || '')
+  if (pending.length >= MAX_PENDING) return
+  pending.push({
+    ts: Math.floor(Date.now() / 1000),
+    ip: ipStr.slice(0, 64),
+    path: path.slice(0, 500),
+    ua: String(ua || '').slice(0, 500),
+    referer: String(referer || '').slice(0, 500),
+    source: source === 'spa' ? 'spa' : 'page',
+  })
+  if (pending.length >= FLUSH_BATCH) {
+    if (flushTimer) {
+      clearTimeout(flushTimer)
+      flushTimer = null
+    }
+    flushVisits()
+  } else {
+    scheduleFlush()
   }
-  queueResolve(String(ip || ''))
+  queueResolve(ipStr)
 }
 
 // 生产环境 Express 页面请求记录中间件：只记录真正的页面文档请求

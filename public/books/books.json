@@ -1,0 +1,20 @@
+{
+  "books": [
+    {
+      "id": "chzhshch-108-plus",
+      "title": "缠中说禅教你炒股票 · 108 课加强版",
+      "author": "缠中说禅",
+      "summary": "全部 108 课原文（含新浪博客已加密、已删除的文章）、2624 条课后回复、43 张原文配图，另有解盘与补充文，合计 113 篇、约 25.2 万字。内置全文搜索、分类目录、回复折叠、字号调节与阅读进度记忆。",
+      "tags": ["缠论", "股票", "技术分析"],
+      "entry": "ebook.html",
+      "home": "https://github.com/CONSISTROL/chzhshch-108-plus",
+      "license": "MIT",
+      "upstream": {
+        "repo": "https://github.com/CONSISTROL/chzhshch-108-plus.git",
+        "commit": "dc43de36b745376f1edbeb4c40bb8d95c8414d54",
+        "date": "2026-09-12",
+        "note": "由上游 web/ebook.html 单文件电子书直接收录（自包含，配图已内嵌为 base64）"
+      }
+    }
+  ]
+}

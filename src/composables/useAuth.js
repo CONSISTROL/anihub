@@ -40,6 +40,12 @@ function clearSession() {
   } catch {
     /* 清除失败不影响本地退出逻辑 */
   }
+  // 在线阅读的 /books 会话 Cookie 同理：登出后不能继续直接打开书正文
+  try {
+    fetch('/api/reading/session', { method: 'DELETE', credentials: 'same-origin' }).catch(() => {})
+  } catch {
+    /* 同上 */
+  }
 }
 
 function enterInsider(t) {
@@ -50,6 +56,12 @@ function enterInsider(t) {
 function exitInsider() {
   insiderToken.value = ''
   localStorage.removeItem(INSIDER_KEY)
+  // 退出内部模式要一并作废在线阅读会话
+  try {
+    fetch('/api/reading/session', { method: 'DELETE', credentials: 'same-origin' }).catch(() => {})
+  } catch {
+    /* 同上 */
+  }
 }
 
 export function useAuth() {

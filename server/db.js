@@ -6,7 +6,24 @@ import { ADMIN_USERNAME, ADMIN_PASSWORD } from './config.js'
 
 const db = new DatabaseSync(path.join(import.meta.dirname, 'anihub.db'))
 
-db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;')
+// SQLite 运行时调优：
+// - WAL：读写并发（已有）
+// - synchronous = NORMAL：WAL 模式下只有 checkpoint 才 fsync，
+//   避免「每次页面访问都触发一次 fsync」——访问统计写入在热路径上，这个差异很直观
+// - busy_timeout：并发写时自动等待而不是立刻抛 SQLITE_BUSY
+// - wal_autocheckpoint + journal_size_limit：限制 WAL 膨胀
+//   （此前观察到 -wal 达 9.1MB、主库 14.6MB，重启也不回收）
+// - cache_size：负值表示 KB，64MB 页缓存，提升访问统计 / 动漫缓存的读取命中
+db.exec(`
+  PRAGMA journal_mode = WAL;
+  PRAGMA foreign_keys = ON;
+  PRAGMA synchronous = NORMAL;
+  PRAGMA busy_timeout = 5000;
+  PRAGMA wal_autocheckpoint = 1000;
+  PRAGMA journal_size_limit = 67108864;
+  PRAGMA cache_size = -65536;
+  PRAGMA temp_store = MEMORY;
+`)
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
@@ -119,15 +136,73 @@ if (!hasIpCol('lon')) {
   db.exec('ALTER TABLE ip_locations ADD COLUMN lon REAL')
 }
 
-// 个人站：启动时确保站长账号存在，密码以 .env 为准（改动后重启即生效）
-const adminHash = bcrypt.hashSync(ADMIN_PASSWORD, 10)
+// 个人站：启动时确保管理员账号存在，密码以 .env 为准（改动后重启即生效）
+// 优化：先取出已有 hash 并与 ADMIN_PASSWORD 比对，只有不一致时才重新计算 bcrypt。
+// 旧实现每次启动都无条件 hashSync（约 60ms 同步 CPU），且会让密码没变的账号 hash 变化。
 const admin = db
-  .prepare('SELECT id FROM users WHERE username = ? COLLATE NOCASE')
+  .prepare('SELECT id, password_hash FROM users WHERE username = ? COLLATE NOCASE')
   .get(ADMIN_USERNAME)
 if (admin) {
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(adminHash, admin.id)
+  let same = false
+  try {
+    same = bcrypt.compareSync(ADMIN_PASSWORD, admin.password_hash)
+  } catch {
+    same = false
+  }
+  if (!same) {
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(ADMIN_PASSWORD, 10), admin.id)
+    console.log('[db] 管理员密码已按 .env 更新')
+  }
 } else {
-  db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)').run(ADMIN_USERNAME, adminHash)
+  db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)').run(
+    ADMIN_USERNAME,
+    bcrypt.hashSync(ADMIN_PASSWORD, 10)
+  )
+}
+
+// WAL 定期 checkpoint + 过期数据清理：
+// - WAL 不回收会让 -wal 文件一直膨胀（重启前观察到 9.1MB）
+// - visits 表此前没有任何保留策略，会无限增长
+const CHECKPOINT_MS = 5 * 60_000
+const VISIT_RETENTION_DAYS = 180
+let maintenanceTimer = null
+
+export function startMaintenance() {
+  if (maintenanceTimer) return
+  let round = 0
+  const run = () => {
+    try {
+      db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
+    } catch {
+      /* checkpoint 失败（有活跃读事务）不影响主流程 */
+    }
+    // 每 12 轮（约 1 小时）做一次过期清理
+    if (++round % 12 === 0) {
+      try {
+        const cutoff = Math.floor(Date.now() / 1000) - VISIT_RETENTION_DAYS * 86400
+        const info = db.prepare('DELETE FROM visits WHERE ts < ?').run(cutoff)
+        if (info.changes) console.log(`[db] 清理过期访问记录 ${info.changes} 条`)
+      } catch {
+        /* 表不存在等：忽略 */
+      }
+    }
+  }
+  run()
+  maintenanceTimer = setInterval(run, CHECKPOINT_MS)
+  maintenanceTimer.unref?.()
+}
+
+export function stopMaintenance() {
+  if (maintenanceTimer) {
+    clearInterval(maintenanceTimer)
+    maintenanceTimer = null
+  }
+  try {
+    db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
+    db.close()
+  } catch {
+    /* 已关闭等情况忽略 */
+  }
 }
 
 export default db

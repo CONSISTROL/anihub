@@ -1,7 +1,8 @@
 <script setup>
 // 设置页：配置哪些页面对游客可见、哪些页面对内部人员额外可见 + 壁纸/成人内容身份控制 + 服务器监控（图表）
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { getSettings, updateSettings, getMonitor, getMonitorHistory, getWallpapersManage, saveWallpaperSelection } from '../api/settings'
+import { getBooksAccess, saveBooksAccess } from '../api/reading'
 import { getVisitSummary, getVisitMap, getVisitRecords, getVisitIps } from '../api/visits'
 import VisitMap from '../components/VisitMap.vue'
 import IpDetailModal from '../components/IpDetailModal.vue'
@@ -22,6 +23,7 @@ const OPTIONS = [
   { key: 'wiki', label: 'Wiki', desc: '动漫知识库' },
   { key: 'tools', label: 'Tools 工具箱', desc: 'JSON 格式化 / 二维码解析 / 图片裁切' },
   { key: 'game', label: 'Game 游戏', desc: 'Shattered Pixel Dungeon 网页版' },
+  { key: 'reading', label: 'Reading 在线阅读', desc: '内置电子书阅读；具体哪几本书上架见下方「在线阅读」' },
   { key: 'pet', label: '桌宠（蓝毛小女仆）', desc: '网页右下角的动画小宠物，默认内部人员可见、游客不可见' },
 ]
 
@@ -82,6 +84,60 @@ async function saveWp() {
     wpMessage.value = '保存失败：' + e.message
   } finally {
     wpSaving.value = false
+  }
+}
+
+/* —— 在线阅读：上架配置 —— */
+const bookList = ref([])
+const bookAccess = reactive({ enabled: true })
+const bookSaving = ref(false)
+const bookMessage = ref('')
+
+function fmtBookSize(bytes) {
+  if (!bytes) return ''
+  return bytes > 1024 * 1024
+    ? `${(bytes / 1024 / 1024).toFixed(1)} MB`
+    : `${Math.round(bytes / 1024)} KB`
+}
+
+async function loadBooks() {
+  try {
+    const d = await getBooksAccess()
+    bookList.value = (d.books || []).map((b) => ({ ...b }))
+    bookAccess.enabled = d.access?.enabled !== false
+  } catch {
+    /* 接口失败保持空列表（非管理员/接口不可用时静默） */
+  }
+}
+
+function selectAllBooks(v) {
+  bookList.value.forEach((b) => {
+    b.guest = v
+    b.insider = v
+  })
+}
+
+async function saveBookAccess() {
+  bookSaving.value = true
+  bookMessage.value = ''
+  try {
+    const d = await saveBooksAccess({
+      enabled: bookAccess.enabled,
+      guest: bookList.value.filter((b) => b.guest).map((b) => b.id),
+      insider: bookList.value.filter((b) => b.insider).map((b) => b.id),
+    })
+    // 服务端会把「游客可见」自动并入「内部人员可见」，用返回值回填避免界面与后端不一致
+    const g = new Set(d.guest || [])
+    const ins = new Set(d.insider || [])
+    bookList.value.forEach((b) => {
+      b.guest = g.has(b.id)
+      b.insider = ins.has(b.id)
+    })
+    bookMessage.value = '上架配置已保存'
+  } catch (e) {
+    bookMessage.value = '保存失败：' + e.message
+  } finally {
+    bookSaving.value = false
   }
 }
 
@@ -199,7 +255,10 @@ async function confirmUpgrade() {
 
 onMounted(async () => {
   try {
-    const d = await getSettings()
+    // 复用 useSettings 的单例加载器：导航栏 / 路由守卫已经拉过一次，
+    // useSettings.load() 会复用同一次 in-flight / 已缓存结果，
+    // 而这里原先直接调 getSettings() 会多发一个完全相同的请求。
+    const d = await useSettings().load()
     guestSelected.value = d.guestPages
     insiderSelected.value = d.insiderPages || []
     wallpaperGuest.value = d.wallpaper?.guest === true
@@ -212,6 +271,7 @@ onMounted(async () => {
     loading.value = false
   }
   loadWallpapers()
+  loadBooks()
   loadUpgradeStatus()
   loadUpgradeProgress()
 })
@@ -535,17 +595,44 @@ function closeIpDetail() {
   ipDetail.value = null
 }
 
+// 轮询调度：使用自排程 setTimeout 而不是 setInterval，
+// 这样在标签页不可见时可以直接跳过本次请求（后台页面没必要 5 秒一次打接口/查数据库）。
+// 重新可见时立刻补一次，保证数据不会看起来过期。
+function scheduleMonitor() {
+  clearTimeout(monTimer)
+  monTimer = setTimeout(async () => {
+    if (!document.hidden) await refreshMonitor()
+    scheduleMonitor()
+  }, 5000)
+}
+function scheduleHistory() {
+  clearTimeout(histTimer)
+  histTimer = setTimeout(async () => {
+    if (!document.hidden) await loadHistory()
+    scheduleHistory()
+  }, 15000)
+}
+
+function onVisibilityChange() {
+  if (document.hidden) return
+  refreshMonitor()
+  loadHistory()
+  if (upgProgress.value?.running) loadUpgradeProgress()
+}
+
 onMounted(() => {
   refreshMonitor()
-  monTimer = setInterval(refreshMonitor, 5000)
+  scheduleMonitor()
   setCustomNow()
   loadHistory()
-  histTimer = setInterval(loadHistory, 15000)
+  scheduleHistory()
   loadVisits()
+  document.addEventListener('visibilitychange', onVisibilityChange)
 })
 onUnmounted(() => {
-  clearInterval(monTimer)
-  clearInterval(histTimer)
+  clearTimeout(monTimer)
+  clearTimeout(histTimer)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
   stopUpgradePolling()
 })
 </script>
@@ -718,6 +805,55 @@ onUnmounted(() => {
             {{ wpSaving ? '保存中…' : '保存壁纸选择' }}
           </button>
           <span v-if="wpMessage" class="wp-msg">{{ wpMessage }}</span>
+        </div>
+      </section>
+
+      <section class="settings-card">
+        <h2 class="section-title">在线阅读</h2>
+        <p class="section-sub">
+          配置哪些书对哪些身份上架。管理员始终可阅读全部藏书；内部人员与游客按下面的勾选放行（只能看到已上架的书）。
+        </p>
+
+        <label class="opt">
+          <input v-model="bookAccess.enabled" type="checkbox" />
+          <span class="opt-main">
+            <span class="opt-label">开启在线阅读</span>
+            <span class="opt-desc">关闭后，除管理员外任何身份都无法打开书正文</span>
+          </span>
+        </label>
+
+        <h3 class="sub-title">书目上架</h3>
+        <p v-if="!bookList.length" class="settings-hint">
+          书架为空：把书放进 <code>public/books/&lt;id&gt;/</code>，并在 <code>public/books/books.json</code> 里登记
+        </p>
+        <div v-else class="book-rows">
+          <div v-for="b in bookList" :key="b.id" class="book-row">
+            <div class="book-row-main">
+              <span class="book-row-title">{{ b.title }}</span>
+              <span class="book-row-meta">
+                <span v-if="b.author">{{ b.author }}</span>
+                <span v-if="b.size" class="book-row-size">{{ fmtBookSize(b.size) }}</span>
+              </span>
+            </div>
+            <div class="book-row-perms">
+              <label class="perm">
+                <input v-model="b.guest" type="checkbox" />
+                <span>游客</span>
+              </label>
+              <label class="perm">
+                <input v-model="b.insider" type="checkbox" />
+                <span>内部人员</span>
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="wp-actions">
+          <button class="btn btn-sm" @click="selectAllBooks(true)">全选</button>
+          <button class="btn btn-sm" @click="selectAllBooks(false)">全不选</button>
+          <button class="btn btn-sm btn-primary" :disabled="bookSaving" @click="saveBookAccess">
+            {{ bookSaving ? '保存中…' : '保存上架配置' }}
+          </button>
+          <span v-if="bookMessage" class="wp-msg">{{ bookMessage }}</span>
         </div>
       </section>
 
@@ -1167,6 +1303,78 @@ onUnmounted(() => {
 .wp-msg {
   font-size: 12px;
   color: var(--muted);
+}
+
+/* —— 在线阅读：书目上架列表 —— */
+.book-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.book-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.book-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.book-row-title {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.book-row-meta {
+  display: flex;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.book-row-size {
+  font-variant-numeric: tabular-nums;
+}
+
+.book-row-perms {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 0 0 auto;
+}
+
+.perm {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.perm input {
+  cursor: pointer;
+}
+
+.settings-hint code {
+  padding: 1px 5px;
+  font-size: 11.5px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
 }
 
 .opt {

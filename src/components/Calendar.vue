@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { buildMonthGrid, fmtDate, fmtTime, dayKey } from '../utils/date'
 import { titleFor } from '../utils/titles'
@@ -134,7 +134,7 @@ onUnmounted(() => window.removeEventListener('scroll', hideTooltip))
               @mouseleave="hideTooltip"
               @click="emit('select', e.mediaId)"
             >
-              <img v-if="coverOf(e.mediaId)" :src="coverOf(e.mediaId)" class="chip-cover" alt="" />
+              <img v-if="coverOf(e.mediaId)" :src="coverOf(e.mediaId)" class="chip-cover" alt="" loading="lazy" decoding="async" />
               <span v-else class="chip-cover chip-cover-ph"><AppIcon name="film" :size="10" /></span>
               <span class="chip-title">{{ titleOf(e.mediaId) }}</span>
               <span class="chip-ep">第{{ e.episode }}话</span>
@@ -171,7 +171,7 @@ onUnmounted(() => window.removeEventListener('scroll', hideTooltip))
             :style="{ '--hue': hueOf(e.mediaId) }"
             @click="emit('select', e.mediaId)"
           >
-            <img v-if="coverOf(e.mediaId)" :src="coverOf(e.mediaId)" class="chip-cover" alt="" />
+            <img v-if="coverOf(e.mediaId)" :src="coverOf(e.mediaId)" class="chip-cover" alt="" loading="lazy" decoding="async" />
             <span v-else class="chip-cover chip-cover-ph"><AppIcon name="film" :size="10" /></span>
             <span class="chip-title">{{ titleOf(e.mediaId) }}</span>
             <span class="chip-ep">第{{ e.episode }}话</span>

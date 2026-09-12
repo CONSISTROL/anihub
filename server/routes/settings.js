@@ -9,7 +9,10 @@ const router = Router()
 
 const ALL_PAGES = ['anime', 'blog', 'wiki', 'tools', 'game'] // 主页始终可见，不在此列；未设置时默认全部对游客可见
 const PET_KEY = 'pet' // 桌宠：默认不向游客/内部人员展示，需管理员在设置中显式开放
-const PAGE_KEYS = [...ALL_PAGES, PET_KEY]
+// 只对内部人员及以上开放的页面：不在默认游客可见列表里，但允许管理员显式放给游客。
+// 在线阅读即属此类（默认内部人员可见、游客不可见）。
+const INSIDER_ONLY_PAGES = ['reading']
+const PAGE_KEYS = [...ALL_PAGES, ...INSIDER_ONLY_PAGES, PET_KEY]
 const GUEST_KEY = 'guest_pages'
 const INSIDER_KEY = 'insider_pages'
 const WALLPAPER_KEY = 'wallpaper' // JSON: { guest: bool, insider: bool }
@@ -26,11 +29,29 @@ function readList(key, fallback) {
 }
 
 function readGuestPages() {
-  return readList(GUEST_KEY, [...ALL_PAGES]) // 未设置过：默认页面全开（桌宠不在内）
+  return readList(GUEST_KEY, [...ALL_PAGES]) // 未设置过：默认页面全开（桌宠与在线阅读不在内）
 }
 
 function readInsiderPages() {
-  return readList(INSIDER_KEY, [PET_KEY]) // 未设置过：默认桌宠对内部人员可见（游客仍需显式开放）
+  const fallback = [PET_KEY, ...INSIDER_ONLY_PAGES]
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(INSIDER_KEY)
+  // 未设置过：默认桌宠与在线阅读对内部人员可见（游客仍需显式开放）
+  if (!row) return fallback
+  const list = readList(INSIDER_KEY, fallback)
+  // 兼容历史数据：reading 是后加的功能，老配置里当然没有它。
+  // 若配置里从未出现过该键，则按新功能默认值补上（内部人员可见）；
+  // 管理员一旦在设置里显式取消勾选，它就会出现在数组里，因此不会覆盖管理员的决定。
+  const persisted = (() => {
+    try {
+      const v = JSON.parse(row.value)
+      return Array.isArray(v) ? v : null
+    } catch {
+      return null
+    }
+  })()
+  if (!persisted) return list
+  const missing = INSIDER_ONLY_PAGES.filter((p) => !persisted.includes(p))
+  return [...new Set([...list, ...missing])]
 }
 
 function writeList(key, pages) {

@@ -13,9 +13,20 @@ const settings = useSettings()
 const holder = ref(null)
 
 onMounted(async () => {
-  await settings.load() // 确保身份相关设置已加载
+  // 壁纸列表与身份设置互不依赖，并行拉取；壁纸管理器内部自己请求 /api/wallpapers。
+  // 但「是否显示壁纸」要先知道设置，所以这里仍等设置返回（已有缓存时不发请求）。
+  const setting = settings.load()
+  // 先按「已加载的设置」快速判断，避免多等一个网络往返；设置到达后再复核
+  if (settings.wallpaper.value && settings.canSeeWallpaper(auth.isLoggedIn.value, auth.isInsider.value)) {
+    holder.value = acquireWallpaper()
+  }
+  await setting
   const allowed = settings.canSeeWallpaper(auth.isLoggedIn.value, auth.isInsider.value)
-  if (allowed) holder.value = acquireWallpaper()
+  if (allowed && !holder.value) holder.value = acquireWallpaper()
+  else if (!allowed && holder.value) {
+    holder.value.release()
+    holder.value = null
+  }
 })
 onUnmounted(() => holder.value?.release())
 </script>

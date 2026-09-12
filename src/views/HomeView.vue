@@ -1,6 +1,17 @@
 <script setup>
-// 网站主页：公告 + 功能导航卡片（游客只看到允许访问的卡片）
-import { computed, onMounted, ref } from 'vue'
+// 主页：沉浸式入口
+//
+// 设计目标：像 Wiki 拓扑图那样"活"起来 —— 而不是一张静态卡片列表。
+// 构成：
+//   1) 全屏 canvas 星座背景：带深度的粒子 + 近邻连线 + 鼠标视差 + 指向光标的吸引
+//   2) 主视觉：呼吸光球 + 流动渐变标题 + 公告 + 下滑提示
+//   3) 五个功能入口做成"星图节点"：跟手倾角（3D tilt）、指向光标处点亮柔光与描边
+//
+// 性能与可访问性：
+//   - DPR 上限 2；粒子数按视口面积自适应并夹在 [70,190]
+//   - prefers-reduced-motion 下只画一帧静态星座，不跑循环
+//   - 标签页不可见 / 卸载时停掉循环；鼠标与滚动都经 rAF 合并
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useAuth } from '../composables/useAuth'
 import { useSettings } from '../composables/useSettings'
 import { getAnnouncement } from '../api/posts'
@@ -8,7 +19,7 @@ import AppIcon from '../components/AppIcon.vue'
 
 const { isLoggedIn, isInsider } = useAuth()
 const settings = useSettings()
-if (!isLoggedIn.value) settings.load()
+if (!isLoggedIn.value) settings.load() // 加载可见性设置（卡片过滤依赖）
 
 // 主页公告 = 置顶的博客文章（无公告时接口 404，静默隐藏）
 const announcement = ref(null)
@@ -20,236 +31,711 @@ onMounted(async () => {
   }
 })
 
+// 入口配置：与导航/路由一致（page 用于按身份过滤可见性）
 const SECTIONS = [
   {
     to: '/anime',
     page: 'anime',
-    img: '/home/anime.png',
+    img: '/home/anime.webp',
+    icon: 'calendar',
     title: 'Anime',
+    cn: '新番日历',
+    desc: '当前档期放送时间表，精确到分钟；周历 / 月历 / 列表三种视图，多语言标题与中文简介。',
   },
   {
     to: '/blog',
     page: 'blog',
-    img: '/home/blog.png',
+    img: '/home/blog.webp',
+    icon: 'pen',
     title: 'Blog',
+    cn: '追番笔记',
+    desc: 'Markdown / 所见即所得 / HTML 三种编辑模式，支持插图、标签、置顶公告与全文搜索。',
   },
   {
     to: '/wiki',
     page: 'wiki',
-    img: '/home/wiki.png',
+    img: '/home/wiki.webp',
+    icon: 'book-open',
     title: 'Wiki',
+    cn: '知识库',
+    desc: 'Markdown 与完整 HTML 文档双形态；旋臂星系拓扑图把条目关系一眼展开。',
   },
   {
     to: '/tools',
     page: 'tools',
-    img: '/home/tools.png',
+    img: '/home/tools.webp',
+    icon: 'wrench',
     title: 'Tools',
+    cn: '工具箱',
+    desc: 'JSON 格式化、二维码解析与 3D 生成、图片裁切拼接、文本对比、HTML 渲染，全部本地处理。',
   },
   {
     to: '/game',
     page: 'game',
-    img: '/home/game.png',
+    img: '/home/game.webp',
+    icon: 'flame',
     title: 'Game',
+    cn: '像素地牢',
+    desc: 'Shattered Pixel Dungeon 网页版：随机地牢、职业天赋、装备道具，默认极速无音频模式。',
   },
 ]
 
 const visibleSections = computed(() =>
   isLoggedIn.value ? SECTIONS : SECTIONS.filter((s) => settings.canAccess(s.page, isInsider.value))
 )
+
+/* 星座背景已抽到 App 层的 ConstellationField.vue。
+   放在 HomeView 里会随路由切换被销毁重建，粒子每次重新随机 ——
+   用户看到的就是"闪一下然后重新绘制"。挂到 App 层常驻即可延续同一片星空。 */
+
+/* 下滑提示：页面还能继续往下滚时显示 */
+const canScroll = ref(false)
+const stageEl = ref(null)
+let scrollCheckRaf = 0
+
+/** 是否开启了"减少动效"（星座背景已抽到 ConstellationField，这里只用于滚动行为） */
+function prefersReducedMotion() {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  )
+}
+
+function checkScrollable() {
+  if (scrollCheckRaf) return
+  scrollCheckRaf = requestAnimationFrame(() => {
+    scrollCheckRaf = 0
+    canScroll.value =
+      document.documentElement.scrollHeight - window.innerHeight - (window.scrollY || 0) > 80
+  })
+}
+function scrollIntoViewNext() {
+  stageEl.value?.scrollIntoView({
+    behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+    block: 'start',
+  })
+}
+
+onMounted(() => {
+  checkScrollable()
+  window.addEventListener('scroll', checkScrollable, { passive: true })
+  window.addEventListener('resize', checkScrollable, { passive: true })
+})
+
+onUnmounted(() => {
+  cancelAnimationFrame(scrollCheckRaf)
+  window.removeEventListener('scroll', checkScrollable)
+  window.removeEventListener('resize', checkScrollable)
+})
+
+/* ------------------------- 卡片跟手倾角 ------------------------- */
+// 鼠标在卡片上的相对位置 → 轻微 3D 旋转 + 柔光位置（写成 CSS 变量，交给样式消费）
+function onCardMove(e) {
+  const el = e.currentTarget
+  if (!el || typeof el.getBoundingClientRect !== 'function') return
+  const r = el.getBoundingClientRect()
+  const nx = (e.clientX - r.left) / Math.max(1, r.width) - 0.5
+  const ny = (e.clientY - r.top) / Math.max(1, r.height) - 0.5
+  el.style.setProperty('--rx', (ny * -7).toFixed(2) + 'deg')
+  el.style.setProperty('--ry', (nx * 9).toFixed(2) + 'deg')
+  el.style.setProperty('--gx', ((nx + 0.5) * 100).toFixed(1) + '%')
+  el.style.setProperty('--gy', ((ny + 0.5) * 100).toFixed(1) + '%')
+}
+function onCardLeave(e) {
+  const el = e.currentTarget
+  if (!el) return
+  el.style.setProperty('--rx', '0deg')
+  el.style.setProperty('--ry', '0deg')
+}
 </script>
 
 <template>
   <div class="home">
+    <!-- 主视觉 -->
     <section class="hero">
-      <h1 class="site-name">AniHub</h1>
-    </section>
+      <div class="orb" aria-hidden="true">
+        <span class="orb-core"></span>
+        <span class="orb-ring"></span>
+        <span class="orb-ring r2"></span>
+      </div>
 
-    <section v-if="announcement" class="announcement">
-      <span class="ann-label"><AppIcon name="megaphone" :size="15" /> 公告</span>
-      <router-link :to="`/${announcement.category}/${announcement.slug}`" class="ann-body">
+      <h1 class="site-name">AniHub</h1>
+      <p class="tagline">
+        追番日历 · 博客 · Wiki · 工具箱
+        <span class="tagline-sub">记录追番，也记录折腾</span>
+      </p>
+
+      <router-link v-if="announcement" :to="`/${announcement.category}/${announcement.slug}`" class="announce">
+        <span class="ann-mark"><AppIcon name="megaphone" :size="13" /> 公告</span>
         <span class="ann-title">{{ announcement.title }}</span>
         <span v-if="announcement.summary" class="ann-summary">{{ announcement.summary }}</span>
+        <AppIcon name="arrow-right" :size="14" class="ann-go" />
       </router-link>
+
+      <button v-if="canScroll" type="button" class="scroll-hint" @click="scrollIntoViewNext">
+        <span>向下探索</span>
+        <AppIcon name="chevron-down" :size="15" />
+      </button>
     </section>
 
-    <section class="cards">
-      <router-link
-        v-for="(s, i) in visibleSections"
-        :key="s.to"
-        :to="s.to"
-        class="card"
-        :style="{ '--i': i }"
-      >
-        <img :src="s.img" class="card-img" :alt="s.title" loading="lazy" />
-        <h2 class="card-title">{{ s.title }}</h2>
-        <span class="card-go">进入 <AppIcon name="arrow-right" :size="14" /></span>
-      </router-link>
-    </section>
+    <!-- 内容区：先铺一层与主题同色的渐变遮罩，把花哨的壁纸压下去，保证卡片可读 -->
+    <div class="content">
+      <section ref="stageEl" class="stage">
+        <div class="stage-head">
+          <span class="stage-line" aria-hidden="true"></span>
+          <span class="stage-label">五个入口</span>
+          <span class="stage-line" aria-hidden="true"></span>
+        </div>
+
+        <!-- 固定 6 列：5 张卡片按 2/3 排成两行，不会出现"最后一个孤零零"的缺口 -->
+        <div class="nodes">
+          <router-link
+            v-for="(s, i) in visibleSections"
+            :key="s.to"
+            :to="s.to"
+            class="node"
+            :style="{ '--i': i }"
+            @pointermove="onCardMove"
+            @pointerleave="onCardLeave"
+          >
+            <span class="node-glow" aria-hidden="true"></span>
+
+            <span class="node-top">
+              <span class="node-icon"><AppIcon :name="s.icon" :size="20" /></span>
+              <span class="node-idx">0{{ i + 1 }}</span>
+            </span>
+
+            <span class="node-visual">
+              <img :src="s.img" :alt="s.title" width="512" height="512" loading="lazy" decoding="async" />
+            </span>
+
+            <span class="node-title">
+              {{ s.title }}
+              <em>{{ s.cn }}</em>
+            </span>
+            <span class="node-desc">{{ s.desc }}</span>
+
+            <span class="node-go">
+              进入 <AppIcon name="arrow-right" :size="13" />
+            </span>
+          </router-link>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .home {
-  max-width: min(1320px, 95vw); /* 高分辨率适配 */
-  margin: 0 auto;
-  padding: 40px 20px 60px;
+  position: relative;
+  min-height: 100vh;
 }
 
+/* —— 主视觉 —— */
 .hero {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  min-height: 100vh;
+  padding: 96px 20px 80px;
   text-align: center;
-  padding: 48px 0 20px;
+}
+
+/* 呼吸光球 */
+.orb {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 108px;
+  height: 108px;
+  margin-bottom: 4px;
+}
+
+.orb-core {
+  width: 74px;
+  height: 74px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 34% 30%,
+    color-mix(in srgb, var(--accent) 35%, #fff),
+    var(--accent) 62%,
+    color-mix(in srgb, var(--accent) 55%, #000) 100%
+  );
+  box-shadow:
+    0 0 26px color-mix(in srgb, var(--accent) 55%, transparent),
+    0 0 70px color-mix(in srgb, var(--accent) 30%, transparent),
+    inset 0 -6px 16px rgb(0 0 0 / 0.22);
+  animation: orb-breathe 6.5s var(--ease-ios) infinite;
+}
+
+.orb-ring {
+  position: absolute;
+  inset: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
+  border-radius: 50%;
+  animation: orb-spin 22s linear infinite;
+}
+
+.orb-ring.r2 {
+  inset: -6px;
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--accent) 24%, transparent);
+  animation-duration: 34s;
+  animation-direction: reverse;
+}
+
+@keyframes orb-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.06);
+  }
+}
+
+@keyframes orb-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .site-name {
   margin: 0;
-  font-size: 52px;
+  font-size: clamp(46px, 7.4vw, 86px);
   font-weight: 900;
-  background: linear-gradient(135deg, var(--accent), #a78bfa);
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+  background: linear-gradient(
+    100deg,
+    var(--accent) 0%,
+    #a78bfa 34%,
+    color-mix(in srgb, var(--accent) 70%, #fff) 62%,
+    var(--accent) 100%
+  );
+  background-size: 260% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: ios-rise-in var(--dur-ios-3) var(--ease-ios-expo) both;
+  animation: title-flow 9s var(--ease-ios) infinite;
 }
 
-.announcement {
+@keyframes title-flow {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.tagline {
   display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 14px 18px;
-  margin-top: 8px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--accent);
-  border-radius: 12px;
-  animation: ios-rise-in var(--dur-ios-3) var(--ease-ios-expo) 70ms both;
-}
-
-.ann-label {
-  display: inline-flex;
-  align-items: center;
+  flex-direction: column;
   gap: 6px;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--accent);
-  white-space: nowrap;
-}
-
-.ann-body {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  text-decoration: none;
-  color: var(--text);
-}
-
-.ann-title {
+  margin: 0;
   font-size: 15px;
-  font-weight: 600;
-  transition: color var(--dur-ios-1) var(--ease-ios-expo);
-}
-
-.ann-title:hover {
-  color: var(--accent);
-}
-
-.ann-summary {
-  font-size: 12px;
   color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 18px;
-  margin-top: 28px;
+.tagline-sub {
+  font-size: 12.5px;
+  color: color-mix(in srgb, var(--muted) 80%, transparent);
+  letter-spacing: 0.08em;
 }
 
-.card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 24px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  text-decoration: none;
+/* 公告 */
+.announce {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  width: min(720px, 92vw);
+  margin-top: 10px;
+  padding: 11px 18px;
+  font-size: 13.5px;
   color: var(--text);
+  text-decoration: none;
+  background: color-mix(in srgb, var(--panel) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: 999px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.12);
   transition:
     transform var(--dur-ios-2) var(--ease-ios-spring),
     border-color var(--dur-ios-2) var(--ease-ios-expo),
     box-shadow var(--dur-ios-2) var(--ease-ios-expo);
-  animation: ios-rise-in var(--dur-ios-3) var(--ease-ios-expo)
-    calc(140ms + var(--i, 0) * 70ms) backwards;
-  will-change: transform;
 }
 
-.card:hover {
-  transform: translateY(-4px) scale(1.012);
+.announce:hover {
+  transform: translateY(-2px);
   border-color: var(--accent);
-  box-shadow: 0 14px 36px rgb(0 0 0 / 0.14);
+  box-shadow: 0 14px 38px color-mix(in srgb, var(--accent) 26%, transparent);
 }
 
-.card:active {
-  transform: translateY(-1px) scale(0.985);
-  transition-duration: 70ms;
-  transition-timing-function: var(--ease-ios);
-}
-
-.card-img {
-  width: 100%;
-  height: 170px;
-  object-fit: contain; /* 透明底插图，随卡片背景显示 */
-  border-radius: 10px;
-  transition: transform var(--dur-ios-2) var(--ease-ios-spring);
-}
-
-.card:hover .card-img {
-  transform: scale(1.04);
-}
-
-.card-title {
-  margin: 4px 0 0;
-  font-size: 18px;
-}
-
-.card-go {
+.ann-mark {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 13px;
+  flex: 0 0 auto;
+  align-self: center;
+  font-size: 12px;
+  font-weight: 700;
   color: var(--accent);
-  font-weight: 600;
-  margin-top: auto;
 }
 
-/* —— 手机端适配 —— */
-@media (max-width: 640px) {
-  .home {
-    padding: 24px 12px 40px;
+.ann-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+/* 摘要属于作者自由填写的内容（可能是一串装饰符号），
+   给个上限并允许被挤压而先让位给标题，避免长摘要把标题挤没。 */
+.ann-summary {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 34%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ann-go {
+  flex: 0 0 auto;
+  align-self: center;
+  color: var(--accent);
+}
+
+/* 下滑提示 */
+.scroll-hint {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin-top: 26px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  animation: hint-bob 2.6s var(--ease-ios) infinite;
+}
+
+.scroll-hint:hover {
+  color: var(--accent);
+}
+
+@keyframes hint-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.75;
+  }
+  50% {
+    transform: translateY(6px);
+    opacity: 1;
+  }
+}
+
+/* —— 入口节点 —— */
+/* 内容区遮罩：与主题同色的渐变压暗。
+   壁纸很花，不加这层卡片上的文字会被背景吃掉；但过渡要足够长，
+   否则主视觉（透出壁纸）与内容区之间会出现一条生硬的分界线。 */
+.content {
+  position: relative;
+  z-index: 1;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    color-mix(in srgb, var(--bg) 30%, transparent) 10%,
+    color-mix(in srgb, var(--bg) 62%, transparent) 26%,
+    color-mix(in srgb, var(--bg) 82%, transparent) 48%,
+    color-mix(in srgb, var(--bg) 90%, transparent) 100%
+  );
+}
+
+.stage {
+  position: relative;
+  max-width: min(1320px, 95vw);
+  margin: 0 auto;
+  padding: 56px 20px 90px;
+}
+
+.stage-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 26px;
+}
+
+.stage-line {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--accent) 55%, transparent),
+    transparent
+  );
+}
+
+.stage-label {
+  flex: 0 0 auto;
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  color: color-mix(in srgb, var(--muted) 90%, transparent);
+}
+
+/* 6 列栅格 + span 2：
+   5 张卡片在宽屏下排成 3 + 2 两行，末行居中，不会出现四张挤一行、最后一张孤立的缺口。
+   窄屏自动降级为 2 列 / 1 列。 */
+.nodes {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 20px;
+}
+
+.node {
+  grid-column: span 2;
+  min-width: 0;
+}
+
+/* 第 4、5 张（第二行的两张）各占 2 列并居中：靠左右各空 1 列实现 */
+.node:nth-child(4) {
+  grid-column: 2 / span 2;
+}
+
+.node:nth-child(5) {
+  grid-column: 4 / span 2;
+}
+
+/* 卡片：玻璃 + 跟手倾角 + 指向光标的径向柔光 */
+.node {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px;
+  overflow: hidden;
+  color: var(--text);
+  text-decoration: none;
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateZ(0);
+  transform-style: preserve-3d;
+  transition:
+    transform var(--dur-ios-3) var(--ease-ios-expo),
+    border-color var(--dur-ios-2) var(--ease-ios-expo),
+    box-shadow var(--dur-ios-3) var(--ease-ios-expo);
+  animation: node-in var(--dur-ios-4) var(--ease-ios-expo) calc(120ms + var(--i, 0) * 80ms) backwards;
+}
+
+@keyframes node-in {
+  from {
+    opacity: 0;
+    transform: translateY(22px) scale(0.97);
+  }
+}
+
+.node-glow {
+  position: absolute;
+  inset: -1px;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(
+    240px 200px at var(--gx, 50%) var(--gy, 50%),
+    color-mix(in srgb, var(--accent) 30%, transparent),
+    transparent 70%
+  );
+  transition: opacity var(--dur-ios-2) var(--ease-ios-expo);
+}
+
+.node:hover {
+  border-color: color-mix(in srgb, var(--accent) 65%, var(--border));
+  box-shadow:
+    0 22px 50px color-mix(in srgb, var(--accent) 22%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.node:hover .node-glow {
+  opacity: 1;
+}
+
+.node:active {
+  transform: perspective(900px) scale(0.985);
+  transition-duration: 70ms;
+}
+
+.node-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.node-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-radius: 12px;
+  transition: transform var(--dur-ios-2) var(--ease-ios-spring);
+}
+
+.node:hover .node-icon {
+  transform: scale(1.08) rotate(-4deg);
+}
+
+.node-idx {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.16em;
+  color: color-mix(in srgb, var(--muted) 70%, transparent);
+}
+
+.node-visual {
+  display: block;
+  height: 118px;
+  margin: 2px 0;
+  text-align: center;
+}
+
+.node-visual img {
+  height: 100%;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 12px 24px rgb(0 0 0 / 0.2));
+  transition: transform var(--dur-ios-3) var(--ease-ios-spring);
+}
+
+.node:hover .node-visual img {
+  transform: translateY(-4px) scale(1.05);
+}
+
+.node-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.node-title em {
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.node-desc {
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+.node-go {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: auto;
+  padding-top: 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.node-go :deep(.app-icon) {
+  transition: transform var(--dur-ios-2) var(--ease-ios-spring);
+}
+
+.node:hover .node-go :deep(.app-icon) {
+  transform: translateX(4px);
+}
+
+@media (max-width: 1080px) {
+  /* 两列：取消"居中排布"的显式定位，交给自动流式排列填满 */
+  .nodes {
+    grid-template-columns: repeat(2, 1fr);
   }
 
+  .node,
+  .node:nth-child(4),
+  .node:nth-child(5) {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 720px) {
   .hero {
-    padding: 28px 0 14px;
+    padding: 72px 16px 56px;
+    gap: 14px;
   }
 
-  .site-name {
-    font-size: 38px;
+  .orb {
+    width: 86px;
+    height: 86px;
   }
 
-  .cards {
-    gap: 12px;
+  .orb-core {
+    width: 58px;
+    height: 58px;
   }
 
-  .card {
-    padding: 18px;
+  .announce {
+    flex-wrap: wrap;
+    justify-content: center;
+    border-radius: 18px;
   }
 
-  .card-img {
-    height: 136px;
+  .stage {
+    padding: 40px 16px 64px;
+  }
+
+  .nodes {
+    grid-template-columns: 1fr;
+  }
+
+  .node {
+    padding: 16px;
+  }
+
+  .node-visual {
+    height: 96px;
+  }
+}
+
+/* 用户要求减少动效：停掉循环动画与跟手倾角 */
+@media (prefers-reduced-motion: reduce) {
+  .orb-core,
+  .orb-ring,
+  .site-name,
+  .scroll-hint,
+  .node {
+    animation: none;
+  }
+
+  .node {
+    transform: none;
   }
 }
 </style>

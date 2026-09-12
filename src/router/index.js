@@ -38,6 +38,14 @@ const router = createRouter({
     },
     { path: '/search', name: 'search', component: () => import('../views/SearchView.vue') },
     { path: '/game', name: 'game', component: () => import('../views/GameView.vue') },
+    // 在线阅读：游客不可见（守卫送 401 错误码页），内部人员与管理员可读
+    { path: '/reading', name: 'reading', component: () => import('../views/ReadingListView.vue') },
+    {
+      path: '/reading/:id',
+      name: 'reading-book',
+      component: () => import('../views/ReadingBookView.vue'),
+      props: true,
+    },
     { path: '/error/:code', name: 'error', component: () => import('../views/HttpErrorView.vue') },
     // 兜底：未知路径显示 404 错误码页（不再静默回主页）
     { path: '/:pathMatch(.*)*', component: () => import('../views/HttpErrorView.vue'), props: { code: 404 } },
@@ -58,6 +66,8 @@ const GUEST_PAGES = {
   'tools-compare': 'tools',
   'tools-qr-tree': 'tools',
   game: 'game',
+  reading: 'reading',
+  'reading-book': 'reading',
 }
 
 // 首次整页加载由服务端中间件记录（source=page），SPA 内部路由切换才在此上报（source=spa），避免重复计数
@@ -71,12 +81,16 @@ router.beforeEach(async (to) => {
   if (to.meta.auth && !auth.isLoggedIn.value) {
     return { name: 'error', params: { code: 401 } }
   }
-  // 游客 / 内部人员访问页面时按可见性拦截（管理员不受限）；不提示，页面上也不暴露该限制
+  // 游客 / 内部人员访问页面时按可见性拦截（管理员不受限）；不提示，页面上也不暴露该限制。
+  // 在线阅读默认只对内部人员可见，因此游客在这里被拦下。
   const page = GUEST_PAGES[to.name]
   if (!auth.isLoggedIn.value && page) {
     const settings = useSettings()
     await settings.load()
-    if (!settings.canAccess(page, auth.isInsider.value)) return { name: 'home' }
+    if (!settings.canAccess(page, auth.isInsider.value)) {
+      // 与其它页面的做法一致：静默送回首页（不在页面上暴露"你没权限"这件事）
+      return { name: 'home' }
+    }
   }
 })
 

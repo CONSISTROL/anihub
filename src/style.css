@@ -13,6 +13,22 @@
   --dur-ios-2: 260ms;
   --dur-ios-3: 380ms;
   --dur-ios-4: 520ms;
+
+  /* Wiki 拓扑（深空）面纱：82% 不透明的深空色，壁纸透出 18%。
+     两处必须用**同一个值**，否则切换时会出现亮度台阶：
+       1) .graph-sky 盖在壁纸上的那层渐变（WikiListView.vue 消费 --graph-veil）
+       2) .wiki-view 进入拓扑时的过渡终色（同文件里由 JS 写入 GRAPH_VEIL）
+     调这个值要同时确认：列表 → 拓扑的过程里背景亮度平滑下降、且拓扑挂载瞬间无跳变。 */
+  --graph-veil: rgb(11 19 34 / 0.82);
+
+  /* 导航栏毛玻璃参数（NavBar.vue 消费）。
+     --nav-bg-alpha：面板底色占 --panel 的比例。
+     页面处于顶部时身后是壁纸本身，若壁纸顶部偏暗，玻璃就会呈现「上深下浅」的色带；
+     提高比例 + 加大模糊半径可以让它更"实"、把身后明暗压平（实测见 README）。
+     --nav-sat 保持接近 1：饱和度提升会放大壁纸的色相，浅色主题下容易发蓝。 */
+  --nav-bg-alpha: 82%;
+  --nav-blur: 28px;
+  --nav-sat: 1.1;
 }
 
 /* 浅色主题（默认） */
@@ -24,9 +40,18 @@
   --overlay-panel: #ffffff; /* 弹窗等需要实底保证可读的层 */
   --border: #d5dae6;
   --text: #1b2030;
+  --text-2: #4a5266; /* 次级文字（比 muted 更实，用于说明/元信息） */
+  --text-faint: #8b93a7; /* 三级文字（最弱，用于占位、计数） */
   --muted: #6a7284;
   --accent: #4a6cf7;
   --accent-hover: #3d5ee8;
+  /* 语义色：danger 在浅色底上必须够深才可读（原实现散落硬编码 #ff9d9d，对比度仅约 1.7:1） */
+  --danger: #c62828;
+  --danger-strong: #b71c1c;
+  --danger-bg: rgb(198 40 40 / 0.1);
+  --danger-border: rgb(198 40 40 / 0.42);
+  --success: #1b7f3b;
+  --warning: #a15c00;
   /* 悬浮滚动条（液态玻璃）：浅色主题用偏灰玻璃保证可见度 */
   --sbar-track-1: rgba(255, 255, 255, 0.9);
   --sbar-track-2: rgba(255, 255, 255, 0.45);
@@ -45,9 +70,18 @@
   --overlay-panel: #171a22;
   --border: #262b38;
   --text: #e8eaf0;
+  --text-2: #b6bdcb;
+  --text-faint: #7d8598;
   --muted: #8b93a7;
   --accent: #6c8cff;
   --accent-hover: #7d9aff;
+  /* 深色底上用亮红，才够醒目 */
+  --danger: #ff8f8f;
+  --danger-strong: #ff6b6b;
+  --danger-bg: rgb(255 92 92 / 0.14);
+  --danger-border: rgb(255 92 92 / 0.48);
+  --success: #6ee7a5;
+  --warning: #ffd166;
   /* 悬浮滚动条（液态玻璃）：深色主题用亮白玻璃 */
   --sbar-track-1: rgba(255, 255, 255, 0.34);
   --sbar-track-2: rgba(255, 255, 255, 0.1);
@@ -59,9 +93,15 @@
 }
 
 /* 主题切换过渡：useTheme 切换瞬间给 <html> 加 .theme-animating，
-   让背景/文字/边框等颜色沿 iOS 减速曲线平滑渐变，避免深色浅色切换太突兀 */
+   让背景/文字/边框等颜色沿 iOS 减速曲线平滑渐变，避免深色浅色切换太突兀。
+
+   注意：这条规则会给全文档每个元素装 6 条 transition，代价不低。
+   因此 useTheme 保证它**只在主题值真正变化时**才挂上（原先 60 秒轮询会无条件重挂一次，
+   等于每分钟让整页样式失效重算一遍）。
+   壁纸层是独立组件（.wallpaper-layer），需要单独列出：它不属于 `*` 选择器覆盖范围。 */
 html.theme-animating,
-html.theme-animating * {
+html.theme-animating *,
+html.theme-animating .wallpaper-layer {
   transition:
     background-color var(--dur-ios-3) var(--ease-ios),
     color var(--dur-ios-3) var(--ease-ios),
@@ -90,19 +130,6 @@ html {
 
 body {
   background-color: var(--bg);
-  /* 全站壁纸：--wallpaper-url 由 useWallpaper 管理器 / index.html 内联脚本设置（按身份）,
-     同色半透明遮罩仅保留少量底色以保证文字可读，壁纸约透出 38%（浅色主题更淡见下）。
-     取景与 Wiki 拓扑图统一：以「导航栏下方内容区中心」为基准
-     （--wp-shift = 导航栏高度一半，由 NavBar 实时测量写入） */
-  background-image:
-    linear-gradient(
-      color-mix(in srgb, var(--bg) 62%, transparent),
-      color-mix(in srgb, var(--bg) 62%, transparent)
-    ),
-    var(--wallpaper-url, none);
-  background-size: cover;
-  background-position: center calc(50% + var(--wp-shift, 0px));
-  background-attachment: fixed;
   color: var(--text);
   font-family:
     'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui,
@@ -111,15 +138,14 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* 浅色主题：壁纸稍淡（约透出 28%），避免浅色底 + 强壁纸对比过高 */
-:root[data-theme='light'] body {
-  background-image:
-    linear-gradient(
-      color-mix(in srgb, var(--bg) 72%, transparent),
-      color-mix(in srgb, var(--bg) 72%, transparent)
-    ),
-    var(--wallpaper-url, none);
-}
+/* ==========================================================================
+   全站壁纸层 → 已迁到 src/components/WallpaperLayer.vue（.app-shell 内 z-index:-1 的固定图层）
+   迁移原因：导航栏要做毛玻璃，backdrop-filter 必须能看到“身后的真实内容”。
+   body::before 属于 body 背景层，在 .app-shell 层叠上下文之下，
+   导航栏透过它只能看到 .app-shell 的底色 —— blur 出来是一片纯色，没有玻璃感。
+   搬进 .app-shell 后壁纸仍在所有内容之下，但导航栏能糊到它。
+   --wallpaper-url 依旧写在 <html> 上，消费方（本图层 / Wiki 天幕）不变。
+   ========================================================================== */
 
 /* 表单控件统一走 iOS 标准减速曲线（组件内自定义 transition 时以组件为准） */
 input,
@@ -197,19 +223,33 @@ a {
   border-color: var(--accent-hover);
 }
 
+/* 危险操作按钮：走 --danger-* 语义令牌，
+   浅色主题用深红（原硬编码 #ff8f8f 在白底上对比度不足），深色主题自动换成亮红 */
 .btn-danger {
-  background: color-mix(in srgb, #ff5c5c 12%, var(--panel-2));
-  border-color: color-mix(in srgb, #ff5c5c 45%, transparent);
-  color: #ff8f8f;
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--danger);
 }
 
 .btn-danger:hover:not(:disabled) {
-  background: color-mix(in srgb, #ff5c5c 22%, var(--panel-2));
-  border-color: #ff5c5c;
+  background: color-mix(in srgb, var(--danger) 22%, var(--panel-2));
+  border-color: var(--danger);
 }
 
 .btn-block {
   width: 100%;
+}
+
+/* 小号按钮：原来只在 768px 媒体查询里出现，桌面端有 4 处引用却没有任何定义
+   （等于不生效），另外 3 个组件各自复制了一份私有样式。这里给出全局定义。 */
+.btn-sm {
+  padding: 5px 10px;
+  font-size: 13px;
+}
+
+.btn-xs {
+  padding: 3px 8px;
+  font-size: 12px;
 }
 
 /* 阅读页代码块复制按钮（MarkdownView / RichTextView 动态生成的 DOM，须用全局样式） */

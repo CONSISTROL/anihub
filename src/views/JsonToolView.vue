@@ -150,13 +150,14 @@ async function copyJson() {
 </template>
 
 <style scoped>
-/* 页面占满视口剩余高度（导航栏约 48px）；dvh 更准确适配移动端地址栏，不支持时回退 vh */
+/* 页面占满视口剩余高度（--nav-h 由 NavBar 实时测量，导航折行时也准）；
+   dvh 更准确适配移动端地址栏，不支持时回退 vh */
 .json-tool {
   max-width: min(1320px, 95vw); /* 高分辨率适配 */
   margin: 0 auto;
   padding: 10px 20px 12px;
-  min-height: calc(100vh - 48px);
-  min-height: calc(100dvh - 48px);
+  min-height: calc(100vh - var(--nav-h, 54px));
+  min-height: calc(100dvh - var(--nav-h, 54px));
   display: flex;
   flex-direction: column;
 }

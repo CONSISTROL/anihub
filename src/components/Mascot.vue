@@ -552,14 +552,32 @@ function onWinKey(e) {
   if (e.key === 'Escape') closeMenu()
 }
 
+// 首帧动画的延迟启动句柄（见 onMounted 注释）
+let idleTimer = null
+let idleHandle = null
+
 onMounted(() => {
-  playIdle()
+  // 首帧动画推迟到浏览器空闲时再拉取：桌宠动画单个 WebM 最大约 1.3MB，
+  // 立刻加载会与壁纸 / 页面资源抢带宽。视频是 preload="none"，这里才是它真正开始下载的时机。
+  const start = () => {
+    idleTimer = null
+    idleHandle = null
+    playIdle()
+  }
+  if (typeof requestIdleCallback === 'function') {
+    // timeout 兜底：空闲迟迟不来也要在 2.5s 内开始，避免桌宠一直空白
+    idleHandle = requestIdleCallback(start, { timeout: 2500 })
+  } else {
+    idleTimer = setTimeout(start, 600)
+  }
   window.addEventListener('pointerdown', onWinPointerDown)
   window.addEventListener('keydown', onWinKey)
 })
 
 onUnmounted(() => {
   clearTimeout(bubbleTimer)
+  clearTimeout(idleTimer)
+  if (idleHandle != null && typeof cancelIdleCallback === 'function') cancelIdleCallback(idleHandle)
   stopMove()
   window.removeEventListener('pointerdown', onWinPointerDown)
   window.removeEventListener('keydown', onWinKey)
@@ -583,7 +601,7 @@ onUnmounted(() => {
         muted
         playsinline
         autoplay
-        preload="auto"
+        preload="none"
         aria-hidden="true"
         @ended="onVideoEnded"
       ></video>
@@ -594,7 +612,7 @@ onUnmounted(() => {
         muted
         playsinline
         autoplay
-        preload="auto"
+        preload="none"
         aria-hidden="true"
         @ended="onVideoEnded"
       ></video>

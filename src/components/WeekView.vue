@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { computed } from 'vue'
 import { addDays, dayKey, fmtTime } from '../utils/date'
 import { titleFor } from '../utils/titles'
@@ -71,7 +71,7 @@ function coverOf(mediaId) {
           class="row"
           @click="emit('select', e.mediaId)"
         >
-          <img v-if="coverOf(e.mediaId)" :src="coverOf(e.mediaId)" class="cover" alt="" />
+          <img v-if="coverOf(e.mediaId)" :src="coverOf(e.mediaId)" class="cover" alt="" loading="lazy" decoding="async" />
           <span v-else class="cover cover-ph"><AppIcon name="film" :size="16" /></span>
           <span class="row-main">
             <span class="title">{{ titleOf(e.mediaId) }}</span>
@@ -109,7 +109,7 @@ function coverOf(mediaId) {
           class="row"
           @click="emit('select', e.mediaId)"
         >
-          <img v-if="coverOf(e.mediaId)" :src="coverOf(e.mediaId)" class="cover" alt="" />
+          <img v-if="coverOf(e.mediaId)" :src="coverOf(e.mediaId)" class="cover" alt="" loading="lazy" decoding="async" />
           <span v-else class="cover cover-ph"><AppIcon name="film" :size="16" /></span>
           <span class="row-main">
             <span class="title">{{ titleOf(e.mediaId) }}</span>

@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { computed, onMounted, onUnmounted } from 'vue'
 import { dayKey, fmtTime, weekdayCN } from '../utils/date'
 import { titleFor } from '../utils/titles'
@@ -48,7 +48,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               class="row"
               @click="emit('select', e.mediaId)"
             >
-              <img v-if="coverOf(e.mediaId)" :src="coverOf(e.mediaId)" class="cover" alt="" />
+              <img v-if="coverOf(e.mediaId)" :src="coverOf(e.mediaId)" class="cover" alt="" loading="lazy" decoding="async" />
               <span v-else class="cover cover-placeholder"><AppIcon name="film" :size="15" /></span>
               <span class="row-title">{{ titleOf(e.mediaId) }}</span>
               <span class="row-ep">第{{ e.episode }}话</span>

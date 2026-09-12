@@ -2,9 +2,10 @@
 // 主题切换：日/夜滑动开关（移植自 github.com/Xiumuzaidiao/Day-night-toggle-button v4.0，纯 CSS 矢量）。
 // 白天=浅色：金色太阳居左、白环光晕、云朵漂浮；夜晚=深色：太阳滑到右侧变灰月亮（环形山淡入）、
 // 星星从上方落下并闪烁、云朵下沉；整体 em 基准，font-size 控制缩放。
-// 默认按时间自动切换（6:00–18:00 浅色，其余深色）；点击整块开关手动切到相反主题。
+// 默认按时间自动切换（6:00–18:00 浅色，其余深色）；点击开关手动切到相反主题。
+// 手动切换后想恢复「按时间自动」：双击开关即可（不额外占用导航栏空间）。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { resolved, setTheme } from '../composables/useTheme'
+import { isAuto, resolved, setTheme } from '../composables/useTheme'
 
 const rootEl = ref(null)
 const isNight = computed(() => resolved.value === 'dark')
@@ -13,22 +14,88 @@ function toggle() {
   setTheme(isNight.value ? 'light' : 'dark')
 }
 
-// 云朵随机漂移（原实现每秒随机 ±2em）
+// 双击恢复「按时间自动」：单击是切换，双击会先切换一次再回到自动，
+// 视觉上等同“恢复自动”（自动模式由当前时间决定），因此不需要额外按钮。
+function onDoubleClick() {
+  if (!isAuto.value) setTheme('auto')
+}
+
+// 云朵随机漂移（原实现每秒随机 ±2em）。
+// 优化：原实现每秒 querySelectorAll(12 个节点) + 逐节点写内联 transform，
+// 在常驻导航栏上会持续触发样式重算；现在用 rAF 合并写入，
+// 并且「标签页不可见 / 用户偏好减少动效」时完全停掉。
 let driftTimer = null
+let driftRaf = 0
+
+function drift() {
+  driftRaf = 0
+  const el = rootEl.value
+  if (!el) return
+  const r = () => (Math.random() < 0.5 ? '-2em' : '2em')
+  // 只读取一次子节点列表，避免重复查询
+  const clouds = el.querySelectorAll('.ts-cloud-son')
+  for (const node of clouds) {
+    node.style.transform = `translate(${r()}, ${r()})`
+  }
+}
+
+function scheduleDrift() {
+  if (driftRaf || driftTimer == null) return
+  driftRaf = requestAnimationFrame(drift)
+}
+
+const reducedMotion =
+  typeof window !== 'undefined' && window.matchMedia
+    ? window.matchMedia('(prefers-reduced-motion: reduce)')
+    : null
+
+function startDrift() {
+  if (driftTimer != null) return
+  if (reducedMotion?.matches) return // 用户要求减少动效：不做云朵漂移
+  if (document.hidden) return
+  driftTimer = setInterval(scheduleDrift, 3000)
+}
+
+function stopDrift() {
+  clearInterval(driftTimer)
+  driftTimer = null
+  cancelAnimationFrame(driftRaf)
+  driftRaf = 0
+}
+
+function onVisibility() {
+  if (document.hidden) stopDrift()
+  else startDrift()
+}
+
 onMounted(() => {
-  driftTimer = setInterval(() => {
-    const r = () => (Math.random() < 0.5 ? '-2em' : '2em')
-    rootEl.value?.querySelectorAll('.ts-cloud-son').forEach((el) => {
-      el.style.transform = `translate(${r()}, ${r()})`
-    })
-  }, 1000)
+  startDrift()
+  document.addEventListener('visibilitychange', onVisibility)
 })
-onUnmounted(() => clearInterval(driftTimer))
+onUnmounted(() => {
+  stopDrift()
+  document.removeEventListener('visibilitychange', onVisibility)
+})
 </script>
 
 <template>
   <div ref="rootEl" class="ts-wrap" :class="{ night: isNight }">
-    <div class="ts-components" title="切换深色/浅色主题" @click="toggle">
+    <!-- 用 div 而不是 button：这个开关内部是一整套绝对定位的 em 基准图层
+         （太阳/光晕/云朵/星星），从 div 换成原生 button 会引入 UA 默认样式
+         （padding / 字体 / 行高 / 垂直对齐），内部图层与圆球会出现肉眼可见的错位。
+         这里保持 div 结构，用 role/tabindex/键盘事件补齐无障碍语义。 -->
+    <div
+      class="ts-components"
+      role="switch"
+      tabindex="0"
+      :aria-checked="isNight"
+      :aria-label="isNight ? '切换到浅色主题' : '切换到深色主题'"
+      :title="isNight ? '当前深色，点击切到浅色（双击恢复按时间自动）' : '当前浅色，点击切到深色（双击恢复按时间自动）'"
+      @click="toggle"
+      @dblclick="onDoubleClick"
+      @keydown.enter.prevent="toggle"
+      @keydown.space.prevent="toggle"
+    >
       <!-- 太阳/月亮滑块（月亮 = 灰色圆 + 三个环形山淡入） -->
       <div class="ts-main-button">
         <div class="ts-moon"></div>
@@ -93,6 +160,12 @@ onUnmounted(() => clearInterval(driftTimer))
   user-select: none;
   transition: background-color 0.7s;
   transition-timing-function: cubic-bezier(0, 0.5, 1, 1);
+}
+
+/* 键盘可达：div 上的 focus-visible 高亮 */
+.ts-components:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 
 .ts-wrap.night .ts-components {

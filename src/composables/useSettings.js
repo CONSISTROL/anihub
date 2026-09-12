@@ -8,6 +8,7 @@ const insiderPages = ref(null)
 const wallpaper = ref({ guest: true, insider: true }) // 网站壁纸：{ guest, insider }（管理员恒可见）
 const showAdult = ref({ guest: false, insider: false }) // Anime 成人内容：{ guest, insider }，默认仅管理员可见
 let loading = null
+let loadedValue = null // 已加载成功的数据（非 null 表示可以跳过网络请求）
 
 function applyData(d) {
   guestPages.value = d.guestPages
@@ -20,6 +21,7 @@ function applyData(d) {
     guest: d.showAdult?.guest === true,
     insider: d.showAdult?.insider === true,
   }
+  loadedValue = d
 }
 
 /** 按身份判断功能可见性：管理员（已登录）恒可见；游客/内部人员按设置 */
@@ -31,6 +33,9 @@ function canSeeFeature(feat, isLoggedIn, isInsider) {
 
 export function useSettings() {
   async function load() {
+    // 已经成功加载过：直接复用，不再打接口。
+    // （设置页原先自己调 getSettings()，与导航栏/路由守卫的这次请求完全重复）
+    if (loadedValue) return loadedValue
     if (!loading) {
       loading = getSettings()
         .then((d) => {
@@ -42,6 +47,12 @@ export function useSettings() {
         })
     }
     return loading
+  }
+
+  /** 强制重新拉取（设置保存后需要拿到服务端规范化结果时使用） */
+  async function reload() {
+    loadedValue = null
+    return load()
   }
 
   /** 更新本地状态（设置页保存后调用，导航立即生效） */
@@ -79,6 +90,7 @@ export function useSettings() {
     wallpaper,
     showAdult,
     load,
+    reload,
     apply,
     isGuestVisible,
     isInsiderVisible,

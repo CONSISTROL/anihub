@@ -1,27 +1,31 @@
 <script setup>
 // 全局布局壳：导航栏 + 页面内容；登录框/内部身份入口由网页内虚拟键盘触发
-import { computed, onMounted, onUnmounted, provide, ref } from 'vue'
+import { computed, defineAsyncComponent, onMounted, onUnmounted, provide, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import NavBar from './components/NavBar.vue'
 import LoginModal from './components/LoginModal.vue'
 import InsiderBackground from './components/InsiderBackground.vue'
+import WallpaperLayer from './components/WallpaperLayer.vue'
+import ConstellationField from './components/ConstellationField.vue'
 import BackToTop from './components/BackToTop.vue'
 import BackToBottom from './components/BackToBottom.vue'
 import ScrollIndicator from './components/ScrollIndicator.vue'
-import Mascot from './components/Mascot.vue'
 import PetButton from './components/PetButton.vue'
 import VirtualKeyboard from './components/VirtualKeyboard.vue'
 import { api } from './api/http'
 import { useAuth } from './composables/useAuth'
 import { useSettings } from './composables/useSettings'
-import { finishPageLoading, usePageProgress } from './composables/usePageProgress'
+import { finishPageLoading } from './composables/usePageProgress'
+
+// 桌宠（Mascot.vue，774 行 + 全部动作表）只在真正要显示时才下载，
+// 不再打进首屏 chunk：多数访客（游客/手机端）根本不会加载它。
+const Mascot = defineAsyncComponent(() => import('./components/Mascot.vue'))
 
 const { isLoggedIn, isInsider } = useAuth()
 const settings = useSettings()
 if (!isLoggedIn.value) settings.load() // 加载可见性设置（桌宠权限依赖）
 const route = useRoute()
 const router = useRouter()
-const { loading: pageLoading } = usePageProgress()
 const showLogin = ref(false)
 const showKeyboard = ref(false)
 const insiderBusy = ref(false)
@@ -29,11 +33,13 @@ const insiderBusy = ref(false)
 // 游戏页为沉浸式全屏 iframe：隐藏桌宠与回到顶部按钮
 const isGame = computed(() => route.name === 'game')
 
-// 手机端不展示完整桌宠，只显示紧凑图标按钮
+// 手机端默认不展示完整桌宠（只显示紧凑图标按钮），但按钮真的能把它召唤出来
 const isMobile = ref(false)
+const petOnMobile = ref(false) // 手机上点了召唤按钮后临时显示完整桌宠
 let mobileQuery = null
 function updateMobile() {
   isMobile.value = window.matchMedia('(max-width: 768px)').matches
+  if (!isMobile.value) petOnMobile.value = false
 }
 
 // 桌宠被右键菜单“隐藏”后，持久化到 localStorage，刷新后仍保持隐藏，直到点击召唤按钮恢复
@@ -47,6 +53,7 @@ function hidePet() {
 
 function summonPet() {
   petDismissed.value = false
+  petOnMobile.value = true // 手机上也能真的召唤出来（否则按钮点了没有效果）
   localStorage.removeItem(PET_HIDDEN_KEY)
 }
 
@@ -57,7 +64,14 @@ const petVisible = computed(() => {
   return settings.canAccess('pet', isInsider.value)
 })
 
-const showPet = computed(() => petVisible.value && !isGame.value && !isMobile.value && !petDismissed.value)
+// 有权限且不在游戏页时才可能与桌宠有关
+const petAllowed = computed(() => petVisible.value && !isGame.value)
+// 完整桌宠：桌面端直接显示；手机端需要用户主动召唤
+const showPet = computed(
+  () => petAllowed.value && !petDismissed.value && (!isMobile.value || petOnMobile.value)
+)
+// 召唤按钮：只有「有权限但当前没显示完整桌宠」时才出现——保证点击一定有反馈
+const showPetButton = computed(() => petAllowed.value && !showPet.value)
 
 function openLogin() {
   showLogin.value = true
@@ -134,10 +148,14 @@ onUnmounted(() => {
 
 <template>
   <div class="app-shell">
-    <!-- 路由懒加载 / 页面切换时的顶部进度条 -->
-    <div class="page-progress" :class="{ visible: pageLoading }" aria-hidden="true">
-      <div class="page-progress-bar"></div>
-    </div>
+    <!-- 全站壁纸图层：放在最前、z-index -1，让导航栏的毛玻璃能糊到它 -->
+    <WallpaperLayer />
+    <!-- 主页星座背景：常驻挂载、只在主页显示。
+         挂在 App 层是为了让粒子场在页面切换时延续 —— 放进 HomeView 就会随组件重建，
+         每次切回主页粒子都重新随机，看起来就是"闪一下然后重绘"。 -->
+    <ConstellationField :on="route.name === 'home'" />
+    <!-- 路由懒加载 / 页面切换时的进度反馈由右侧细条（ScrollIndicator）统一承担，
+         不再另外放一条顶部横条 -->
     <NavBar />
     <!-- 页面切换：iOS 式非线性入场（轻微上移 + 呼吸缩放，沿 Expo 曲线滑停） -->
     <router-view v-slot="{ Component }">
@@ -166,49 +184,19 @@ onUnmounted(() => {
     <BackToBottom v-if="!isGame" />
     <!-- 右侧悬浮磁贴滚动指示条（仅页面可滚动时出现；非游戏页） -->
     <ScrollIndicator v-if="!isGame" />
-    <!-- 桌宠（可见性由设置页 pet 权限控制，默认内部人员可见、游客不可见；手机端不显示完整桌宠） -->
+    <!-- 桌宠（可见性由设置页 pet 权限控制，默认内部人员可见、游客不可见；手机端需点按钮召唤） -->
     <Mascot v-if="showPet" @hide="hidePet" />
-    <!-- 桌宠隐藏/手机端时显示紧凑图标按钮，点击重新召唤桌宠 -->
-    <PetButton v-else-if="!isGame" @click="summonPet" />
+    <!-- 未显示完整桌宠时的紧凑图标按钮，点击召唤 / 恢复 -->
+    <PetButton v-else-if="showPetButton" @click="summonPet" />
   </div>
 </template>
 
 <style scoped>
+/* 桌面端不设 isolation：壁纸图层的 z-index:-1 需要落到 body 背景之上、
+   但仍在所有内容之下。页面本身没有非透明背景，因此无需额外层。 */
 .app-shell {
   min-height: 100vh;
-}
-
-/* 页面切换顶部进度条：懒加载资源期间保持可见，避免用户以为点击无效 */
-.page-progress {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  z-index: 9999;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity var(--dur-ios-2) var(--ease-ios-expo);
-}
-
-.page-progress.visible {
-  opacity: 1;
-}
-
-.page-progress-bar {
-  height: 100%;
-  width: 40%;
-  background: linear-gradient(90deg, transparent, var(--accent), #a78bfa, transparent);
-  animation: page-progress-slide 1s ease-in-out infinite;
-}
-
-@keyframes page-progress-slide {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(350%);
-  }
+  overflow-x: clip; /* 壁纸图层固定 100% 宽，防止横向溢出 */
 }
 
 /* ---- iOS 式页面切换 ---- */

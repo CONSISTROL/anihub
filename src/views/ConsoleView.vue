@@ -87,8 +87,10 @@ function openLocalWeb() {
 
 <style scoped>
 .console-page {
-  /* 像 html wiki 一样铺满页面：无内边距、无空隙，从导航栏下开始占满到边缘 */
-  height: calc(100dvh - 54px); /* 导航栏实测高度 54px */
+  /* 像 html wiki 一样铺满页面：无内边距、无空隙，从导航栏下开始占满到边缘。
+     导航栏高度用 --nav-h（NavBar 实时测量写入）：导航在窄屏会折成两行，
+     写死 54px 会让控制台底部溢出/留缝。 */
+  height: calc(100dvh - var(--nav-h, 54px));
   max-width: 100%;
   padding: 0;
   box-sizing: border-box;

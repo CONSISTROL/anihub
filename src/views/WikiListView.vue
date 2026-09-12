@@ -13,13 +13,22 @@ import { useAuth } from '../composables/useAuth'
 import { immersiveView } from '../composables/uiOverlay'
 import { exportWikiZip, importWikiZip } from '../api/posts'
 
-// 拓扑图组件（three.js 星系渲染）只在切到“拓扑图”时下载/解析
+// 拓扑图组件（three.js 星系渲染）只在切到“拓扑图”时下载/解析。
+// three.js 分包接近 200KB（gzip 后约 130KB），首次进入需要等待，
+// 因此这里给一个与深空底色一致的等待态，而不是留空（留空会让人以为页面坏了/卡住）。
 const WikiGraphView = defineAsyncComponent({
   loader: () => import('../components/WikiGraphView.vue'),
   loadingComponent: {
-    // 加载期间不显示任何等待文案，直接留空
-    render: () => h('div'),
+    render() {
+      return h(
+        'div',
+        { class: 'graph-loading' },
+        [h('div', { class: 'graph-loading-spinner' }), h('p', null, '拓扑图加载中…')]
+      )
+    },
   },
+  delay: 120, // 极快命中缓存时不闪一下
+  timeout: 30000,
 })
 
 const route = useRoute()
@@ -66,27 +75,40 @@ function setMode(mode) {
 }
 
 // 拓扑图是“沉浸式整页视图”：置位全局标志，让回到底部/回到顶部等
-// 文档滚动辅助按钮隐藏（拓扑页本身不可滚，出现即无意义）
-function syncImmersive() {
-  immersiveView.value = viewMode.value === 'graph'
+// 文档滚动辅助按钮隐藏（拓扑页本身不可滚，出现即无意义）。
+//
+// 注意：导航栏**不再**依赖这个标志 —— 它直接从路由推导深空态。
+// 原因是导航栏位于路由视图之外，用这种副作用标志容易出现不同步
+// （曾出现：从拓扑图直接点导航去别的页面后，导航栏一直是深色）。
+// 这里的标志只服务于滚动辅助按钮，且卸载时必须显式清除：
+// 卸载发生在路由已离开 /wiki 之后，此时 viewMode 仍是 'graph'，
+// 若按 viewMode 重新推导会把标志又置回 true。
+function syncImmersive(force) {
+  immersiveView.value = force === undefined ? viewMode.value === 'graph' : force === true
 }
 
 // 拓扑图整页铺满：不改动站点滚动条/滚动条槽位设置（宽度恒定，离场不跳位），
 // 高度按导航实际高度动态计算（消除底部白边），全站已有 scrollbar-gutter: stable 兜住右侧。
 const graphFullEl = ref(null)// 星系区域底色（用于 .wiki-view 背景过渡 + 盖住右侧滚动条槽）
 const GRAPH_BG = '#0b1322'
-// 拓扑模式：不动 overflow / gutter / scrollbar 宽度（宽度恒定），
-// 把根背景设为深空色并临时用 color-scheme: dark 让原生滚动条变深色 ——
-// 右侧既无白条也无宽度/形态变化；离开时恢复。
+// 深空面纱：85% 不透明的 #0b1322，壁纸会透出 15%，保留背景质感但足够暗。
+// 必须与 .graph-sky 用的是**同一个值**（见该处 CSS 里的 --graph-veil），
+// 否则 .wiki-view 的过渡终色与天幕最终呈现不一致，拓扑挂载时会出现亮度台阶。
+const GRAPH_VEIL_ALPHA = 0.82
+const GRAPH_VEIL = `rgb(11 19 34 / ${GRAPH_VEIL_ALPHA})`
+// 拓扑模式：**不要**给 <html> 刷深空底色。
+//
+// 原因：全站壁纸是 .app-shell 内一个 position:fixed 的图层（z-index:-1），
+// 往 <html> 上写 backgroundColor 会把它整个盖住 —— 而导航栏的 backdrop-filter
+// 只糊它正后方的内容，于是顶栏从「壁纸 + 玻璃」变成「深空纯色 + 玻璃」，
+// 在浅色主题下表现为一块近白色（#F8F9FC），与其它页面的壁纸色（#89B6E2~#BCD5EE）明显不一致。
+//
+// 深空背景由拓扑区域自己负责：.graph-full / .graph-sky 是不透明的 #0b1322，
+// 且该视图 height = 视口高 - 导航高、不产生文档滚动，所以页面上不存在"露出白边"的区域。
+// colorScheme 仍然保留：它只影响原生滚动条/表单控件的配色，不参与背景绘制。
 function applyGraphLock(on) {
   const html = document.documentElement
-  if (on) {
-    html.style.backgroundColor = GRAPH_BG
-    html.style.colorScheme = 'dark'
-  } else {
-    html.style.backgroundColor = ''
-    html.style.colorScheme = ''
-  }
+  html.style.colorScheme = on ? 'dark' : ''
 }
 function syncGraphHeight() {
   if (viewMode.value !== 'graph') return
@@ -95,6 +117,9 @@ function syncGraphHeight() {
   const h = Math.max(200, Math.floor(window.innerHeight - top))
   // 用 CSS 变量先于视图挂载定好高度：进场即正确尺寸，不会“先大后小”缩放
   document.documentElement.style.setProperty('--graph-h', h + 'px')
+  // 筛选条高度：天幕要向上延伸这么多，才能把筛选条那一条也盖住
+  // （筛选条自身透明，两者共用同一层背景 → 上下连续，不会割裂）
+  document.documentElement.style.setProperty('--filter-h', '44px')
 }
 function onWindowResizeGraph() {
   if (viewMode.value === 'graph') syncGraphHeight()
@@ -104,26 +129,38 @@ function onWindowResizeGraph() {
 // 先置透明 → 下一帧再写入目标色，让 CSS transition 真正产生过渡。
 const wikiViewEl = ref(null)
 let bgRaf = 0
+// 淡入淡出用的过渡类：只在切换动画期间挂上，避免根元素常驻 transition 拖慢路由离场
+const pageBgFading = ref(false)
+let bgFadeTimer = 0
 function setPageBg(mode, animate) {
   const el = wikiViewEl.value
   if (!el) return
   cancelAnimationFrame(bgRaf)
+  clearTimeout(bgFadeTimer)
   if (mode === 'list') {
+    pageBgFading.value = false
     el.style.backgroundColor = 'transparent'
     return
   }
   const apply = () => {
-    el.style.backgroundColor = GRAPH_BG
+    el.style.backgroundColor = GRAPH_VEIL
   }
   if (!animate) {
+    pageBgFading.value = false
     apply()
     return
   }
+  // 先挂过渡类，令写入的颜色产生过渡
+  pageBgFading.value = true
   el.style.backgroundColor = 'transparent'
   void el.offsetWidth // 强制重排，确保从透明开始过渡
   bgRaf = requestAnimationFrame(() => {
     bgRaf = requestAnimationFrame(apply)
   })
+  // 过渡结束后摘掉，根元素恢复"无 transition"
+  bgFadeTimer = setTimeout(() => {
+    pageBgFading.value = false
+  }, 420)
 }
 
 watch(viewMode, (v) => {
@@ -155,9 +192,11 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   cancelAnimationFrame(bgRaf)
+  clearTimeout(bgFadeTimer)
   window.removeEventListener('resize', onWindowResizeGraph)
   applyGraphLock(false)
-  syncImmersive()
+  // 显式清除（不能用 syncImmersive() 按 viewMode 重新推导：卸载时 viewMode 仍是 graph）
+  syncImmersive(false)
 })
 
 // —— 管理员批量导出 / 导入（wiki）——
@@ -223,15 +262,18 @@ async function onImportFile(e) {
 </script>
 
 <template>
-  <div ref="wikiViewEl" class="wiki-view">
+  <div ref="wikiViewEl" class="wiki-view" :class="{ 'bg-fading': pageBgFading }">
     <!-- 视图内容（淡出 → 进入，带轻微上移/缩放） -->
     <Transition name="view" mode="out-in" @after-enter="onViewEnter">
       <div :key="viewMode" :class="['view-body', viewMode]">
         <!-- 拓扑图：整页星系（不显示页面标题 / 批量管理） -->
         <div v-if="viewMode === 'graph'" ref="graphFullEl" class="graph-full">
-          <!-- 天幕背景层：半透明深空面纱 + 站点壁纸（无壁纸时退化为纯色，观感不变）。
-               透明度见下方 .graph-sky 的 --graph-sky-alpha 注释 -->
+          <!-- 天幕背景层：站点壁纸 + 深空面纱（无壁纸时退化为纯色，观感不变）。
+               尺寸与取景跟 .wallpaper-layer 完全一致，因此全站背景位置/缩放都相同。
+               .graph-sky-cap 单独覆盖筛选条那一条（它是 fixed，会被 .graph-full 的
+               overflow-x: clip 影响不到），避免筛选条露出未压暗的壁纸。 -->
           <div class="graph-sky" aria-hidden="true"></div>
+          <div class="graph-sky-cap" aria-hidden="true"></div>
           <WikiGraphView />
         </div>
 
@@ -296,11 +338,21 @@ async function onImportFile(e) {
 
 <style scoped>
 /* 页面容器：切换按钮用相对定位挂在其右上角（导航条下方的 page 区域内）。
-   背景色（透明 ↔ 拓扑底色）由 JS 控制淡入淡出，见 setPageBg()。 */
+   背景色（透明 ↔ 拓扑底色）由 JS 控制淡入淡出，见 setPageBg()。
+
+   注意：淡入淡出用的 transition **只在真正切换的那一刻挂上**（.bg-fading），
+   不能常驻。原因是路由切换用的 <Transition name="page" mode="out-in"> 会读取
+   **离场元素自身**的 transition 属性取最长时长作为离场时间：
+   .wiki-view 上常驻 background-color(380ms) 会让"wiki → 其它页面"的离场
+   被拖到 ~400ms（对照：tools → blog 只要 ~180ms），表现为切到目标页时卡一下。
+   把 transition 收进 .bg-fading 后，平时根元素没有 transition，离场按 150ms 正常结算。 */
 .wiki-view {
   position: relative;
   min-height: 60vh;
   background-color: transparent;
+}
+
+.wiki-view.bg-fading {
   transition: background-color var(--dur-ios-3) var(--ease-ios-expo);
 }
 
@@ -387,23 +439,96 @@ async function onImportFile(e) {
   /* 高度由 JS 在进入视图前算好写入 --graph-h，避免进场后收缩；兜底铺满视口 */
   height: var(--graph-h, 100dvh);
   min-height: 560px;
-  overflow: hidden;
+  /* 注意：**不能** overflow: hidden —— 天幕要靠负 top 向上延伸盖住筛选条那一条，
+     一旦裁掉，筛选条就会露出"未被面纱压过的原始壁纸"，与下方星图区割裂
+     （这一条踩过一次）。水平方向用 clip 兜住即可。 */
+  overflow-x: clip;
+}
+
+/* 异步加载 three.js 分包期间的等待态：与天幕同色，不出现白闪 */
+.graph-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: #9fb0d0;
+  font-size: 13px;
+  background: #0b1322;
+}
+
+.graph-loading-spinner {
+  width: 30px;
+  height: 30px;
+  border: 3px solid rgb(255 255 255 / 0.16);
+  border-top-color: #7d9aff;
+  border-radius: 50%;
+  animation: graph-spin 0.9s linear infinite;
+}
+
+@keyframes graph-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* 天幕背景层：最底为不透明深空色（无壁纸时的观感与原来一致），
    中间叠站点壁纸（--wallpaper-url，继承自 <html>），最上罩半透明深空面纱。
    面纱 alpha = 0.8：壁纸透过 20%；数值调小壁纸更明显（可读性下降），调大则更接近纯深空。 */
+/* 天幕背景层：站点壁纸 + 深空面纱（保留壁纸质感，但压到足够暗）。
+   ── 两个必须注意的点 ──
+   1) CSS 里 `background-color` 画在**所有背景图之下**，所以不能靠"底色 + 半透明渐变盖住壁纸"
+      的方式来做纯色（底色会被渐变挡掉，实际亮度以渐变+壁纸为准）。
+   2) 切换的**平滑**取决于：.wiki-view 的过渡终色与这里的天幕最终呈现一致。
+      两者都用 85% 深空面纱（同一个变量 --graph-veil），拓扑挂载时天幕出现不会带来亮度台阶；
+      过渡全程壁纸始终可见，只是从"原亮度"渐渐压暗，不会出现"先变纯色再亮回壁纸"的闪动。 */
 .graph-sky {
-  position: absolute;
+  /* 尺寸与 .wallpaper-layer **完全一致**（都是整个视口）、取景也完全一致，
+     因此两者显示的是同一张壁纸的同一块裁剪 —— 位置与缩放都相同。
+     用 fixed 而不是 absolute：百分比基准是视口，与壁纸图层一致
+     （祖先 .graph-full 用 overflow-x: clip，不裁剪 fixed 后代）。
+
+     ⚠ 这里**不能**靠"把元素撑高"来覆盖筛选条：
+     `cover` 的缩放比是按**元素自身盒子**算的，元素一高就会把壁纸放大
+     （撑高 44px → 放大约 5%，缩放浏览器时肉眼很明显）。
+     筛选条那一条由下面的 .graph-sky-cap 单独覆盖。 */
+  position: fixed;
   inset: 0;
+  height: 100vh;
   z-index: 0;
   pointer-events: none;
-  background-color: #0b1322;
   background-image:
-    linear-gradient(180deg, rgba(11, 19, 34, 0.8), rgba(11, 19, 34, 0.8)),
+    linear-gradient(180deg, var(--graph-veil), var(--graph-veil)),
     var(--wallpaper-url, none);
-  background-size: auto, cover;
-  background-position: center;
+  background-size: cover;
+  background-position: center calc(50% + var(--wp-shift, 0px));
+  background-repeat: no-repeat;
+}
+
+/* 筛选条那一条的底：它位于天幕之上、自身透明，
+   若不处理就会露出"未被面纱压过的原始壁纸"，与下方星图区割裂。
+   这里单独铺一小块：**同样的取景表达式、同样的元素高度（100vh）**，
+   只是把这块背景向上平移一个筛选条高度再裁出顶部那条，
+   于是它与天幕、与壁纸图层都是同一张图的同一块裁剪（缩放比也相同，因为盒高都是 100vh）。 */
+.graph-sky-cap {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: calc(var(--filter-h, 44px) * -1);
+  height: 100vh;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(180deg, var(--graph-veil), var(--graph-veil)),
+    var(--wallpaper-url, none);
+  background-size: cover;
+  background-position: center calc(50% + var(--wp-shift, 0px) - var(--filter-h, 44px));
+  background-repeat: no-repeat;
+  /* 只保留最上面那一条（其余与天幕完全重合，画了也看不见） */
+  clip-path: inset(0 0 calc(100% - var(--filter-h, 44px)) 0);
 }
 
 .graph-full :deep(.wiki-graph) {
@@ -415,8 +540,12 @@ async function onImportFile(e) {
   z-index: 1; /* 盖在天幕背景层之上 */
 }
 
+/* 筛选条在拓扑模式下**保持透明**，由天幕从它上面就开始铺（见 .graph-sky 的 --filter-h）。
+   这样上下是**同一层背景**，天然连续，不存在两块壁纸对不齐的问题。
+   注意不要给它加 backdrop-filter：那会把壁纸糊掉，与下方清晰的星图区质感不一致。 */
 .graph-full :deep(.filter-bar) {
   flex: 0 0 auto;
+  background: transparent;
 }
 
 .graph-full :deep(.graph-space) {
