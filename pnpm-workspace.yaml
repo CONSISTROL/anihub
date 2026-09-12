@@ -1,0 +1,7 @@
+# pnpm 设置文件（pnpm 11 起，构建白名单等设置从 package.json 的 "pnpm" 字段迁到这里）
+#
+# 依赖里只有 esbuild（vite 底层的打包器）带 postinstall 脚本，这里放行它的构建；
+# 其余依赖均为纯 JS，无需执行构建脚本 —— 保持"默认不放行"可减少供应链风险。
+# 若新增依赖报 ERR_PNPM_IGNORED_BUILDS，在这里显式写 true / false。
+allowBuilds:
+  esbuild: true

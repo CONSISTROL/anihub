@@ -189,7 +189,7 @@ export function startStream(sess, cmd, { onOut, onErr, onCwd, onExit, noTimeout 
 
   // Linux 且存在 script（util-linux，Ubuntu 自带）：走伪终端，支持交互命令
   const usePty = process.platform !== 'win32' && fs.existsSync('/usr/bin/script')
-  // 子进程环境：不继承 NODE_ENV=production——否则 npm ci 会跳过 devDependencies（vite 等），
+  // 子进程环境：不继承 NODE_ENV=production——否则 pnpm/npm 安装会跳过 devDependencies（vite 等），
   // 控制台里跑构建/更新会报 vite: not found
   const childEnv = { ...process.env }
   delete childEnv.NODE_ENV

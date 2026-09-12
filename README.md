@@ -73,7 +73,7 @@
   - 游戏页（全屏 iframe）按设计不显示
 - **响应压缩（br / gzip）**：应用层用 Node 内置 zlib 做 Brotli / gzip 协商压缩，覆盖 API JSON 与静态文本资源（`three.module` 528KB → **123KB**，`editor` 398KB → **约 96KB**）。生产 Nginx 也开了 gzip，但其 `gzip_types` 不含 `text/javascript`，而 Express 对 `.js` 输出的正是该类型，因此应用层这层兜底是必要的
 - **分级缓存**：带内容 hash 的构建产物 `max-age=31536000, immutable`；上传图片 / 壁纸 / 桌宠动画 / 游戏资源 `max-age=604800`；`index.html` 为 `no-cache`（发版即时生效）。压缩响应的 ETag 带编码后缀，条件请求正确返回 304
-- **插画资源瘦身**：主页卡片图与错误码插画由 PNG 转 WebP（同画质约 **-78%**，合计 4.9MB → 1.1MB）；favicon 由 864×886 / 929KB 换成 32×32 / 3KB；桌宠召唤图标缩到 256×256。可用 `npm run optimize:assets` 重新生成（需本机装 ImageMagick；产物已提交，服务器无需安装）
+- **插画资源瘦身**：主页卡片图与错误码插画由 PNG 转 WebP（同画质约 **-78%**，合计 4.9MB → 1.1MB）；favicon 由 864×886 / 929KB 换成 32×32 / 3KB；桌宠召唤图标缩到 256×256。可用 `pnpm optimize:assets` 重新生成（需本机装 ImageMagick；产物已提交，服务器无需安装）
 - **壁纸层不再重绘**：全站壁纸由 `background-attachment: fixed` 改为固定定位的独立合成层，滚动时只做合成不重绘；当前壁纸显示后会趁浏览器空闲预热「下次要用的那张」
 - **桌宠按需加载**：`Mascot`（774 行 + 全部动作表）改为异步组件，不再进首屏 chunk；动画视频 `preload="none"`，首帧动画在浏览器空闲时才开始拉取
 - **完整 HTML 文档加载占位**：Wiki 中带外部 CDN / 脚本的完整 HTML 文档在 iframe 加载期间显示“HTML 文档加载中…”占位，不再一片空白
@@ -184,16 +184,17 @@
 ## 环境要求
 
 - [Node.js](https://nodejs.org) ≥ 20.19（推荐最新 LTS 或 v24，本仓库在 Node 24 上开发验证）
-- npm（随 Node.js 一起安装）
+- [pnpm](https://pnpm.io)（依赖管理；未安装时执行 `npm i -g pnpm@11`，Node 自带的 npm 仅用于安装 pnpm）
+  - 新增依赖若带 `postinstall` 等构建脚本，pnpm 默认不执行并报 `ERR_PNPM_IGNORED_BUILDS`，需在 `pnpm-workspace.yaml` 的 `allowBuilds` 里显式放行（当前只放行了 `esbuild`）
 
 ## 快速开始（开发模式，双进程）
 
 ```bash
 # 1. 安装依赖
-npm install
+pnpm install
 
 # 2. 一键启动前后端（推荐）
-npm run dev:all
+pnpm dev:all
 # Windows 也可以直接双击 dev.bat；Linux/macOS 可执行 bash dev.sh
 ```
 
@@ -208,10 +209,10 @@ npm run dev:all
 
 ```bash
 # 终端 A：启动后端 API（端口 3001，--watch 自动重启）
-npm run dev:server
+pnpm dev:server
 
 # 终端 B：启动前端开发服务器
-npm run dev
+pnpm dev
 ```
 
 打开终端 B 显示的地址（默认 <http://localhost:5173>）。开发模式下 Vite 会把 `/api` 请求代理到后端（见 `vite.config.js`）。
@@ -226,10 +227,10 @@ npm run dev
 
 ```bash
 # 1. 构建前端
-npm run build
+pnpm build
 
 # 2. 启动服务（Express 同时托管 API 与 dist/ 静态文件）
-npm start
+pnpm start
 ```
 
 访问 <http://localhost:3001> 即可，全部功能同一端口。
@@ -244,8 +245,8 @@ npm start
 
 | 文件 | 作用 |
 |---|---|
-| `deploy/setup.sh` | 一键部署：装 Node 24 → 拉代码（默认走 GitHub 代理）→ 构建 → 生成 `.env`（随机密钥）→ systemd 守护 → Nginx + HTTPS → 定时备份 |
-| `deploy/update.sh` | 一键更新：拉代码（默认走 GitHub 代理）→ `npm ci` → 构建 → 重启服务 → 同步 Nginx 配置（自动解析域名，`nginx -t` 失败自动回滚）；以 root 运行时自动把应用目录所有权归还给运行用户 |
+| `deploy/setup.sh` | 一键部署：装 Node 24 与 pnpm → 拉代码（默认走 GitHub 代理）→ 构建 → 生成 `.env`（随机密钥）→ systemd 守护 → Nginx + HTTPS → 定时备份 |
+| `deploy/update.sh` | 一键更新：拉代码（默认走 GitHub 代理）→ `pnpm install --frozen-lockfile` → 构建 → 重启服务 → 同步 Nginx 配置（自动解析域名，`nginx -t` 失败自动回滚）；以 root 运行时自动把应用目录所有权归还给运行用户 |
 | `deploy/anihub.service` | systemd 服务单元（开机自启、崩溃自动重启；不做提权类加固，以支持控制台内 su/sudo） |
 | `deploy/anihub.nginx.conf` | Nginx 反向代理（含 WebSocket 转发）+ Let's Encrypt HTTPS |
 | `deploy/backup.sh` | 数据备份（SQLite + 上传图片，保留最近 14 份，每日 03:00） |
@@ -289,7 +290,9 @@ sudo -i                       # 或直接进 root shell（su 需 root 密码，s
 
 ```
 ├── index.html                    # 入口页面（图标、theme-color、首帧前主题/壁纸恢复脚本）
-├── package.json                  # npm run optimize:assets 可重新生成插画资源
+├── package.json                  # 依赖与脚本（packageManager 锁定 pnpm；pnpm optimize:assets 可重新生成插画资源）
+├── pnpm-lock.yaml                # 依赖锁定文件（部署用 pnpm install --frozen-lockfile）
+├── pnpm-workspace.yaml           # pnpm 设置（构建脚本白名单 allowBuilds，如 esbuild）
 ├── vite.config.js                # dev proxy: /api → :3001；生产分包（editor/markdown）
 ├── scripts/
 │   └── optimize-assets.mjs       # 静态插图优化：PNG → WebP、生成 favicon / 主屏图标
@@ -438,7 +441,7 @@ sudo -i                       # 或直接进 root shell（su 需 root 密码，s
 
 ### 插画资源（`scripts/optimize-assets.mjs`）
 
-`npm run optimize:assets` 会：把 `public/home/*.png`、`public/http_status_code/*.png` 转成 WebP（同画质约 -78%）；用 `public/anihub.png` 生成 `favicon-32.png` 与 `apple-touch-icon.png`；把桌宠召唤图标缩到 256×256。需要本机装 ImageMagick（Windows 常见路径会自动探测，也可用 `MAGICK_PATH` 指定）。**产物已提交进仓库，服务器上不需要装 ImageMagick。**
+`pnpm optimize:assets` 会：把 `public/home/*.png`、`public/http_status_code/*.png` 转成 WebP（同画质约 -78%）；用 `public/anihub.png` 生成 `favicon-32.png` 与 `apple-touch-icon.png`；把桌宠召唤图标缩到 256×256。需要本机装 ImageMagick（Windows 常见路径会自动探测，也可用 `MAGICK_PATH` 指定）。**产物已提交进仓库，服务器上不需要装 ImageMagick。**
 
 > `public/wallpapers/` 是用户自己的壁纸原图，不在本脚本处理范围内。
 

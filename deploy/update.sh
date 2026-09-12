@@ -47,9 +47,11 @@ fi
 
 write_state running install
 echo "==> 安装依赖并构建前端"
-npm ci
+# 依赖用 pnpm 管理（见 package.json 的 packageManager）；旧服务器可能还没装
+command -v pnpm >/dev/null 2>&1 || npm i -g pnpm@11
+pnpm install --frozen-lockfile
 write_state running build
-npm run build
+pnpm run build
 
 write_state running nginx
 echo "==> 同步 Nginx 反代配置（WebSocket 转发等）"
@@ -75,7 +77,7 @@ fi
 
 echo "==> 更新完成"
 # 以 root 跑完（控制台 sudo 提权）后，把应用目录所有权归还给运行用户，
-# 否则 npm 等会因 root 拥有的文件报 EACCES
+# 否则 pnpm/npm 等会因 root 拥有的文件报 EACCES
 if [[ $EUID -eq 0 ]]; then
   chown -R "$APP_USER":"$APP_USER" "$APP_DIR"
   echo "==> 已把 $APP_DIR 所有权归还给 $APP_USER"

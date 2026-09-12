@@ -1,5 +1,5 @@
 // 本地一键启动：同时运行后端（dev:server）与前端（vite dev）。
-// 用法：npm run dev:all
+// 用法：pnpm dev:all（依赖用 pnpm 管理，见 package.json 的 packageManager）
 //
 // 设计说明：不自己拦截 Ctrl+C，让两个子进程和当前终端处于同一控制台/进程组，
 // 由终端原生的 Ctrl+C 行为同时停止前后端，避免自定义信号处理导致终端异常。
@@ -12,14 +12,14 @@ const isWin = process.platform === 'win32'
 
 function start(name, args) {
   const child = isWin
-    ? // Windows 下直接 spawn .cmd 会 EINVAL，改由 cmd.exe 执行 npm
-      spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `npm ${args.join(' ')}`], {
+    ? // Windows 下直接 spawn .cmd 会 EINVAL，改由 cmd.exe 执行 pnpm
+      spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `pnpm ${args.join(' ')}`], {
         cwd: root,
         stdio: 'inherit',
         windowsHide: true,
         env: { ...process.env, FORCE_COLOR: '1' },
       })
-    : spawn('npm', args, {
+    : spawn('pnpm', args, {
         cwd: root,
         stdio: 'inherit',
         windowsHide: true,

@@ -9,7 +9,7 @@ Type=simple
 User=__APP_USER__
 Group=__APP_USER__
 WorkingDirectory=__APP_DIR__
-# 与 npm start 一致的启动命令（server/.env 由部署脚本生成）
+# 与 pnpm start 一致的启动命令（server/.env 由部署脚本生成）
 ExecStart=/usr/bin/node --env-file-if-exists=server/.env --disable-warning=ExperimentalWarning server/index.js
 Restart=always
 RestartSec=3

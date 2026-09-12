@@ -45,7 +45,10 @@ if ! command -v node >/dev/null 2>&1 || [[ "$(node -v)" != v24* ]]; then
   curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
   apt-get install -y nodejs
 fi
-node -v && npm -v
+node -v
+# 依赖用 pnpm 管理（见 package.json 的 packageManager）：Node 自带的 npm 只用来安装 pnpm
+command -v pnpm >/dev/null 2>&1 || npm i -g pnpm@11
+pnpm -v
 
 echo "==> [3/8] 创建运行用户 $APP_USER"
 id -u "$APP_USER" >/dev/null 2>&1 || useradd --system --create-home --shell /usr/sbin/nologin "$APP_USER"
@@ -76,8 +79,8 @@ if timeout 30 git pull "$REPO_URL" master 2>&1 | tail -3; then
 else
   echo "    git pull 超时/失败（网络问题），继续使用本地已有代码"
 fi
-npm ci
-npm run build
+pnpm install --frozen-lockfile
+pnpm run build
 
 echo "==> [5/8] 生成 server/.env（密钥随机生成，不重复覆盖）"
 mkdir -p "$APP_DIR/server"
@@ -156,5 +159,5 @@ else
   echo "访问地址: http://<服务器IP>:3001"
 fi
 echo "登录: 页面敲键盘 login → 输入 server/.env 中的 ADMIN_USERNAME / ADMIN_PASSWORD"
-echo "更新代码: cd $APP_DIR && git pull && npm ci && npm run build && sudo systemctl restart anihub"
+echo "更新代码: cd $APP_DIR && git pull && pnpm install --frozen-lockfile && pnpm run build && sudo systemctl restart anihub"
 echo "数据备份: $BACKUP_DIR（每日 03:00 自动执行，也可手动运行 /usr/local/bin/anihub-backup）"
