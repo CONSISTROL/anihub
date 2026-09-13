@@ -233,6 +233,25 @@ function onCardLeave(e) {
   min-height: 100vh;
 }
 
+/* 浅色主题下主页的背景**与深色主题一致**（整屏深空底，见 WallpaperLayer 的 .is-home）。
+   ⚠ 背景变深了，文字/面板的配色就必须跟着换成深色主题那一套，
+     否则浅色主题的深色文字（--text #1b2030）落在深底上根本看不见。
+   作用域限定在 .home 内（只覆盖主页自己的内容，顶栏与其它页面不受影响），
+   与 wiki 拓扑页 `.graph-full` 那套"整页深空化"是同一个做法。 */
+:root[data-theme='light'] .home {
+  --bg: #0e1015;
+  --panel: rgb(23 26 34 / 0.72);
+  --panel-2: rgb(29 33 44 / 0.66);
+  --overlay-panel: #171a22;
+  --border: #262b38;
+  --text: #e8eaf0;
+  --text-2: #b6bdcb;
+  --text-faint: #7d8598;
+  --muted: #8b93a7;
+  --accent: #6c8cff;
+  --accent-hover: #7d9aff;
+}
+
 /* —— 主视觉 —— */
 .hero {
   position: relative;

@@ -148,8 +148,10 @@ onUnmounted(() => {
 
 <template>
   <div class="app-shell">
-    <!-- 全站壁纸图层：放在最前、z-index -1，让导航栏的毛玻璃能糊到它 -->
-    <WallpaperLayer />
+    <!-- 全站壁纸图层：放在最前、z-index -1，让导航栏的毛玻璃能糊到它。
+         :on 表示"当前在主页" —— 主页在浅色主题下需要把壁纸压得更暗一点
+         （见 WallpaperLayer.vue 里的 .is-home 规则）。 -->
+    <WallpaperLayer :on="route.name === 'home'" />
     <!-- 主页星座背景：常驻挂载、只在主页显示。
          挂在 App 层是为了让粒子场在页面切换时延续 —— 放进 HomeView 就会随组件重建，
          每次切回主页粒子都重新随机，看起来就是"闪一下然后重绘"。 -->

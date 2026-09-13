@@ -55,12 +55,21 @@ const reducedMotion =
     ? window.matchMedia('(prefers-reduced-motion: reduce)')
     : null
 
+// —— 配色 ——
+// 两个考虑：
+//  1) 浅色主题下壁纸更淡，星座要压得住 → 用更实的深蓝 + 更高的基础不透明度
+//  2) **浅色主题的主页背景与深色主题一致**（整屏深空底），所以主页必须用**深色那套配色**，
+//     否则深蓝的星点落在深底上就看不见了。
+//     WallpaperLayer 在"浅色 + 主页"时会写 `html.dataset.homeDeep = '1'` 作为标记。
+function darkPalette() {
+  return { dot: '198, 216, 255', line: '150, 180, 245', glow: '130, 165, 255', dotA: 0.92, lineA: 0.6 }
+}
 function palette() {
-  const dark = document.documentElement.dataset.theme !== 'light'
-  // 壁纸本身很花，星座要压得住：提高基础不透明度并给连线更大的权重
-  return dark
-    ? { dot: '198, 216, 255', line: '150, 180, 245', glow: '130, 165, 255', dotA: 0.92, lineA: 0.6 }
-    : { dot: '46, 86, 220', line: '58, 96, 210', glow: '58, 96, 210', dotA: 0.72, lineA: 0.48 }
+  const root = document.documentElement
+  const light = root.dataset.theme === 'light'
+  return light && root.dataset.homeDeep !== '1'
+    ? { dot: '46, 86, 220', line: '58, 96, 210', glow: '58, 96, 210', dotA: 0.72, lineA: 0.48 }
+    : darkPalette()
 }
 
 // 把 88 星座摆到画布上：均匀分格 + 格内抖动，避免重叠又不像网格。

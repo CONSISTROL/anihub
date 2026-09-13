@@ -163,39 +163,59 @@ onUnmounted(() => {
         <button v-if="showAudioLoad" class="btn btn-sm audio-load-btn" :disabled="loadingAudio" @click="loadRemainingAudio">
           {{ loadingAudio ? '音频加载中…' : '加载音频' }}
         </button>
-        <!-- 内部身份：只留一个头像。悬停时头像放大 + 下方浮出卡片（退出入口在卡片里），
+        <!-- 身份入口：**匿名模式与管理员都用同一个头像 + 悬停浮出卡片**。
+             顶栏只见一个圆形头像；鼠标移上去头像向左下放大、下方浮出卡片，
              与 B 站头像的交互一致。键盘 Tab 聚焦也能展开（:focus-within），
-             触屏点击同样可展开（见 insiderOpen 的 click 切换）。 -->
+             触屏点击同样可展开（见 insiderOpen 的 click 切换）。
+             卡片内容按身份分：
+               · 管理员：控制台 / 设置 / 退出（原先这三个按钮直接摊在顶栏上）
+               · 匿名模式：匿名模式标题 + 退出内部模式
+             ⚠ 站点版本号（`版本.commit`）必须一直可见（这是产品要求），
+               所以它没有被藏起来，而是**从顶栏移到了卡片里**。 -->
         <div
-          v-if="isInsider && !isLoggedIn"
+          v-if="isLoggedIn || (isInsider && !isLoggedIn)"
           class="insider-wrap"
-          :class="{ open: insiderOpen }"
+          :class="{ open: insiderOpen, 'is-admin': isLoggedIn }"
           @pointerenter="insiderOpen = true"
           @pointerleave="insiderOpen = false"
         >
           <button
             type="button"
             class="insider-avatar-btn"
-            aria-label="匿名模式"
+            :aria-label="isLoggedIn ? '账户菜单' : '匿名模式'"
             aria-haspopup="true"
             :aria-expanded="insiderOpen ? 'true' : 'false'"
             @click="insiderOpen = !insiderOpen"
           >
             <img src="/insider.webp" class="insider-avatar" alt="" />
           </button>
-          <div class="insider-card" role="group" aria-label="匿名模式">
-            <p class="ic-name">匿名模式</p>
-            <button type="button" class="ic-exit" @click="exitInsider">
-              <AppIcon name="x" :size="13" /> 退出内部模式
-            </button>
+          <div
+            class="insider-card"
+            role="group"
+            :aria-label="isLoggedIn ? '账户菜单' : '匿名模式'"
+          >
+            <!-- 管理员：控制台 / 设置 / 退出 -->
+            <template v-if="isLoggedIn">
+              <router-link to="/console" class="ic-item" @click="insiderOpen = false">
+                <AppIcon name="terminal" :size="13" /> 控制台
+              </router-link>
+              <router-link to="/settings" class="ic-item" @click="insiderOpen = false">
+                <AppIcon name="gear" :size="13" /> 设置
+              </router-link>
+              <button type="button" class="ic-item" @click="clearSession">
+                <AppIcon name="x" :size="13" /> 退出
+              </button>
+              <p v-if="WELCOME" class="ic-version">{{ WELCOME }}</p>
+            </template>
+            <!-- 匿名模式：仅退出 -->
+            <template v-else>
+              <p class="ic-name">匿名模式</p>
+              <button type="button" class="ic-exit" @click="exitInsider">
+                <AppIcon name="x" :size="13" /> 退出内部模式
+              </button>
+            </template>
           </div>
         </div>
-        <template v-if="isLoggedIn">
-          <span class="username">{{ WELCOME }}</span>
-          <router-link to="/console" class="btn btn-sm">控制台</router-link>
-          <router-link to="/settings" class="btn btn-sm">设置</router-link>
-          <button class="btn btn-sm" @click="clearSession">退出</button>
-        </template>
       </div>
       <div class="nav-actions">
         <button type="button" class="btn btn-sm keyboard-btn" title="网页内键盘（游戏 / login / inside）" @click="toggleKeyboard">
@@ -413,13 +433,6 @@ onUnmounted(() => {
   align-items: center;
 }
 
-.username {
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  color: color-mix(in srgb, var(--text) 58%, transparent);
-  white-space: nowrap;
-}
-
 /* —— 内部身份：头像 + 悬停浮出卡片 ——
    顶栏只见一个圆形头像；鼠标移上去头像放大、下方浮出卡片（退出在卡片里）。
    交互与 B 站头像一致，因此这里沿用它们的两个关键做法：
@@ -583,6 +596,67 @@ onUnmounted(() => {
   transform: scale(0.97);
 }
 
+/* —— 管理员卡片里的条目（控制台 / 设置 / 退出）——
+   与 .ic-exit 同一套外观：竖排等宽、靠边框与悬停反馈区分，
+   不再用顶栏那种实心 .btn（卡片里实心块会显得很吵）。 */
+.ic-item {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text);
+  text-decoration: none;
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-ios-1) var(--ease-ios-expo),
+    border-color var(--dur-ios-1) var(--ease-ios-expo),
+    transform var(--dur-ios-1) var(--ease-ios-spring);
+}
+
+.ic-item + .ic-item {
+  margin-top: 2px;
+}
+
+.ic-item:hover {
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+.ic-item:active {
+  transform: scale(0.97);
+}
+
+/* 版本号：从顶栏搬进卡片底部（产品要求它一直可见）。
+   小一号、次要色，不跟上面的操作项抢注意力。 */
+.ic-version {
+  margin: 8px 0 0;
+  padding-top: 8px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+}
+
+/* 管理员头像的琥珀色描边换成主题色：与匿名模式的橙色区分开，
+   一眼能看出当前是"已登录"还是"匿名"。 */
+.insider-wrap.is-admin .insider-avatar {
+  border-color: color-mix(in srgb, var(--accent) 62%, transparent);
+}
+
+.insider-wrap.is-admin:hover .insider-avatar,
+.insider-wrap.is-admin:focus-within .insider-avatar,
+.insider-wrap.is-admin.open .insider-avatar {
+  border-color: var(--accent);
+}
+
 /* 窄屏：顶栏空间紧张，卡片改为贴右缘对齐，避免溢出视口 */
 @media (max-width: 1180px) {
   .insider-card {
@@ -735,11 +809,6 @@ onUnmounted(() => {
     min-width: 0;
   }
 
-  .username {
-    max-width: 220px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
 }
 
 @media (max-width: 1024px) {
@@ -759,9 +828,6 @@ onUnmounted(() => {
     font-size: 16px; /* 避免 iOS 聚焦时自动放大页面 */
   }
 
-  .username {
-    max-width: 150px;
-  }
 }
 
 @media (max-width: 700px) {

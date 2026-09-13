@@ -138,6 +138,16 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* 浅色主题 + 主页：主页背景与深色主题一致（整屏深空底），
+   而壁纸图层只有 100vh 高，页面比视口高时下方会露出 body 底色 —— 会是一条亮带。
+   这里用 :has() 判断"主页的深空壁纸层存在"，把 body 底色也换成深空色。
+   ⚠ 用 :has() 而不是给 body 加类：body 不在 Vue 组件树里，加类要额外维护；
+     而且 :has() 能精确表达"浅色主题 **且** 主页深空层在场"这一个条件。
+     深色主题下该规则不生效（body 本来就是深空色）。 */
+:root[data-theme='light'] body:has(.wallpaper-layer.is-home) {
+  background-color: #0e1015;
+}
+
 /* ==========================================================================
    全站壁纸层 → 已迁到 src/components/WallpaperLayer.vue（.app-shell 内 z-index:-1 的固定图层）
    迁移原因：导航栏要做毛玻璃，backdrop-filter 必须能看到“身后的真实内容”。
