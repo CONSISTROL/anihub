@@ -13,6 +13,10 @@
 #   ADMIN_PASSWORD  管理员密码（留空则自动生成并打印，注意保存）
 #   INSIDER_KEYWORD 内部人员口令，默认 inside
 #   BACKUP_DIR      备份目录，默认 /opt/anihub-backups
+#
+# 兼容 sh：Ubuntu 的 /bin/sh 是 dash，不支持 set -o pipefail / [[ ]] 等 bash 语法。
+# 若被 `sh deploy/setup.sh` 调用，这里用 bash 重新执行自己（不影响 bash 调用）。
+if [ -z "${BASH_VERSION:-}" ]; then exec bash "$0" "$@"; fi
 set -euo pipefail
 
 DOMAIN="${DOMAIN:-}"

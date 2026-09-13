@@ -5,6 +5,10 @@
 #   https://ghfast.top/https://github.com/CONSISTROL/anihub.git
 #   也可指定已有 remote（如 gitee）：bash deploy/update.sh gitee
 # 说明：.env / 数据库 / 上传图片不受影响（gitignore 已排除）
+#
+# 兼容 sh：Ubuntu 的 /bin/sh 是 dash，不支持 set -o pipefail / [[ ]] 等 bash 语法。
+# 若被 `sh deploy/update.sh` 调用，这里用 bash 重新执行自己（不影响 bash 调用）。
+if [ -z "${BASH_VERSION:-}" ]; then exec bash "$0" "$@"; fi
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
