@@ -117,9 +117,6 @@ function syncGraphHeight() {
   const h = Math.max(200, Math.floor(window.innerHeight - top))
   // 用 CSS 变量先于视图挂载定好高度：进场即正确尺寸，不会“先大后小”缩放
   document.documentElement.style.setProperty('--graph-h', h + 'px')
-  // 筛选条高度：天幕要向上延伸这么多，才能把筛选条那一条也盖住
-  // （筛选条自身透明，两者共用同一层背景 → 上下连续，不会割裂）
-  document.documentElement.style.setProperty('--filter-h', '44px')
 }
 function onWindowResizeGraph() {
   if (viewMode.value === 'graph') syncGraphHeight()
@@ -270,10 +267,9 @@ async function onImportFile(e) {
         <div v-if="viewMode === 'graph'" ref="graphFullEl" class="graph-full">
           <!-- 天幕背景层：站点壁纸 + 深空面纱（无壁纸时退化为纯色，观感不变）。
                尺寸与取景跟 .wallpaper-layer 完全一致，因此全站背景位置/缩放都相同。
-               .graph-sky-cap 单独覆盖筛选条那一条（它是 fixed，会被 .graph-full 的
-               overflow-x: clip 影响不到），避免筛选条露出未压暗的壁纸。 -->
+               它铺满整个视口，顶栏下方的筛选条也在这层之上 —— 筛选条自身透明，
+               于是上下取自同一层背景，不会割裂。 -->
           <div class="graph-sky" aria-hidden="true"></div>
-          <div class="graph-sky-cap" aria-hidden="true"></div>
           <WikiGraphView />
         </div>
 
@@ -494,7 +490,10 @@ async function onImportFile(e) {
      ⚠ 这里**不能**靠"把元素撑高"来覆盖筛选条：
      `cover` 的缩放比是按**元素自身盒子**算的，元素一高就会把壁纸放大
      （撑高 44px → 放大约 5%，缩放浏览器时肉眼很明显）。
-     筛选条那一条由下面的 .graph-sky-cap 单独覆盖。 */
+     本元素铺满整个视口（y 0..100vh），**天然就盖住了筛选条**（筛选条在 y 49..93），
+     不需要再叠一个专门盖筛选条的元素 —— 曾经有个 `.graph-sky-cap` 就是干这个的，
+     但它的 `clip-path` 只保留自身顶部 44px，实际落在 y 0..44，
+     盖的是**顶栏**而不是筛选条，纯属多余且会误导排查。已删除。 */
   position: fixed;
   inset: 0;
   height: 100vh;
@@ -508,29 +507,6 @@ async function onImportFile(e) {
   background-repeat: no-repeat;
 }
 
-/* 筛选条那一条的底：它位于天幕之上、自身透明，
-   若不处理就会露出"未被面纱压过的原始壁纸"，与下方星图区割裂。
-   这里单独铺一小块：**同样的取景表达式、同样的元素高度（100vh）**，
-   只是把这块背景向上平移一个筛选条高度再裁出顶部那条，
-   于是它与天幕、与壁纸图层都是同一张图的同一块裁剪（缩放比也相同，因为盒高都是 100vh）。 */
-.graph-sky-cap {
-  position: fixed;
-  left: 0;
-  right: 0;
-  top: calc(var(--filter-h, 44px) * -1);
-  height: 100vh;
-  z-index: 0;
-  pointer-events: none;
-  background-image:
-    linear-gradient(180deg, var(--graph-veil), var(--graph-veil)),
-    var(--wallpaper-url, none);
-  background-size: cover;
-  background-position: center calc(50% + var(--wp-shift, 0px) - var(--filter-h, 44px));
-  background-repeat: no-repeat;
-  /* 只保留最上面那一条（其余与天幕完全重合，画了也看不见） */
-  clip-path: inset(0 0 calc(100% - var(--filter-h, 44px)) 0);
-}
-
 .graph-full :deep(.wiki-graph) {
   height: 100%;
   min-height: 0;
@@ -540,8 +516,8 @@ async function onImportFile(e) {
   z-index: 1; /* 盖在天幕背景层之上 */
 }
 
-/* 筛选条在拓扑模式下**保持透明**，由天幕从它上面就开始铺（见 .graph-sky 的 --filter-h）。
-   这样上下是**同一层背景**，天然连续，不存在两块壁纸对不齐的问题。
+/* 筛选条在拓扑模式下**保持透明**：天幕铺满整个视口，筛选条正落在天幕之上，
+   于是上下取自**同一层背景**，天然连续，不存在两块壁纸对不齐的问题。
    注意不要给它加 backdrop-filter：那会把壁纸糊掉，与下方清晰的星图区质感不一致。 */
 .graph-full :deep(.filter-bar) {
   flex: 0 0 auto;

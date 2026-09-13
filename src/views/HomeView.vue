@@ -3,19 +3,22 @@
 //
 // 设计目标：像 Wiki 拓扑图那样"活"起来 —— 而不是一张静态卡片列表。
 // 构成：
-//   1) 全屏 canvas 星座背景：带深度的粒子 + 近邻连线 + 鼠标视差 + 指向光标的吸引
-//   2) 主视觉：呼吸光球 + 流动渐变标题 + 公告 + 下滑提示
+//   1) 全屏 canvas 星座背景（ConstellationField）：**按真实星座排布**的星点 + 星座内连线，
+//      外加一层碎星。**没有鼠标交互**（早先版本会让粒子被光标吸引并提亮，视觉上很吵，已去掉），
+//      只有滚动带来的轻微视差与自身的闪烁/极慢自转
+//   2) 主视觉：星座 Logo（HomeLogoMark，星星 + hover 交互）+ 流动渐变标题 + 公告 + 下滑提示
 //   3) 五个功能入口做成"星图节点"：跟手倾角（3D tilt）、指向光标处点亮柔光与描边
 //
 // 性能与可访问性：
-//   - DPR 上限 2；粒子数按视口面积自适应并夹在 [70,190]
+//   - DPR 上限 2；碎星数量按视口面积自适应并夹在 [70,280]；星座个数也按面积定
 //   - prefers-reduced-motion 下只画一帧静态星座，不跑循环
-//   - 标签页不可见 / 卸载时停掉循环；鼠标与滚动都经 rAF 合并
+//   - 标签页不可见 / 卸载时停掉循环
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useAuth } from '../composables/useAuth'
 import { useSettings } from '../composables/useSettings'
 import { getAnnouncement } from '../api/posts'
 import AppIcon from '../components/AppIcon.vue'
+import HomeLogoMark from '../components/HomeLogoMark.vue'
 
 const { isLoggedIn, isInsider } = useAuth()
 const settings = useSettings()
@@ -32,6 +35,9 @@ onMounted(async () => {
 })
 
 // 入口配置：与导航/路由一致（page 用于按身份过滤可见性）
+// 说明文案用猫娘口吻（轻快、随口介绍的感觉），不要写成产品说明书，
+// 也**不要罗列页面的具体功能**（例如"周历/月历/多语言""Markdown/HTML"这类），
+// 只讲这个页面是干嘛的、有什么气氛。控制在两行内，卡片高度才不会被撑开。
 const SECTIONS = [
   {
     to: '/anime',
@@ -40,7 +46,7 @@ const SECTIONS = [
     icon: 'calendar',
     title: 'Anime',
     cn: '新番日历',
-    desc: '当前档期放送时间表，精确到分钟；周历 / 月历 / 列表三种视图，多语言标题与中文简介。',
+    desc: '这周看什么？哪部几点播我都给你排好啦，打开就知道～',
   },
   {
     to: '/blog',
@@ -48,8 +54,8 @@ const SECTIONS = [
     img: '/home/blog.webp',
     icon: 'pen',
     title: 'Blog',
-    cn: '追番笔记',
-    desc: 'Markdown / 所见即所得 / HTML 三种编辑模式，支持插图、标签、置顶公告与全文搜索。',
+    cn: '更新日志',
+    desc: '这个站又改了啥、踩了哪些坑，都会随手记在这儿喵～',
   },
   {
     to: '/wiki',
@@ -57,8 +63,8 @@ const SECTIONS = [
     img: '/home/wiki.webp',
     icon: 'book-open',
     title: 'Wiki',
-    cn: '知识库',
-    desc: 'Markdown 与完整 HTML 文档双形态；旋臂星系拓扑图把条目关系一眼展开。',
+    cn: '笔记',
+    desc: '攒了一堆笔记呢！也能点拓扑图，看它们牵着手转圈圈～',
   },
   {
     to: '/tools',
@@ -67,7 +73,7 @@ const SECTIONS = [
     icon: 'wrench',
     title: 'Tools',
     cn: '工具箱',
-    desc: 'JSON 格式化、二维码解析与 3D 生成、图片裁切拼接、文本对比、HTML 渲染，全部本地处理。',
+    desc: '都是你能用上的小工具，大多在你本机跑，不上传喵～',
   },
   {
     to: '/game',
@@ -76,7 +82,7 @@ const SECTIONS = [
     icon: 'flame',
     title: 'Game',
     cn: '像素地牢',
-    desc: 'Shattered Pixel Dungeon 网页版：随机地牢、职业天赋、装备道具，默认极速无音频模式。',
+    desc: '想下地牢随时来～地图每局都不一样，摸鱼的时候很合适喵。',
   },
 ]
 
@@ -154,16 +160,11 @@ function onCardLeave(e) {
   <div class="home">
     <!-- 主视觉 -->
     <section class="hero">
-      <div class="orb" aria-hidden="true">
-        <span class="orb-core"></span>
-        <span class="orb-ring"></span>
-        <span class="orb-ring r2"></span>
-      </div>
+      <HomeLogoMark />
 
-      <h1 class="site-name">AniHub</h1>
       <p class="tagline">
-        追番日历 · 博客 · Wiki · 工具箱
-        <span class="tagline-sub">记录追番，也记录折腾</span>
+        记东西，顺手折腾点小工具
+        <span class="tagline-sub">记录折腾，也记录踩过的坑</span>
       </p>
 
       <router-link v-if="announcement" :to="`/${announcement.category}/${announcement.slug}`" class="announce">
@@ -184,7 +185,7 @@ function onCardLeave(e) {
       <section ref="stageEl" class="stage">
         <div class="stage-head">
           <span class="stage-line" aria-hidden="true"></span>
-          <span class="stage-label">五个入口</span>
+          <span class="stage-label">今天想看点啥？</span>
           <span class="stage-line" aria-hidden="true"></span>
         </div>
 
@@ -246,94 +247,10 @@ function onCardLeave(e) {
   text-align: center;
 }
 
-/* 呼吸光球 */
-.orb {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 108px;
-  height: 108px;
-  margin-bottom: 4px;
-}
-
-.orb-core {
-  width: 74px;
-  height: 74px;
-  border-radius: 50%;
-  background: radial-gradient(
-    circle at 34% 30%,
-    color-mix(in srgb, var(--accent) 35%, #fff),
-    var(--accent) 62%,
-    color-mix(in srgb, var(--accent) 55%, #000) 100%
-  );
-  box-shadow:
-    0 0 26px color-mix(in srgb, var(--accent) 55%, transparent),
-    0 0 70px color-mix(in srgb, var(--accent) 30%, transparent),
-    inset 0 -6px 16px rgb(0 0 0 / 0.22);
-  animation: orb-breathe 6.5s var(--ease-ios) infinite;
-}
-
-.orb-ring {
-  position: absolute;
-  inset: 8px;
-  border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
-  border-radius: 50%;
-  animation: orb-spin 22s linear infinite;
-}
-
-.orb-ring.r2 {
-  inset: -6px;
-  border-style: dashed;
-  border-color: color-mix(in srgb, var(--accent) 24%, transparent);
-  animation-duration: 34s;
-  animation-direction: reverse;
-}
-
-@keyframes orb-breathe {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.06);
-  }
-}
-
-@keyframes orb-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.site-name {
-  margin: 0;
-  font-size: clamp(46px, 7.4vw, 86px);
-  font-weight: 900;
-  line-height: 1.02;
-  letter-spacing: -0.02em;
-  background: linear-gradient(
-    100deg,
-    var(--accent) 0%,
-    #a78bfa 34%,
-    color-mix(in srgb, var(--accent) 70%, #fff) 62%,
-    var(--accent) 100%
-  );
-  background-size: 260% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: title-flow 9s var(--ease-ios) infinite;
-}
-
-@keyframes title-flow {
-  0%,
-  100% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-}
+/* Logo 已抽成独立组件：src/components/HomeLogoMark.vue
+   （星星为元素、三体运动 + 彗尾 + hover 加速；尺寸/动效/reduced-motion 都在那边）
+   原先 Logo 下面还有一个大号渐变「AniHub」标题 —— 用户反馈太占空间，已去掉；
+   站名在顶栏品牌处已经写过一次了。 */
 
 .tagline {
   display: flex;
@@ -691,16 +608,6 @@ function onCardLeave(e) {
     gap: 14px;
   }
 
-  .orb {
-    width: 86px;
-    height: 86px;
-  }
-
-  .orb-core {
-    width: 58px;
-    height: 58px;
-  }
-
   .announce {
     flex-wrap: wrap;
     justify-content: center;
@@ -724,11 +631,9 @@ function onCardLeave(e) {
   }
 }
 
-/* 用户要求减少动效：停掉循环动画与跟手倾角 */
+/* 用户要求减少动效：停掉循环动画与跟手倾角
+   （Logo 内部的动效由 HomeLogoMark 自己的 reduced-motion 规则接管） */
 @media (prefers-reduced-motion: reduce) {
-  .orb-core,
-  .orb-ring,
-  .site-name,
   .scroll-hint,
   .node {
     animation: none;

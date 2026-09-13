@@ -1,4 +1,4 @@
-﻿<script setup>
+<script setup>
 import { computed } from 'vue'
 import { addDays, dayKey, fmtTime } from '../utils/date'
 import { titleFor } from '../utils/titles'
@@ -215,10 +215,12 @@ function coverOf(mediaId) {
   position: relative;
   z-index: 1;
   flex: 1;
-  padding: 8px;
+  /* 桌面周历是**表格**：col-body 不留内边距、行与行之间也不留空隙，
+     让每一行横向铺满整列、上下紧贴 —— 否则行会像一块块圆角矩形"浮"在列底上 */
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 0;
 }
 
 .row {
@@ -226,30 +228,44 @@ function coverOf(mediaId) {
   align-items: center;
   gap: 9px;
   width: 100%;
-  padding: 8px;
-  border: 1px solid transparent;
-  border-radius: 11px;
-  background: color-mix(in srgb, var(--panel) 70%, transparent);
+  /* 行本身是一整条：左右给图标留点呼吸，上下只留小内边距 */
+  padding: 7px 9px;
+  border: none;
+  /* 行不再自成圆角卡片，而是列里的一段 —— 靠一条细分隔线区分彼此 */
+  border-radius: 0;
+  background: transparent;
   color: var(--text);
   cursor: pointer;
   text-align: left;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.05);
-  transition:
-    transform var(--dur-ios-2) var(--ease-ios-spring),
-    border-color var(--dur-ios-1) var(--ease-ios-expo),
-    background-color var(--dur-ios-1) var(--ease-ios-expo),
-    box-shadow var(--dur-ios-2) var(--ease-ios-expo);
+  box-shadow: none;
+  /* ::before 的分隔线要相对本行定位 */
+  position: relative;
+  transition: background-color var(--dur-ios-1) var(--ease-ios-expo);
+}
+
+/* 行之间用"上边线"而不是下边线：这样最后一行不会多出一条悬空的分隔线。
+   用伪元素而不是 border-top，是为了让它横向铺满整列、不受行内左右内边距影响。 */
+.row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1px;
+  background: var(--border);
+}
+
+.row:first-child::before {
+  display: none;
 }
 
 .row:hover {
-  background: var(--overlay-panel);
-  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
-  box-shadow: 0 8px 20px rgb(0 0 0 / 0.1);
-  transform: translateY(-2px);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  /* hover 只改底色，不再位移/加阴影 —— 表格里的行不该"浮起来" */
 }
 
 .row:active {
-  transform: scale(0.97);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
   transition-duration: 70ms;
   transition-timing-function: var(--ease-ios);
 }
@@ -312,8 +328,8 @@ function coverOf(mediaId) {
 }
 
 .none {
-  margin: auto 0;
-  padding: 28px 0;
+  margin: 0;
+  padding: 24px 0;
   text-align: center;
   font-size: 12px;
   color: var(--muted);

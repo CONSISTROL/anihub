@@ -19,8 +19,8 @@ const settings = useSettings()
 
 const OPTIONS = [
   { key: 'anime', label: 'Anime 日历', desc: '当前档期新番放送时间表' },
-  { key: 'blog', label: 'Blog 博客', desc: '追番笔记与推荐' },
-  { key: 'wiki', label: 'Wiki', desc: '动漫知识库' },
+  { key: 'blog', label: 'Blog 博客', desc: '网站更新日志与随手记' },
+  { key: 'wiki', label: 'Wiki', desc: '笔记' },
   { key: 'tools', label: 'Tools 工具箱', desc: 'JSON 格式化 / 二维码解析 / 图片裁切' },
   { key: 'game', label: 'Game 游戏', desc: 'Shattered Pixel Dungeon 网页版' },
   { key: 'reading', label: 'Reading 在线阅读', desc: '内置电子书阅读；具体哪几本书上架见下方「在线阅读」' },
