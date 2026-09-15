@@ -3,15 +3,18 @@
 //
 // 设计目标：像 Wiki 拓扑图那样"活"起来 —— 而不是一张静态卡片列表。
 // 构成：
-//   1) 全屏 canvas 星座背景（ConstellationField）：**按真实星座排布**的星点 + 星座内连线，
-//      外加一层碎星。**没有鼠标交互**（早先版本会让粒子被光标吸引并提亮，视觉上很吵，已去掉），
-//      只有滚动带来的轻微视差与自身的闪烁/极慢自转
+//   1) 全站壁纸背景（WallpaperLayer，浅色主题下与 anime 等页面完全一致）；
+//      主页**不再**有独立的 canvas 星座背景 —— 用户要求"不显示背景的星座"，
+//      原来那个 ConstellationField（88 星座星点 + 连线）已连同数据文件一起删除
 //   2) 主视觉：星座 Logo（HomeLogoMark，星星 + hover 交互）+ 流动渐变标题 + 公告 + 下滑提示
 //   3) 五个功能入口做成"星图节点"：跟手倾角（3D tilt）、指向光标处点亮柔光与描边
 //
+// ⚠ 主页曾经在浅色主题下整屏深空化（深色 token 覆盖 + 壁纸深色遮罩），
+//   后按用户要求恢复成"和 anime 一样的正常明亮背景"，相关覆盖已全部移除。
+//
 // 性能与可访问性：
-//   - DPR 上限 2；碎星数量按视口面积自适应并夹在 [70,280]；星座个数也按面积定
-//   - prefers-reduced-motion 下只画一帧静态星座，不跑循环
+//   - DPR 上限 2；入口节点按面积自适应
+//   - prefers-reduced-motion 下不跑装饰性动效
 //   - 标签页不可见 / 卸载时停掉循环
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useAuth } from '../composables/useAuth'
@@ -90,16 +93,17 @@ const visibleSections = computed(() =>
   isLoggedIn.value ? SECTIONS : SECTIONS.filter((s) => settings.canAccess(s.page, isInsider.value))
 )
 
-/* 星座背景已抽到 App 层的 ConstellationField.vue。
-   放在 HomeView 里会随路由切换被销毁重建，粒子每次重新随机 ——
-   用户看到的就是"闪一下然后重新绘制"。挂到 App 层常驻即可延续同一片星空。 */
+/* ⚠ 主页原先在 App 层挂了一个常驻的 canvas 星座背景（ConstellationField）——
+   放在 HomeView 里会随路由切换被销毁重建、粒子每次重新随机，
+   所以当初挂在 App 层让同一片星空延续。该功能已按用户要求整体移除
+   （"不显示背景的星座"），组件与 88 星座数据文件都已删除。 */
 
 /* 下滑提示：页面还能继续往下滚时显示 */
 const canScroll = ref(false)
 const stageEl = ref(null)
 let scrollCheckRaf = 0
 
-/** 是否开启了"减少动效"（星座背景已抽到 ConstellationField，这里只用于滚动行为） */
+/** 是否开启了"减少动效"（只用于抑制装饰性动效与滚动行为） */
 function prefersReducedMotion() {
   return (
     typeof window !== 'undefined' &&
@@ -162,10 +166,9 @@ function onCardLeave(e) {
     <section class="hero">
       <HomeLogoMark />
 
-      <p class="tagline">
-        记东西，顺手折腾点小工具
-        <span class="tagline-sub">记录折腾，也记录踩过的坑</span>
-      </p>
+      <!-- 原先两行（"记东西，顺手折腾点小工具" + "记录折腾，也记录踩过的坑"）已合并成一行，
+           后来又按用户要求把后半句去掉，只留前半句。 -->
+      <p class="tagline">记东西，顺手折腾点小工具</p>
 
       <router-link v-if="announcement" :to="`/${announcement.category}/${announcement.slug}`" class="announce">
         <span class="ann-mark"><AppIcon name="megaphone" :size="13" /> 公告</span>
@@ -233,24 +236,14 @@ function onCardLeave(e) {
   min-height: 100vh;
 }
 
-/* 浅色主题下主页的背景**与深色主题一致**（整屏深空底，见 WallpaperLayer 的 .is-home）。
-   ⚠ 背景变深了，文字/面板的配色就必须跟着换成深色主题那一套，
-     否则浅色主题的深色文字（--text #1b2030）落在深底上根本看不见。
-   作用域限定在 .home 内（只覆盖主页自己的内容，顶栏与其它页面不受影响），
-   与 wiki 拓扑页 `.graph-full` 那套"整页深空化"是同一个做法。 */
-:root[data-theme='light'] .home {
-  --bg: #0e1015;
-  --panel: rgb(23 26 34 / 0.72);
-  --panel-2: rgb(29 33 44 / 0.66);
-  --overlay-panel: #171a22;
-  --border: #262b38;
-  --text: #e8eaf0;
-  --text-2: #b6bdcb;
-  --text-faint: #7d8598;
-  --muted: #8b93a7;
-  --accent: #6c8cff;
-  --accent-hover: #7d9aff;
-}
+/* ⚠ 主页**不再**做深空化：浅色主题下与 anime 等页面完全一致（正常明亮背景）。
+   早先这里是 `:root[data-theme='light'] .home { --bg: #0e1015; --text: #e8eaf0; … }`
+   一整套深色 token 覆盖，配合壁纸层的深色遮罩，让两个主题的主页背景看起来一致。
+   用户后来明确要求"浅色模式下主页恢复正常明亮背景"，于是连同 canvas 星座背景一起移除。
+   现在主页直接用浅色主题的全局 token，没有任何页面级覆盖。
+   若日后要恢复深色主页，必须**同时**改三处，缺一处就会出现"文字看不见"或"底色泄露"：
+     ① 本处 token 覆盖　② 壁纸层的深色遮罩（WallpaperLayer.vue 的 data-deep 规则）
+     ③ wikiView.js 的 isDeepRoute 里把 home 加回去（否则 body 底色仍是浅的） */
 
 /* —— 主视觉 —— */
 .hero {
@@ -272,47 +265,86 @@ function onCardLeave(e) {
    站名在顶栏品牌处已经写过一次了。 */
 
 .tagline {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
   margin: 0;
   font-size: 15px;
   color: var(--muted);
 }
 
-.tagline-sub {
-  font-size: 12.5px;
-  color: color-mix(in srgb, var(--muted) 80%, transparent);
-  letter-spacing: 0.08em;
-}
+/* 公告
+   —— 设计取舍 ——
+   原来是「胶囊药丸 + 毛玻璃 + 强调色描边」：圆角 999px、边框带 accent 色，
+   放在居中的 Logo / 一行标语 / 下滑提示之间，像一个孤立的按钮，跟主视觉不搭。
+   改成一枚**克制的横条**：
+     · 圆角从 999px 收到 14px —— 不再像按钮，更像一张"公告纸"
+     · 去掉强调色描边，改成"左边一道 accent 竖条 + 中性细边框"，层次靠留白不靠撞色
+     · 底色沿用同主题的实色感（不透明度过高会与壁纸割裂，这里仍留一点透）
+     · hover 时不整体上移（主视觉里位移很跳），改为**底色与左条同时变亮**，
+       并让箭头右移一小步 —— 动静更收敛
+   ⚠ 别再用 999px 胶囊：那个形状在主视觉里太"UI 组件"了。
 
-/* 公告 */
+   ⚠⚠ 两个已修的渲染问题（用户反馈）：
+   1) **左侧竖条改用 `border-left`，不再用绝对定位的 `::before`**。
+      原来那道 3px 竖条是 `position:absolute; left:0; top:0; bottom:0` 的**矩形**，
+      和 14px 圆角对不上 —— 矩形的直角压在圆角上，左上/左下会露出"方角"。
+      现在写成 `border-left: 3px` + `border-radius`，边框天然沿圆角走，
+      几何上不可能错位（去掉了一个 ::before，也不再需要 overflow:hidden 去裁它）。
+   2) **去掉 `backdrop-filter`**。路由级视图（`.page`）切换时会做 `translateY + scale`，
+      而 `backdrop-filter` 要采样身后内容、在祖先做变换时采样会晚一两帧才稳定 ——
+      表现就是"先透明、随后才变成毛玻璃"。
+      公告条下面就是壁纸，把底色加实一点即可，模糊在这里换不来多少观感。
+      ⚠ 同类隐患：**任何放在路由过渡元素里、又带 backdrop-filter 的小卡片**都可能有这个现象。 */
 .announce {
+  position: relative;
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
-  width: min(720px, 92vw);
-  margin-top: 10px;
-  padding: 11px 18px;
+  width: min(680px, 92vw);
+  margin-top: 14px;
+  /* 左侧 3px 边框已计入，文字内边距相应减 3px，视觉留白与右侧一致 */
+  padding: 11px 16px 11px 15px;
   font-size: 13.5px;
   color: var(--text);
   text-decoration: none;
-  background: color-mix(in srgb, var(--panel) 78%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
-  border-radius: 999px;
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  box-shadow: 0 10px 30px rgb(0 0 0 / 0.12);
+  text-align: left;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  border: 1px solid var(--border);
+  /* 左条：边框沿圆角走，永远与圆角矩形贴合 */
+  border-left: 3px solid var(--accent);
+  border-radius: 14px;
+  box-shadow: 0 8px 26px rgb(0 0 0 / 0.14);
+  overflow: hidden;
   transition:
-    transform var(--dur-ios-2) var(--ease-ios-spring),
+    background-color var(--dur-ios-2) var(--ease-ios-expo),
     border-color var(--dur-ios-2) var(--ease-ios-expo),
     box-shadow var(--dur-ios-2) var(--ease-ios-expo);
 }
 
+/* 一道很淡的高光斜掠：只有 hover 时扫过，给一点"被注意到"的感觉 */
+.announce::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    color-mix(in srgb, var(--accent) 14%, transparent) 50%,
+    transparent 70%
+  );
+  transform: translateX(-120%);
+  transition: transform 900ms var(--ease-ios-expo);
+  pointer-events: none;
+}
+
 .announce:hover {
-  transform: translateY(-2px);
-  border-color: var(--accent);
-  box-shadow: 0 14px 38px color-mix(in srgb, var(--accent) 26%, transparent);
+  background: color-mix(in srgb, var(--panel) 100%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  /* 左条同时提亮（它现在是 border-left，不再有 ::before 的 opacity 可调） */
+  border-left-color: var(--accent-hover);
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.announce:hover::after {
+  transform: translateX(120%);
 }
 
 .ann-mark {
@@ -320,10 +352,13 @@ function onCardLeave(e) {
   align-items: center;
   gap: 4px;
   flex: 0 0 auto;
-  align-self: center;
-  font-size: 12px;
+  padding: 3px 9px;
+  font-size: 11.5px;
   font-weight: 700;
+  letter-spacing: 0.02em;
   color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-radius: 999px;
 }
 
 .ann-title {
@@ -340,7 +375,7 @@ function onCardLeave(e) {
 .ann-summary {
   flex: 0 1 auto;
   min-width: 0;
-  max-width: 34%;
+  max-width: 30%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -350,8 +385,12 @@ function onCardLeave(e) {
 
 .ann-go {
   flex: 0 0 auto;
-  align-self: center;
   color: var(--accent);
+  transition: transform var(--dur-ios-2) var(--ease-ios-spring);
+}
+
+.announce:hover .ann-go {
+  transform: translateX(3px);
 }
 
 /* 下滑提示 */
@@ -627,10 +666,24 @@ function onCardLeave(e) {
     gap: 14px;
   }
 
+  /* 窄屏：公告条改为两行（标记+标题一行，摘要让到下一行），不再用 flex-wrap
+     硬折（那会把"公告"标记单独挤到一行，很难看） */
   .announce {
     flex-wrap: wrap;
-    justify-content: center;
-    border-radius: 18px;
+    row-gap: 4px;
+    padding: 10px 14px 10px 16px;
+  }
+
+  .ann-summary {
+    max-width: 100%;
+    flex-basis: 100%;
+    /* 摘要挪到第二行后，和第二行的箭头对齐得上 */
+    order: 3;
+  }
+
+  .ann-go {
+    order: 2;
+    margin-left: auto;
   }
 
   .stage {

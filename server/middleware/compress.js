@@ -103,6 +103,25 @@ export function compression({ threshold = MAX_BYTES } = {}) {
     function headersAllow() {
       if (req.method === 'HEAD') return false
       if (res.getHeader('Content-Encoding')) return false // 已编码（预压缩文件 / 上游代理）
+      /**
+       * ⚠⚠ 响应头**已经发出**时必须放弃压缩。
+       *
+       * 压缩要做两件必然改头的事：`res.removeHeader('Content-Length')`（改成 chunked）
+       * 与 `res.setHeader('Content-Encoding', ...)`。一旦路由自己调用过 `res.writeHead(...)`，
+       * 头就已经提交到 socket 了，这两个调用都会抛 `ERR_HTTP_HEADERS_SENT`
+       * —— 而且抛在 `res.end()` 的调用栈里，会变成 uncaughtException：
+       * 响应要么 500、要么直接挂住（连接不断开，浏览器一直转圈）。
+       *
+       * 实测触发点：本地 Web 代理（`routes/localWeb.js`）在改写 HTML/JS 后
+       * 用 `res.writeHead(200, headers)` + `res.end(body)` 发送，于是
+       * **每次打开 /local-web/... 页面的子资源（css/js）都会崩一次**，
+       * 表现为「本地 Web 只能打开首页、样式脚本全加载不出来」。
+       *
+       * `res.headersSent` 在 writeHead 之后立刻为 true，用它判断最可靠。
+       * 此时按 `raw` 模式原样透传即可 —— `Content-Length` 是路由自己算好写进去的，
+       * 与正文一致，不需要也不应该再压缩。
+       */
+      if (res.headersSent) return false
       const status = res.statusCode
       if (status === 204 || status === 304 || status === 206) return false
       if (!isCompressible(res.getHeader('Content-Type'))) return false

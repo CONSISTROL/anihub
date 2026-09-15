@@ -23,9 +23,22 @@ import { CONSTELLATIONS88 } from '../data/constellations88'
 // 88 星座真实连线数据（D3-celestial，BSD-3-Clause）
 const props = defineProps({
   on: { type: Boolean, default: false },
+  // 是否显示星座连线（把同一条折线内的相邻星点连起来）。
+  // 默认关闭 —— 星空平时只呈现星点，"星座"是被藏起来的彩蛋：
+  // 在网页内虚拟键盘输入 `Stella` 才会显形（见 composables/uiOverlay.js）。
+  lines: { type: Boolean, default: false },
 })
 
 const canvasEl = ref(null)
+
+// 浅色主题标识：浅色下整层不显示（用户要求）。
+// 主题写在 `:root[data-theme]` 上（在组件根之外，scoped 选择器够不到），
+// 所以这里读属性 + 用 MutationObserver 跟着主题切换走。
+const lightTheme = ref(false)
+let themeMo = null
+function syncLightTheme() {
+  lightTheme.value = document.documentElement.dataset.theme === 'light'
+}
 
 let ctx = null
 let raf = 0
@@ -36,6 +49,11 @@ let cssH = 0
 
 let scrollY = 0
 let scrollSmooth = 0
+
+// 星座连线的显形进度 0→1：输入 `Stella` 后连线**淡入**而不是"啪"地出现。
+// 每帧朝目标值追一点，所以过渡期间必须保证绘制循环在跑（见 tick / lines 的 watch）。
+let lineReveal = 0
+const LINE_REVEAL_STEP = 0.045 // 每帧追赶比例；60fps 下约 0.5s 淡入完成
 
 // 画的星座个数按面积定（大屏多摆几个，小屏少摆）
 const DUST_PER_AREA = 16000 // 每多少 px² 一颗碎星（星座变密后同步加密）
@@ -56,18 +74,18 @@ const reducedMotion =
     : null
 
 // —— 配色 ——
-// 两个考虑：
-//  1) 浅色主题下壁纸更淡，星座要压得住 → 用更实的深蓝 + 更高的基础不透明度
-//  2) **浅色主题的主页背景与深色主题一致**（整屏深空底），所以主页必须用**深色那套配色**，
-//     否则深蓝的星点落在深底上就看不见了。
-//     WallpaperLayer 在"浅色 + 主页"时会写 `html.dataset.homeDeep = '1'` 作为标记。
+// 浅色主题下壁纸更淡，星座用更实的深蓝 + 更高的基础不透明度才压得住。
+//
+// ⚠ 主页**不再**把浅色主题整屏改成深空底（用户要求），所以"主页要借用深色配色"
+//   这件事已经不存在 —— 配色现在**只由 `data-theme` 决定**。
+//   浅色主题下这层 canvas 在主页直接不显示（见 App.vue 的 `.theme-hide-light`），
+//   因此浅色分支实际只在"主题切换的中间态"可能被用到，保留它没有害处。
 function darkPalette() {
   return { dot: '198, 216, 255', line: '150, 180, 245', glow: '130, 165, 255', dotA: 0.92, lineA: 0.6 }
 }
 function palette() {
-  const root = document.documentElement
-  const light = root.dataset.theme === 'light'
-  return light && root.dataset.homeDeep !== '1'
+  const light = document.documentElement.dataset.theme === 'light'
+  return light
     ? { dot: '46, 86, 220', line: '58, 96, 210', glow: '58, 96, 210', dotA: 0.72, lineA: 0.48 }
     : darkPalette()
 }
@@ -239,22 +257,31 @@ function draw(t) {
   // 1) 星座内部连线（只连同一条折线内的相邻点，不是"近邻全连"）
   // 线宽比 6 星座时代粗一点：88 星座总共只有 150 段（每个星座平均不到 2 段），
   // 单段太细的话整片星空看起来是散的
-  ctx.lineWidth = 1.45
-  for (let i = 0; i < items.length; i++) {
-    const it = items[i]
-    if (!it.links.length) continue
-    const [ax, ay] = pos[i]
-    for (const j of it.links) {
-      if (j <= i) continue
-      const [bx, by] = pos[j]
-      const d = Math.hypot(ax - bx, ay - by)
-      // 太长的不画（自转/呼吸把距离拉开时避免出现横跨屏幕的怪线）
-      if (d > linkDist * 3.2) continue
-      ctx.strokeStyle = `rgba(${p.line}, ${p.lineA.toFixed(3)})`
-      ctx.beginPath()
-      ctx.moveTo(ax, ay)
-      ctx.lineTo(bx, by)
-      ctx.stroke()
+  // ⚠ 只在 `lines` 为真（输入过 Stella）时画；显形进度 lineReveal 控制淡入淡出。
+  if (lineReveal > 0.004) {
+    ctx.lineWidth = 1.45
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i]
+      if (!it.links.length) continue
+      const [bx, by] = pos[i]
+      /* ⚠⚠ 连线索引是**反向**的：`links` 里存的是"本折线内的**上一个**点"
+         （见 layoutConstellations：`links: prevIdx >= 0 ? [prevIdx] : []`，且 `prevIdx = j > 0 ? items.length - 1 : -1`）。
+         所以要从 `links[j]` 画到 `i`，**不能**再加 `if (j <= i) continue` ——
+         那条过滤会把**每一对都丢掉**（上一个点的下标恒小于当前点），
+         结果是连线从来就没画出来过（`lineReveal` 已是 1、实际描边数却是 0）。
+         现在每个点只从"自己的上一个点"连一次，天然去重，无需再判重。 */
+      for (const j of it.links) {
+        if (j < 0 || j >= items.length) continue
+        const [ax, ay] = pos[j]
+        const d = Math.hypot(ax - bx, ay - by)
+        // 太长的不画（自转/呼吸把距离拉开时避免出现横跨屏幕的怪线）
+        if (d > linkDist * 3.2) continue
+        ctx.strokeStyle = `rgba(${p.line}, ${(p.lineA * lineReveal).toFixed(3)})`
+        ctx.beginPath()
+        ctx.moveTo(ax, ay)
+        ctx.lineTo(bx, by)
+        ctx.stroke()
+      }
     }
   }
 
@@ -289,6 +316,12 @@ function tick(t) {
   // 只推进闪烁相位：位置完全由 place() 按时间算出，星座形状不会漂散
   for (const it of items) it.tw += it.drift
   scrollSmooth += (scrollY - scrollSmooth) * 0.12
+  // 星座连线的显形进度：朝目标值追一点，追上就停在目标值
+  const lineTarget = props.lines ? 1 : 0
+  if (lineReveal !== lineTarget) {
+    lineReveal += (lineTarget - lineReveal) * LINE_REVEAL_STEP
+    if (Math.abs(lineTarget - lineReveal) < 0.004) lineReveal = lineTarget
+  }
   draw(t)
 }
 
@@ -312,6 +345,24 @@ function onScroll() {
 }
 
 // 主页显示状态变化：进入主页立刻补一帧再启动循环，离开则停循环（画面保留在画布上）
+// 星座连线显形/收起：必须保证有帧在画，否则改了 lineReveal 也看不见。
+// ⚠ 两种情况循环本来不在跑，都得兜住：
+//   1) `prefers-reduced-motion` —— start() 会直接 return，此时只补一帧静态画面
+//      （不做淡入，直接到位，符合"减少动效"的意图）；
+//   2) 不在主页（`on` 为 false）—— 等进入主页时由 on 的 watch 统一补帧。
+watch(
+  () => props.lines,
+  (on) => {
+    if (reducedMotion?.matches) {
+      lineReveal = on ? 1 : 0
+      draw(performance.now())
+      return
+    }
+    if (!props.on) return
+    start() // 已在跑则无副作用；否则启动循环推进淡入
+  }
+)
+
 watch(
   () => props.on,
   (on) => {
@@ -326,6 +377,11 @@ watch(
 )
 
 onMounted(() => {
+  syncLightTheme() // 浅色主题下整层隐藏，见 .light-off
+  if (typeof MutationObserver !== 'undefined') {
+    themeMo = new MutationObserver(() => syncLightTheme())
+    themeMo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+  }
   resize()
   if (reducedMotion?.matches) draw(0) // 尊重"减少动效"：只画一帧静态星座
   else start()
@@ -342,6 +398,8 @@ onUnmounted(() => {
   stop()
   ro?.disconnect()
   ro = null
+  themeMo?.disconnect()
+  themeMo = null
   window.removeEventListener('scroll', onScroll)
   window.removeEventListener('resize', resize)
   document.removeEventListener('visibilitychange', onVisibility)
@@ -350,7 +408,7 @@ onUnmounted(() => {
 
 <template>
   <!-- 常驻画布：只用 .on 控制显隐，绝不销毁重建（否则粒子会重新随机 → 看起来像闪一下重绘） -->
-  <div class="constellation" :class="{ on }" aria-hidden="true">
+  <div class="constellation" :class="{ on, 'light-off': lightTheme }" aria-hidden="true">
     <canvas ref="canvasEl" class="starfield"></canvas>
     <div class="aura"></div>
   </div>
@@ -369,6 +427,18 @@ onUnmounted(() => {
 
 .constellation.on {
   opacity: 1;
+}
+
+/* ⚠ 浅色主题下**整层隐藏**（用户要求"浅色模式不显示背景的星座，深色模式还是和之前一样"）。
+   用 CSS 隐藏而不是条件挂载（`v-if`）：这层 canvas 的星点位置/闪烁相位是**常驻**的，
+   一销毁重建就会重新随机 —— 表现为"切回来闪一下、星空换了一片"。
+   只把不透明度压到 0 即可：既看不见，又不丢状态，主题切回来还是原来那片星空。
+   主题标记在 `:root[data-theme]` 上（组件根之外、scoped 选择不到），
+   所以这个类由 JS 按主题切换，见下面的 lightTheme 计算与 MutationObserver。 */
+.constellation.light-off {
+  opacity: 0;
+  /* 主题是"立刻"切换的，不该跟着走 380ms 的进出主页淡入 */
+  transition: none;
 }
 
 .starfield {

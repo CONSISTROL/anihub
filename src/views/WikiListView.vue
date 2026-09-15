@@ -12,6 +12,13 @@ import AppIcon from '../components/AppIcon.vue'
 import { useAuth } from '../composables/useAuth'
 import { immersiveView } from '../composables/uiOverlay'
 import { exportWikiZip, importWikiZip } from '../api/posts'
+import {
+  WIKI_VIEW_STORAGE_KEY,
+  readStoredWikiView,
+  writeStoredWikiView,
+  resolveWikiView,
+  prefetchWikiGraph,
+} from '../wikiView'
 
 // 拓扑图组件（three.js 星系渲染）只在切到“拓扑图”时下载/解析。
 // three.js 分包接近 200KB（gzip 后约 130KB），首次进入需要等待，
@@ -33,19 +40,11 @@ const WikiGraphView = defineAsyncComponent({
 
 const route = useRoute()
 const router = useRouter()
-const STORAGE_KEY = 'anihub.wiki-view'
+const STORAGE_KEY = WIKI_VIEW_STORAGE_KEY
 
-function readStored() {
-  try { return localStorage.getItem(STORAGE_KEY) } catch { return null }
-}
-function writeStored(view) {
-  try { localStorage.setItem(STORAGE_KEY, view) } catch {}
-}
-function resolveInitialView() {
-  const q = route.query.view
-  if (q === 'graph' || q === 'list') return q
-  return readStored() === 'graph' ? 'graph' : 'list'
-}
+const readStored = readStoredWikiView
+const writeStored = writeStoredWikiView
+const resolveInitialView = resolveWikiView
 
 const viewMode = ref(resolveInitialView())
 // 每次从拓扑图切回列表时 +1，强制重建列表组件
@@ -74,9 +73,25 @@ function setMode(mode) {
   router.replace({ query })
 }
 
+// 悬停 / 聚焦「拓扑图」按钮就把 three.js 那个 527KB 的分包与拓扑图数据预先拉起来
+// （幂等、慢网自动跳过，见 wikiView.js 的 prefetchWikiGraph）。
+// ⚠ 刻意**不**在列表页空闲时预取：只看列表的访客不该平白多下 130KB（gzip）。
+function onGraphHint() {
+  prefetchWikiGraph()
+}
+
+// 天幕的挂载时序说明：
+// `.graph-sky` 随 `v-if` 挂载，但它**不需要自己再设一层 opacity 淡入** ——
+// 它的父级 `.view-body` 已经由 `<Transition name="view">` 做了 0 → 1 的淡入
+// （`.view-enter-from { opacity: 0 }` + `.view-enter-active { transition: opacity 260ms }`），
+// 天幕作为子元素自然跟着淡入。
+// ⚠ 曾在这里额外加过一层 `.graph-sky { opacity: 0 }` + `is-in` 类：不但多余，
+//   而且实测**加类与元素挂载落在同一帧**（逐帧记录：元素首次出现时 class 已是
+//   `graph-sky is-in`、opacity 已是 1），过渡根本不播 —— 白写一层。
+//   结论：淡入交给父级的 view 过渡，天幕自己只管铺满与终色。
+
 // 拓扑图是“沉浸式整页视图”：置位全局标志，让回到底部/回到顶部等
 // 文档滚动辅助按钮隐藏（拓扑页本身不可滚，出现即无意义）。
-//
 // 注意：导航栏**不再**依赖这个标志 —— 它直接从路由推导深空态。
 // 原因是导航栏位于路由视图之外，用这种副作用标志容易出现不同步
 // （曾出现：从拓扑图直接点导航去别的页面后，导航栏一直是深色）。
@@ -110,7 +125,18 @@ function applyGraphLock(on) {
   const html = document.documentElement
   html.style.colorScheme = on ? 'dark' : ''
 }
+// —— 离场守卫 ——
+// 组件被卸载时（从拓扑页切到别的页面），下面这几个"按导航栏底部算高度"的逻辑
+// 还会再跑一次，而此时离场过渡已经给旧视图加了 `translateY`，
+// `nav.getBoundingClientRect().bottom` 落在一个"过渡中"的位置上，
+// 于是算出的高度会跳变，把天幕图层（.graph-sky）整层上/下平移一截 ——
+// 实测 `sky` 从 `0..748` 瞬间变成 `49..797`，露出的那一条正是**筛选条那几行**，
+// 表现就是"离开拓扑页时背景前几行发亮、一闪而过"。
+// 视图马上要没了，重算毫无意义，所以卸载起就整段停掉。
+let unmounting = false
+
 function syncGraphHeight() {
+  if (unmounting) return
   if (viewMode.value !== 'graph') return
   const nav = document.querySelector('.navbar')
   const top = nav ? Math.ceil(nav.getBoundingClientRect().bottom) : 0
@@ -119,49 +145,24 @@ function syncGraphHeight() {
   document.documentElement.style.setProperty('--graph-h', h + 'px')
 }
 function onWindowResizeGraph() {
+  if (unmounting) return
   if (viewMode.value === 'graph') syncGraphHeight()
 }
 
-// 背景色淡入淡出（列表透明 ↔ 拓扑底色）。无论从哪个入口进入/切到拓扑图都会播放：
-// 先置透明 → 下一帧再写入目标色，让 CSS transition 真正产生过渡。
+// 背景色（列表透明 ↔ 拓扑底色）。
+// ⚠ **不做淡入淡出**：直接写入目标色。用户明确要求去掉"列表 → 拓扑图"的背景淡入效果。
+//   早先的实现是"先置 transparent → 下一帧写目标色 + 挂 .bg-fading 过渡类 → 300ms 后摘类"，
+//   那套时序既脆又难对齐（内容淡入 260ms、背景 300ms、还得用定时器收尾），
+//   实测观感就是"背景单独拖一条尾巴、衔接不自然"。现在没有过渡，写入即生效。
 const wikiViewEl = ref(null)
-let bgRaf = 0
-// 淡入淡出用的过渡类：只在切换动画期间挂上，避免根元素常驻 transition 拖慢路由离场
-const pageBgFading = ref(false)
-let bgFadeTimer = 0
-function setPageBg(mode, animate) {
+function setPageBg(mode) {
   const el = wikiViewEl.value
   if (!el) return
-  cancelAnimationFrame(bgRaf)
-  clearTimeout(bgFadeTimer)
-  if (mode === 'list') {
-    pageBgFading.value = false
-    el.style.backgroundColor = 'transparent'
-    return
-  }
-  const apply = () => {
-    el.style.backgroundColor = GRAPH_VEIL
-  }
-  if (!animate) {
-    pageBgFading.value = false
-    apply()
-    return
-  }
-  // 先挂过渡类，令写入的颜色产生过渡
-  pageBgFading.value = true
-  el.style.backgroundColor = 'transparent'
-  void el.offsetWidth // 强制重排，确保从透明开始过渡
-  bgRaf = requestAnimationFrame(() => {
-    bgRaf = requestAnimationFrame(apply)
-  })
-  // 过渡结束后摘掉，根元素恢复"无 transition"
-  bgFadeTimer = setTimeout(() => {
-    pageBgFading.value = false
-  }, 420)
+  el.style.backgroundColor = mode === 'graph' ? GRAPH_VEIL : 'transparent'
 }
 
 watch(viewMode, (v) => {
-  setPageBg(v, true)
+  setPageBg(v)
   applyGraphLock(v === 'graph')
   syncImmersive()
   if (v === 'graph') {
@@ -177,8 +178,8 @@ function onViewEnter() {
   requestAnimationFrame(() => requestAnimationFrame(syncGraphHeight))
 }
 onMounted(() => {
-  // 直接进入拓扑页（其它页面导航过来 / 刷新 / 分享链接）也要有背景淡入
-  setPageBg(viewMode.value, viewMode.value === 'graph')
+  // 直接进入拓扑页（其它页面导航过来 / 刷新 / 分享链接）：立刻写入底色，不做过渡
+  setPageBg(viewMode.value)
   applyGraphLock(viewMode.value === 'graph')
   syncImmersive()
   if (viewMode.value === 'graph') {
@@ -188,8 +189,10 @@ onMounted(() => {
   }
 })
 onBeforeUnmount(() => {
-  cancelAnimationFrame(bgRaf)
-  clearTimeout(bgFadeTimer)
+  // ⚠ 第一件事就把守卫立起来：下面的 rAF（onViewEnter / watch 里排的那两个）
+  // 会在卸载之后才执行，不拦住的话它们会拿"过渡中"的导航栏位置重算天幕高度，
+  // 把 .graph-sky 整层平移一截，离场时顶部几行就会亮一下（见 syncGraphHeight 注释）
+  unmounting = true
   window.removeEventListener('resize', onWindowResizeGraph)
   applyGraphLock(false)
   // 显式清除（不能用 syncImmersive() 按 viewMode 重新推导：卸载时 viewMode 仍是 graph）
@@ -259,7 +262,7 @@ async function onImportFile(e) {
 </script>
 
 <template>
-  <div ref="wikiViewEl" class="wiki-view" :class="{ 'bg-fading': pageBgFading }">
+  <div ref="wikiViewEl" class="wiki-view">
     <!-- 视图内容（淡出 → 进入，带轻微上移/缩放） -->
     <Transition name="view" mode="out-in" @after-enter="onViewEnter">
       <div :key="viewMode" :class="['view-body', viewMode]">
@@ -324,6 +327,8 @@ async function onImportFile(e) {
         role="tab"
         :aria-selected="viewMode === 'graph'"
         :class="{ on: viewMode === 'graph' }"
+        @pointerenter="onGraphHint"
+        @focus="onGraphHint"
         @click="setMode('graph')"
       >
         拓扑图
@@ -334,22 +339,19 @@ async function onImportFile(e) {
 
 <style scoped>
 /* 页面容器：切换按钮用相对定位挂在其右上角（导航条下方的 page 区域内）。
-   背景色（透明 ↔ 拓扑底色）由 JS 控制淡入淡出，见 setPageBg()。
+   背景色（透明 ↔ 拓扑底色）由 JS 直接写入，见 setPageBg()。
 
-   注意：淡入淡出用的 transition **只在真正切换的那一刻挂上**（.bg-fading），
-   不能常驻。原因是路由切换用的 <Transition name="page" mode="out-in"> 会读取
-   **离场元素自身**的 transition 属性取最长时长作为离场时间：
-   .wiki-view 上常驻 background-color(380ms) 会让"wiki → 其它页面"的离场
-   被拖到 ~400ms（对照：tools → blog 只要 ~180ms），表现为切到目标页时卡一下。
-   把 transition 收进 .bg-fading 后，平时根元素没有 transition，离场按 150ms 正常结算。 */
+   ⚠ **这里刻意没有任何 transition**（用户要求去掉"列表 → 拓扑图"的背景淡入）。
+   曾经有过一版 `.bg-fading { transition: background-color 300ms }`，只在切换瞬间挂类、
+   300ms 后用定时器摘掉。那套之所以要这么绕，是因为路由切换用的
+   `<Transition name="page" mode="out-in">` 会读取**离场元素自身**的 transition 属性作为离场时长：
+   根元素上常驻 background-color(380ms) 会把"wiki → 其它页面"的离场拖到 ~400ms
+   （对照：tools → blog 只要 ~180ms），表现为切到目标页时卡一下。
+   现在直接写入颜色、没有过渡，上面这些时序问题一并消失。 */
 .wiki-view {
   position: relative;
   min-height: 60vh;
   background-color: transparent;
-}
-
-.wiki-view.bg-fading {
-  transition: background-color var(--dur-ios-3) var(--ease-ios-expo);
 }
 
 /* —— 视图切换过渡：纯淡入淡出，不做位移/缩放，避免背景抖动 —— */
@@ -408,6 +410,21 @@ async function onImportFile(e) {
 
 .view-float button:hover {
   color: var(--text);
+}
+
+/* ⚠⚠ 拓扑页离场时**必须去掉 transform**（只留 opacity）。
+   原因：`.graph-sky` 是 `position: fixed; inset: 0`，而**带 transform 的元素会成为
+   fixed 后代的包含块**。路由离场过渡（`.page-leave-active`）会给本视图加
+   `translateY(-8px) scale(0.996)`，于是天幕的"视口"变成"本视图的盒子" ——
+   实测天幕 rect 从 `[0,748]`（铺满视口）跳到 `[49,797]`，**把 y 49~93 那一条让了出来**，
+   露出的正是未压暗的壁纸：表现就是"离开拓扑页时背景前几行发亮、一闪而过"。
+   这里把拓扑图的离场过渡限定为纯 opacity —— 少了一点上移位移（肉眼几乎看不出），
+   换来天幕在离场全程稳稳铺住视口。 */
+.wiki-view.page-leave-active {
+  transition: opacity var(--dur-ios-1) var(--ease-ios);
+}
+.wiki-view.page-leave-to {
+  transform: none;
 }
 
 .view-float button.on {
@@ -505,6 +522,13 @@ async function onImportFile(e) {
   background-size: cover;
   background-position: center calc(50% + var(--wp-shift, 0px));
   background-repeat: no-repeat;
+  /* ⚠ 这里**不要**再给天幕单独加一层 opacity 淡入 —— 它已经跟着父级淡入了：
+     天幕的父级是 `.view-body`，而 `<Transition name="view">` 对 `.view-body` 做了
+     `opacity 0 → 1`（260ms），天幕作为子元素自然跟着淡入。
+     我曾在这里额外写 `opacity: 0` + `.is-in` 类做二次淡入，实测**加类与元素挂载落在同一帧**
+     （逐帧记录：元素首次出现时 class 已是 `graph-sky is-in`、opacity 已是 1），过渡根本不播。
+     真正要保证的是**终色一致**：`.wiki-view` 过渡到的 GRAPH_VEIL 与这里的 --graph-veil 同值，
+     天幕盖上来时才没有亮度台阶。 */
 }
 
 .graph-full :deep(.wiki-graph) {

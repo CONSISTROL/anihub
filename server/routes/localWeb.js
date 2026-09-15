@@ -281,10 +281,38 @@ function localWebAuth(req, res, next) {
   next()
 }
 
+/**
+ * 转发给上游的请求头。逐跳头必须去掉（交给 Node 管理本连接）。
+ *
+ * ⚠⚠ `Cookie` 这里**不能整个删掉**，否则任何"用自家 Cookie 做会话"的本地服务都登不上。
+ * 典型症状：上游第一次回 303 并 `Set-Cookie`，代理把它改写成前缀内的 Path、
+ * 浏览器也老老实实带回来了，但代理转发时把整个 `Cookie` 丢掉 →
+ * 上游收不到自己的会话 Cookie，继续回 401（表现为"这个页面死活打不开，
+ * 而别的本地服务却正常"）。
+ * 正确做法：只剔掉**代理自己**那个会话 Cookie（`anihub_local_web`，路径在 /local-web 下），
+ * 其余原样转发给上游。
+ */
+function upstreamCookieHeader(cookieHeader) {
+  if (!cookieHeader) return null
+  const kept = String(cookieHeader)
+    .split(';')
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .filter((p) => {
+      const eq = p.indexOf('=')
+      const name = eq < 0 ? p : p.slice(0, eq).trim()
+      return name !== COOKIE_NAME
+    })
+  return kept.length ? kept.join('; ') : null
+}
+
 function hopByHopHeaders(headers) {
   const out = { ...headers }
   delete out.host
-  delete out.cookie
+  // Cookie 单独处理：只去掉代理自己的会话 Cookie，其余转发给上游（见 upstreamCookieHeader）
+  const cookie = upstreamCookieHeader(headers.cookie)
+  if (cookie) out.cookie = cookie
+  else delete out.cookie
   delete out.authorization
   delete out.connection
   delete out['proxy-connection']
@@ -436,6 +464,17 @@ function handleProxy(req, res) {
   if (req.headers['referer']) headers.referer = req.headers.referer
   if (req.headers.origin) headers.origin = req.headers.origin
   if (req.headers['x-requested-with']) headers['x-requested-with'] = req.headers['x-requested-with']
+  /* ⚠⚠ 必须向上游声明 `Accept-Encoding: identity`。
+     否则浏览器会把自己的 `accept-encoding: gzip, deflate` 透传给上游，上游就可能回
+     **gzip 压缩体**；而 HTML/JS 的路径改写是**按文本做的**（`<base>` 注入、
+     `/api` → 前缀改写），拿到压缩字节就完全改不动 —— 只能原样透传。
+     后果：目标页面里的 `/plugins/...`、`/assets/...` 等绝对路径不会被加前缀，
+     浏览器会去**主站**根路径取这些资源，拿到 HTML 而不是 JS，
+     控制台报 `SyntaxError: Unexpected token '<'`，页面空白。
+     实测：`http://127.0.0.1:3080/` 直连响应 `content-encoding: gzip` + `transfer-encoding: chunked`，
+     加上这条之后上游回明文，改写才真正生效。
+     代价可忽略：这是本机回环代理，不压缩反而省 CPU。 */
+  headers['accept-encoding'] = 'identity'
 
   const upstream = http.request(target, { method: req.method, headers }, (upRes) => {
     const responseHeaders = { ...upRes.headers }
@@ -457,17 +496,37 @@ function handleProxy(req, res) {
 
     const contentType = String(upRes.headers['content-type'] || '')
     const declaredLen = Number(upRes.headers['content-length'])
-    const canRewriteHtml =
-      upRes.statusCode === 200 &&
-      /text\/html/i.test(contentType) &&
-      Number.isFinite(declaredLen) &&
-      declaredLen > 0 &&
-      declaredLen <= HTML_REWRITE_LIMIT
+    /* ⚠ 改写条件**不能要求 `content-length`**。
+       上游常用 `transfer-encoding: chunked`（没有 content-length），
+       老条件 `Number.isFinite(declaredLen) && declaredLen > 0` 会直接判否 →
+       HTML/JS 原样透传、`<base>` 不注入、路径不改写（这正是"页面打开是空白、
+       控制台报 `Unexpected token '<'`"的原因之一）。
+       现在：有 length 就按 length 预判，没有就**先收下来**、在累积过程中用
+       `HTML_REWRITE_LIMIT` 兜住内存（超限立即改为直通，不再缓存）。 */
+    const lenOk = (n) => !Number.isFinite(n) || n <= HTML_REWRITE_LIMIT
+    const canRewriteHtml = upRes.statusCode === 200 && /text\/html/i.test(contentType) && lenOk(declaredLen)
 
     if (canRewriteHtml) {
       const chunks = []
-      upRes.on('data', (c) => chunks.push(c))
+      let bytes = 0
+      let overflowed = false
+      upRes.on('data', (c) => {
+        bytes += c.length
+        if (bytes > HTML_REWRITE_LIMIT) {
+          // 超限：把已收的先写出去，剩下直通（避免为超大页面占内存）
+          if (!overflowed) {
+            overflowed = true
+            res.writeHead(upRes.statusCode || 200, responseHeaders)
+            for (const b of chunks) res.write(b)
+            chunks.length = 0
+          }
+          res.write(c)
+          return
+        }
+        chunks.push(c)
+      })
       upRes.on('end', () => {
+        if (overflowed) return res.end()
         let body = Buffer.concat(chunks).toString('utf8')
         body = rewriteLocalHtml(body, endpoint)
         delete responseHeaders['content-length']
@@ -478,17 +537,29 @@ function handleProxy(req, res) {
       return
     }
 
-    const canRewriteJs =
-      upRes.statusCode === 200 &&
-      /javascript/i.test(contentType) &&
-      Number.isFinite(declaredLen) &&
-      declaredLen > 0 &&
-      declaredLen <= HTML_REWRITE_LIMIT
+    const canRewriteJs = upRes.statusCode === 200 && /javascript/i.test(contentType) && lenOk(declaredLen)
 
     if (canRewriteJs) {
       const chunks = []
-      upRes.on('data', (c) => chunks.push(c))
+      let bytes = 0
+      let overflowed = false
+      upRes.on('data', (c) => {
+        bytes += c.length
+        if (bytes > HTML_REWRITE_LIMIT) {
+          // 与 HTML 分支同理：超限就改成直通，避免为超大 JS 占内存
+          if (!overflowed) {
+            overflowed = true
+            res.writeHead(upRes.statusCode || 200, responseHeaders)
+            for (const b of chunks) res.write(b)
+            chunks.length = 0
+          }
+          res.write(c)
+          return
+        }
+        chunks.push(c)
+      })
       upRes.on('end', () => {
+        if (overflowed) return res.end()
         let body = Buffer.concat(chunks).toString('utf8')
         body = rewriteLocalJavaScript(body, endpoint)
         delete responseHeaders['content-length']

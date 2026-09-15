@@ -786,7 +786,12 @@ if (route.query.id) selectedId.value = Number(route.query.id)
   }
 }
 
-/* —— 日历导航栏：iOS 风格毛玻璃工具条 —— */
+/* —— 日历导航栏 ——
+   ⚠ 曾经是"毛玻璃工具条"（`backdrop-filter: blur(12px)`）。已去掉模糊，原因：
+   `month-bar` 带 `ios-rise-in` 入场动画（延迟 140ms），而 `backdrop-filter`
+   要采样身后内容 —— 元素自身/祖先在做变换动画的头几帧，采样不稳定，
+   表现就是用户看到的"先透明、随后才变成毛玻璃"。
+   它下面就是壁纸，把底色加实到 92% 即可，模糊在这里换不来多少观感。 */
 .month-bar {
   position: relative;
   z-index: 45; /* 让日期选择浮层浮在其他日历内容之上 */
@@ -796,10 +801,9 @@ if (route.query.id) selectedId.value = Number(route.query.id)
   flex-wrap: wrap;
   padding: 7px 10px;
   margin-bottom: 12px;
-  background: color-mix(in srgb, var(--panel) 72%, transparent);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
   border: 1px solid var(--border);
   border-radius: 14px;
-  backdrop-filter: blur(12px);
   box-shadow: 0 4px 18px rgb(0 0 0 / 0.05);
 }
 
@@ -1065,13 +1069,14 @@ if (route.query.id) selectedId.value = Number(route.query.id)
   z-index: 120;
   width: min(292px, 90vw);
   padding: 10px;
-  background: color-mix(in srgb, var(--overlay-panel) 94%, transparent);
+  background: var(--overlay-panel);
   border: 1px solid var(--border);
   border-radius: 18px;
   box-shadow:
     0 24px 64px rgb(0 0 0 / 0.3),
     0 4px 14px rgb(0 0 0 / 0.12);
-  backdrop-filter: blur(18px);
+  /* 同上：浮层也有入场动画，用实底而不是 backdrop-filter，
+     避免"先透明、后变毛玻璃"的闪动。 */
   transform-origin: top right;
   font-variant-numeric: tabular-nums;
 }

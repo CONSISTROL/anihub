@@ -1,7 +1,7 @@
 <script setup>
 // 网页内虚拟键盘（精简版）：
 // - 数字、字母、空格、回车、Backspace、清空
-// - 普通页面：输入到命令缓冲区，Enter 提交 login / inside
+// - 普通页面：输入到命令缓冲区，Enter 提交 login / inside / stella
 // - 游戏页面：按键直接发送到游戏 iframe，WASD 对应上下左右，A/B 可输作弊码
 // - 电脑端物理按键会同步高亮对应的虚拟键
 import { computed, onMounted, onUnmounted, ref } from 'vue'
@@ -10,7 +10,7 @@ import AppIcon from './AppIcon.vue'
 
 defineOptions({ name: 'VirtualKeyboard' })
 
-const emit = defineEmits(['close', 'login', 'inside'])
+const emit = defineEmits(['close', 'login', 'inside', 'stella'])
 const route = useRoute()
 
 const isGame = computed(() => route.name === 'game')
@@ -45,6 +45,8 @@ function submitCommand() {
   buffer.value = ''
   if (cmd === 'login') emit('login')
   else if (cmd === 'inside') emit('inside')
+  // 彩蛋：星座连线显形（见 composables/uiOverlay.js）
+  else if (cmd === 'stella') emit('stella')
 }
 
 function pressCommand(k) {
@@ -223,7 +225,14 @@ onUnmounted(() => {
 
 .vk-panel {
   width: 100%;
-  max-width: none;
+  /* ⚠⚠ **必须限制最大宽度**：面板原来是 `width: 100%` + `max-width: none`，
+     而按键用 `flex: 1 1 0` / `repeat(10, 1fr)` 平分整行 ——
+     于是面板宽度直接等于视口宽度，在 2K/4K 屏上单个按键会被拉到几百像素宽
+     （2560px 视口下数字键约 253px、字母键约 232px），完全不像键盘。
+     这里压到 680px：数字键约 60px、字母键约 48px，是正常键盘比例；
+     窄屏（< 680px）时 `width: 100%` 仍然生效，手机端不受影响。
+     `.vk-mask` 是 `justify-content: center`，所以面板会自动居中。 */
+  max-width: 680px;
   background: var(--overlay-panel);
   border: 1px solid var(--border);
   border-bottom: none;

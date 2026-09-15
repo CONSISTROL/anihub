@@ -8,6 +8,7 @@ import { useRouter } from 'vue-router'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { listPosts } from '../api/posts'
+import { takePrefetchedWikiGraphData } from '../wikiView'
 
 const router = useRouter()
 
@@ -142,6 +143,10 @@ function nodeLocalPos(nd) {
 // ================= 场景 =================
 function initScene() {
   if (renderer || !hostEl.value) return
+  const __t = () => performance.now()
+  const __marks = {}
+  let __last = __t()
+  const __mark = (k) => { const n = __t(); __marks[k] = +(n - __last).toFixed(1); __last = n }
   scene = new THREE.Scene()
   camera = new THREE.PerspectiveCamera(50, 1, 1, 6000)
   try {
@@ -150,6 +155,7 @@ function initScene() {
     error.value = '当前环境不支持 WebGL，无法显示星系拓扑'
     return
   }
+  __mark('newRenderer')
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
   renderer.setClearColor(0x000000, 0)
   hostEl.value.appendChild(renderer.domElement)
@@ -162,20 +168,29 @@ function initScene() {
   controls.minDistance = 110
   controls.maxDistance = 2200
   controls.update()
+  __mark('controls')
 
   makeBackgroundStars()
+  __mark('bgStars')
   galaxy = new THREE.Group()
   scene.add(galaxy)
   isoGroup = new THREE.Group()
   scene.add(isoGroup)
   makeCenter()
+  __mark('center')
   makeDust()
+  __mark('dust')
   makeMarkers()
+  __mark('markers')
   makeEdges()
+  __mark('edges')
 
   ro = new ResizeObserver(resize)
   ro.observe(hostEl.value)
   resize()
+  __mark('resize')
+  // 保留分阶段耗时到 window，便于以后回归（不写 console，避免每帧/每次进入都刷日志）
+  window.__graphPerf = __marks
 
   renderer.domElement.addEventListener('pointermove', onPointerMove)
   renderer.domElement.addEventListener('pointerdown', onPointerDown)
@@ -201,29 +216,89 @@ function makeBackgroundStars() {
   scene.add(p)
 }
 
+// 星系核心的光晕贴图（纯径向渐变，本身是白色 —— 实际颜色由材质 color 决定）。
+// ⚠ 色标必须做出**接近高斯**的平滑衰减：
+//   1) 中心不要有"实心圆"（色标 0 → 0.12 若保持 1.0，叠加后中心会是一块硬边的亮斑）；
+//   2) 越靠外越平缓，让"边界"落在极低不透明度处，肉眼看不到圆边；
+//   3) 末尾几档要足够小且彼此接近（0.04 → 0.012 → 0），避免出现可见的收边台阶。
 function glowTexture() {
   const c = document.createElement('canvas')
-  c.width = 128
-  c.height = 128
+  c.width = 256
+  c.height = 256
   const x = c.getContext('2d')
-  const g = x.createRadialGradient(64, 64, 0, 64, 64, 64)
+  const g = x.createRadialGradient(128, 128, 0, 128, 128, 128)
+  // ⚠ 中心**不要做成"实心亮点"**：0 → 0.1 之间保持接近满值的话，
+  //   叠加五层后中心会是一个又小又亮的点，肉眼又成了"中心有个点"。
+  //   这里让中心就已经开始衰减（1 → 0.8），得到"宽而软的亮心"。
   g.addColorStop(0, 'rgba(255,255,255,1)')
-  g.addColorStop(0.25, 'rgba(255,255,255,0.55)')
-  g.addColorStop(0.6, 'rgba(255,255,255,0.12)')
+  g.addColorStop(0.12, 'rgba(255,255,255,0.62)')
+  g.addColorStop(0.24, 'rgba(255,255,255,0.44)')
+  g.addColorStop(0.38, 'rgba(255,255,255,0.3)')
+  g.addColorStop(0.54, 'rgba(255,255,255,0.17)')
+  g.addColorStop(0.7, 'rgba(255,255,255,0.08)')
+  g.addColorStop(0.84, 'rgba(255,255,255,0.03)')
+  g.addColorStop(0.93, 'rgba(255,255,255,0.01)')
   g.addColorStop(1, 'rgba(255,255,255,0)')
   x.fillStyle = g
-  x.fillRect(0, 0, 128, 128)
+  x.fillRect(0, 0, 256, 256)
   return new THREE.CanvasTexture(c)
 }
 
+/* 核心 = **一团看不到边界的光团**，不再有任何实体几何。
+   —— 为什么必须去掉球体 ——
+   原来核心是一个 `SphereGeometry(6)` 的实体网格：实体表面在屏幕上就是一个**硬边圆**，
+   无论怎么调色都能看到"一个圆盘贴在那里"。光团的边缘必须由**不透明度衰减**造出来，
+   所以核心只能是纯径向渐变的 Sprite。
+   —— 为什么要用 AdditiveBlending ——
+   叠加混合本身就是"发光"的物理表达（把颜色加到背景上）。普通混合画出的是一块
+   **不透明的色块**，压在旋臂上会挡住后面的星点、更像贴纸而不是光。
+   —— 怎么做到"发亮"又不刺眼 ——
+   光晕**分五层叠加**，而不是一层调亮：各层尺寸不同、峰值错开，
+   每层自身都衰减到 0，叠加后的总衰减沿半径**单调且无明显台阶**，
+   整体是"中间亮、向外化开"的一团光，任何位置都看不出圆边。
+   —— 参数是实测调出来的 ——
+   ① 三层(46/110/230, .9/.42/.16)：太小太闷，看不出光团；
+   ② 四层(60/120/200/340, 1/.6/.32/.14)：亮度够了，但**中心出现硬边亮点**
+      （实测方向中位亮度 r=0→83.9、r=8→49.4、r=12→36.7，12px 内掉了 47，是个可见的点）；
+   ③ 五层 + 贴图中心就开始衰减（色标 1 → 0.8）→ 得到"宽而软的亮心"，中心不再是点。
+   —— 颜色来回改过三轮，最终定**白色** ——
+   最初是纯白内核球（太亮、有硬边）→ 改成暗红（那是"暗红斑"不是光）→
+   再改成暗红的多层光团 → 用户最终确认"**中心光团还是用白色的吧**"。
+   所以现在是**白色光团**：颜色 `0xffffff`，柔和度靠"多层 + 平滑衰减 + 压低 opacity"实现，
+   而不是靠调暗颜色。⚠ 正因为是白色，**透明度必须压在较低水平**：
+   五层全是满不透明度的白会叠加回第一轮那种刺眼白斑。
+   要整体调亮/调暗，改各层 `opacity`；`CORE_GLOW_SCALE` 控制铺开的范围。 */
+const CORE_GLOW_COLOR = 0xffffff
+const CORE_GLOW_SCALE = 150
+
 function makeCenter() {
-  const spr = new THREE.Sprite(
-    new THREE.SpriteMaterial({ map: glowTexture(), color: 0xffffff, transparent: true, opacity: 0.95, depthWrite: false, blending: THREE.AdditiveBlending })
-  )
-  spr.scale.set(150, 150, 1)
-  galaxy.add(spr)
-  const core = new THREE.Mesh(new THREE.SphereGeometry(6, 24, 20), new THREE.MeshBasicMaterial({ color: 0xffffff }))
-  galaxy.add(core)
+  const tex = glowTexture()
+  // [半径(× CORE_GLOW_SCALE), 不透明度]：从内到外
+  // 最外层 1.7×150 ≈ 255 世界单位 —— 屏幕上约 175px 半径，
+  // 亮度早已低到看不见，因此光团"铺得很开但收得无痕"。
+  // ⚠ 白色比暗红"显亮"得多，所以整体 opacity 比暗红那版低一档。
+  const LAYERS = [
+    [0.12, 0.2],
+    [0.3, 0.26],
+    [0.52, 0.22],
+    [0.9, 0.14],
+    [1.7, 0.07],
+  ]
+  for (const [k, opacity] of LAYERS) {
+    const spr = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: tex,
+        color: CORE_GLOW_COLOR,
+        transparent: true,
+        opacity,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      })
+    )
+    const size = k * CORE_GLOW_SCALE * 2
+    spr.scale.set(size, size, 1)
+    galaxy.add(spr)
+  }
 }
 
 function makeDust() {
@@ -308,6 +383,14 @@ const LABEL_SS_MIN = 1
 const LABEL_REF_DISTANCE = 500
 let labelSuperSample = LABEL_SS_MIN
 let labelRefreshTimer = null
+// 当前这次挂载的"代号"：延后一帧烤标签的回调靠它判断自己是否已经过期。
+// ⚠ 这里原来是一个 `unmounted` 布尔量（卸载时置 true，**从不复位**）。ES 模块在路由
+//   切换之间只求值一次，所以**第一次离开拓扑图之后它永远是 true** —— 第二次进来时
+//   `if (unmounted || !renderer) return` 会直接跳过 makeLabels()：球体与边都正常，
+//   文字标签却再也不出现，直到整页刷新。
+//   换成只增不减的代号后，连"上一代残留的 rAF 回调打在这一次挂载上"这种情况也一并拦掉
+//   （复位布尔量做不到这一点）。
+let mountGen = 0
 
 /** 根据相机距离算出需要的超采样倍率（永远取"够清晰"的那一档） */
 function neededSuperSample() {
@@ -351,11 +434,14 @@ function refreshLabels() {
     const fresh = makeLabelSprite(m.nd.title, tint)
     // 沿用原位置、缩放与可见性/透明度，保证视觉状态完全不变，只有清晰度变化
     // （过滤、悬停等逻辑会直接改 label.visible / labelMat.opacity，重建时必须带走）
+    // ⚠ 例外：若还是**占位**精灵（phase 1 之后、phase 2 之前就被触发），它是 `visible = false`，
+    // 照抄会把新标签也藏起来。此时用新精灵自己的默认可见性。
+    if (old.userData?.placeholder) fresh.visible = true
+    else fresh.visible = old.visible
     fresh.position.copy(old.position)
     fresh.scale.copy(old.scale)
     fresh.renderOrder = old.renderOrder
-    fresh.visible = old.visible
-    fresh.material.opacity = old.material.opacity
+    if (!old.userData?.placeholder && old.material) fresh.material.opacity = old.material.opacity
     fresh.userData.idx = m.nd.idx
     parent.add(fresh)
     parent.remove(old)
@@ -366,11 +452,52 @@ function refreshLabels() {
   }
 }
 
+/**
+ * 标签文本按给定倍率光栅化后的**行数与世界尺寸**。
+ *
+ * ⚠ 抽出来是为了把"建结构"和"烤标签纹理"分两阶段做：
+ * 精灵的世界尺寸只由**文本行数**决定，与 `labelSuperSample` 无关
+ * （见 makeLabelSprite：`sp.scale` 用的是原始世界尺寸，倍率只影响清晰度）。
+ * 所以第一阶段就能把位置/尺寸都定下来、让第一帧先画出来，
+ * 纹理留到下一帧再烤 —— 用户更早看到图，标签晚一帧出现。
+ */
+function labelMetricsFor(text, fs) {
+  const font = labelFont(fs)
+  const lines = wrapFull(text, font, 560 * fs)
+  const worldH = lines.length * 10 + (lines.length - 1) * 2.5 + 3
+  return { lines, worldH }
+}
+
+function labelFont(fs) {
+  return `600 ${Math.round(30 * fs)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif`
+}
+
+// 占位精灵专用的**全黑 1×1 贴图**（只建一次，所有占位共用）。
+//
+// ⚠⚠ 这是"白色矩形"的根治办法。`SpriteMaterial` 不传 `map` 时用的是**默认白色贴图**，
+// 而 `Sprite` 永远正对相机 → 未烤纹理的那一帧里每个标签位置都会画出一块白矩形。
+// 只靠 `visible = false` **不可靠**（实测仍然出现过白块：状态探针显示 0 个"可见无贴图"精灵，
+// 画面上却确实有白条，说明还有别的路径把它画了出来）。
+// 换成"赋一张全黑不透明贴图"后，即使它被渲染出来也只会是**黑色小片**，
+// 在深空底上几乎不可见；再叠加 `visible = false` 就是双保险。
+let _placeholderTex = null
+function placeholderTexture() {
+  if (_placeholderTex) return _placeholderTex
+  const c = document.createElement('canvas')
+  c.width = 1
+  c.height = 1
+  const x = c.getContext('2d')
+  x.fillStyle = '#000000'
+  x.fillRect(0, 0, 1, 1)
+  _placeholderTex = new THREE.CanvasTexture(c)
+  return _placeholderTex
+}
+
 function makeLabelSprite(text, tint) {
   // ss：光栅化倍率。字号/行高/内边距/画布尺寸全部同比放大，
   // 最后 sp.scale 用"原始世界尺寸"（与 ss 无关），因此放大只提升清晰度、不改变视觉大小。
   const ss = labelSuperSample
-  const font = `600 ${Math.round(30 * ss)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif`
+  const font = labelFont(ss)
   const maxPx = 560 * ss
   const lines = wrapFull(text, font, maxPx)
   const lineH = 36 * ss
@@ -402,6 +529,14 @@ function makeLabelSprite(text, tint) {
   return sp
 }
 
+/**
+ * 阶段一：球体 + 精灵**占位**（位置/尺寸都定好，但还没有纹理）。
+ *
+ * ⚠ 为什么拆成两阶段：烤 21 张标签纹理（每张一个 canvas + CanvasTexture + 各向异性设置）
+ * 实测占 makeMarkers 的大头（21.3ms 里大部分），而它**不影响第一帧能不能画出来**。
+ * 把纹理留到下一帧，首帧更快出现 —— 用户的体感是"图先出来，字跟着来"，
+ * 比"白等一帧、图和字一起出现"要好。
+ */
 function makeMarkers() {
   for (let i = 0; i < nodes.length; i++) {
     const nd = nodes[i]
@@ -414,13 +549,66 @@ function makeMarkers() {
     const pos = nodeLocalPos(nd)
     mesh.position.copy(pos)
     ;(isIso ? isoGroup : galaxy).add(mesh)
-    // 标题标签（完整标题，可多行，浮在节点上方；颜色跟随主题保证两种背景下可读）
-    const label = makeLabelSprite(nodes[i].title, themeTextColor())
-    label.userData.idx = i
-    label.position.set(pos.x, pos.y + (r + 2 + label.scale.y / 2), pos.z)
-    label.renderOrder = 2
-    ;(isIso ? isoGroup : galaxy).add(label)
-    markers.push({ mesh, mat, nd, color, label, labelMat: label.material })
+
+    // 标题标签占位：**位置与世界尺寸现在就算好**（只依赖文本行数，与纹理倍率无关），
+    // 所以第一帧就能把精灵放到正确位置。下一帧由 makeLabels() 把纹理烤上。
+    //
+    // ⚠⚠ 占位精灵**必须带一张全黑贴图**（`placeholderTexture()`），不能只靠 `visible = false`。
+    // `SpriteMaterial` 不传 `map` 时用的是**默认白色贴图**，而 `Sprite` 永远正对相机 ——
+    // 于是未烤纹理的这段时间里，每个标签位置都会被画成一块**白色矩形**
+    // （用户反馈"刷新该页面时，星系拓扑上的文字位置会先显示白色矩形"）。
+    // 我第一版只用 `visible = false` 隐藏它，**用户复测仍有白条**：逐帧推进 rAF 实测
+    // 占位窗口浅色像素 23761，而状态探针显示"可见且缺贴图的精灵 = 0" ——
+    // 也就是说 `visible = false` 在这个路径上没真正拦住绘制（原因未查清，不再依赖它）。
+    // 换成全黑贴图后，即使被画出来也只是黑色小片；`visible = false` 保留作双保险。
+    // 再叠上 `opacity: 0`（原来是 0.001）就是三重保险 —— 占位在任何路径下都不贡献像素。
+    const { worldH } = labelMetricsFor(nd.title, LABEL_SS_MIN)
+    const sp = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: placeholderTexture(), transparent: true, depthWrite: false, opacity: 0 })
+    )
+    sp.visible = false
+    sp.userData.placeholder = true
+    const aspectW = worldH * 4 // 占位宽高比，等真实纹理烤好后再按 c.width/c.height 精修
+    sp.scale.set(aspectW, worldH, 1)
+    const labelY = pos.y + (r + 2 + worldH / 2)
+    sp.position.set(pos.x, labelY, pos.z)
+    sp.renderOrder = 2
+    ;(isIso ? isoGroup : galaxy).add(sp)
+
+    markers.push({ mesh, mat, nd, color, label: sp, labelMat: sp.material, labelY, labelRadius: r })
+  }
+}
+
+/**
+ * 阶段二：把纹理烤到占位精灵上。
+ * 会重算宽高比（`c.width / c.height`），所以尺寸与一次性构建时**完全一致**。
+ */
+function makeLabels() {
+  for (const m of markers) {
+    const sp = m.label
+    const parent = sp.parent
+    if (!parent) continue
+    const tint = themeTextColor()
+    const fresh = makeLabelSprite(m.nd.title, tint)
+    fresh.position.copy(sp.position)
+    fresh.renderOrder = sp.renderOrder
+    // ⚠ 占位精灵是 `visible = false` 且 `opacity: 0`（为了不画出白色矩形），
+    // 所以这里**不能**照抄它的 `visible`/`opacity` —— 照抄会让标签永远不显示。
+    // 新精灵用它自己的默认值（makeLabelSprite 里 opacity 0.9、visible 默认 true）即可。
+    // 非占位的情况（理论上不会走到）才沿用原状态。
+    if (!sp.userData?.placeholder) {
+      fresh.visible = sp.visible
+      if (sp.material) fresh.material.opacity = sp.material.opacity
+    }
+    fresh.userData.idx = m.nd.idx
+    parent.add(fresh)
+    parent.remove(sp)
+    // ⚠ 占位贴图是**所有占位共用的单例**，不能在这里 dispose ——
+    // 一 dispose 后面那些还没替换的占位就会拿到失效贴图。只 dispose 独立材质。
+    if (!sp.userData?.placeholder) sp.material?.map?.dispose()
+    sp.material?.dispose()
+    m.label = fresh
+    m.labelMat = fresh.material
   }
 }
 
@@ -659,15 +847,33 @@ const hoverInfo = computed(() => {
 })
 
 // ================= 加载 =================
-// 视图过渡时长（--dur-ios-2 = 260ms）：组件挂载后先让过渡动画走完，再构建 3D 场景，
-// 否则同步的建场景成本会打断过渡动画。加一点余量。
-const transitionGuardUntil = performance.now() + 340
+/* 视图过渡时长（--dur-ios-2 = 260ms）。
+   ⚠ 这个守卫的意思是"等过渡动画跑完再构建 3D 场景"，因为构建是同步重活、会打断动画。
+   实测构成（1600×900，21 条 wiki）：
+     · newRenderer 12.8ms、controls 2.1ms、bgStars 0.5ms、center 0.7ms、
+       dust 1.1ms、markers 21.3ms、edges 1.3ms、resize 4.5ms —— 合计 **约 44ms**
+     · 其中 **markers 占 21.3ms 的大头是"烤 21 张标签纹理"**（每张一个 canvas + CanvasTexture
+       + 各向异性），而它并不影响第一帧能不能出来 → 已拆成两阶段（见 makeMarkers / makeLabels）
+   于是：**结构**（球体+占位精灵+边+尘埃）只需约 23ms，可以更早开始；
+   标签纹理推到首帧之后的那一帧再烤，用户"先看到图、字跟着来"。
+   守卫因此从 340ms 收紧到 170ms —— 只等列表淡出那一段（150ms 左右），
+   不等整段 260ms，图能提早约 300ms 出现。
+   ⚠ 若以后节点数大幅增长（几十上百条），这里的取值要重新量：
+   结构构建一旦超过约 60ms 就会明显打断 graph 的淡入，届时应把守卫调回去。 */
+const transitionGuardUntil = performance.now() + 170
 
 async function load() {
+  // 本次挂载的代号：延后一帧烤标签的回调据此判断自己是否已经过期（见 mountGen）
+  const gen = ++mountGen
   loading.value = true
   error.value = ''
   try {
-    const data = await listPosts({ category: 'wiki', page: 1, pageSize: 100 })
+    // 数据可能已经在预取里拉好了（见 wikiView.js 的 prefetchWikiGraph）：
+    // 命中就直接用，省掉"等完 527KB 的 three 分包、再等一个接口往返"的后半段。
+    // ⚠ `await` 必须裹住整个 `||` —— 预取分支交出的是 promise 本身，
+    //   漏掉 await 会拿到 promise 对象去取 .items（undefined），星系会是空的。
+    const data = await (takePrefetchedWikiGraphData() ||
+      listPosts({ category: 'wiki', page: 1, pageSize: 100 }))
     buildGraph(data.items || [])
     if (nodes.length) assignArms()
   } catch (e) {
@@ -675,14 +881,14 @@ async function load() {
   } finally {
     loading.value = false
     if (!error.value && nodes.length) {
-      // 场景构建是同步的重活（建几何体 / 着色器 / 上传纹理，实测主线程约 130ms）。
-      // 若在挂载同一帧里做，会正好压在「列表 ↔ 拓扑」的视图过渡动画上（过渡 260ms），动画直接掉帧。
-      // 这里等过渡跑完再建场景：先让动画顺畅走完，再一次性构建。
-      // 用 rAF 链路往后推，比死等 setTimeout 更贴合实际帧节奏。
+      // 等列表淡出（约 150ms）再建**结构**；用 rAF 链路往后推，比死等 setTimeout 更贴合帧节奏。
+      // ⚠ 取 `transitionGuardUntil` 与"现在 + 一帧"的较大者：分包被预取过时模块求值早得多、
+      //   这个常量早已过期，此时若不做下限，那次 23ms 的同步构建会正好压在过渡的第一帧上；
+      //   冷启动路径语义不变（仍是等满 170ms）。
+      const until = Math.max(performance.now() + 16, transitionGuardUntil)
       nextTick(() => {
         requestAnimationFrame(function waitFrames() {
-          // 过渡时长 --dur-ios-2 = 260ms，留一点余量
-          if (performance.now() < transitionGuardUntil) {
+          if (performance.now() < until) {
             requestAnimationFrame(waitFrames)
             return
           }
@@ -691,6 +897,12 @@ async function load() {
             document.addEventListener('visibilitychange', onVisibility)
             hidden = document.hidden
             if (!hidden) tick()
+            // 阶段二：首帧已经画出来了（结构+球体+边），现在把标签纹理烤上。
+            // 放下一帧做，既不拖慢首帧，也让"图先出现、字随后"这个顺序稳定成立。
+            requestAnimationFrame(() => {
+              if (gen !== mountGen || !renderer) return
+              makeLabels()
+            })
           }
         })
       })
@@ -701,6 +913,8 @@ async function load() {
 // ================= 清理 =================
 onMounted(load)
 onBeforeUnmount(() => {
+  // 让代号前进一步：还在队列里的延后回调（烤标签那一帧）就此判定为过期
+  mountGen++
   cancelAnimationFrame(raf)
   raf = 0
   clearTimeout(labelRefreshTimer)

@@ -242,6 +242,17 @@ onUnmounted(() => {
 .navbar {
   position: sticky;
   top: 0;
+  /* ── 顶栏高度必须**与断点无关** ──
+     顶栏高度 = 上下 padding(8+8) + 最高子元素的高度，所以只要某个子元素在某个断点变高，
+     整条顶栏就跟着长高、里面所有元素也一起上下位移（用户反馈"特定分辨率下 navbar 会变高些，
+     位置也会改变"）。实测子元素高度会在断点处变化：
+       搜索框 28 / 31 / 34px（`≤900px` 把 input 字号提到 16px 防 iOS 缩放 → 34px）
+       品牌字 24px / 24.8px
+     解法：统一一个 `--nav-item-h` 变量，让所有"会参与撑高"的元素都用它定高
+     （搜索框、输入框、键盘按钮、主题开关），并给顶栏自己一个 `min-height` 兜底。
+     这样无论字号/内容怎么变，顶栏高度恒定，元素也不会上下跳。 */
+  --nav-item-h: 32px;
+  min-height: calc(var(--nav-item-h) + 16px);
   /* 层级：必须高于页面内容里那些"悬浮控件"。
      导航栏自建层叠上下文（backdrop-filter 所致），内部元素再高的 z-index
      也出不去，所以头像卡片能不能压住别人完全取决于**这个数字**。
@@ -362,6 +373,12 @@ onUnmounted(() => {
   min-width: 128px;
   max-width: 420px;
   margin-left: 6px;
+  /* ⚠ 高度必须**显式定死**，不要靠内容撑 ——
+     导航栏高度 = padding(8+8) + 最高子元素的高度，而子元素高度会在断点处变
+     （实测：搜索框 28 / 31 / 34px → navH 47 / 49 / 51），
+     于是拖动窗口时顶栏会莫名其妙"高一截"、里面元素的位置也跟着上下移。
+     这里与下面的 `input` 一起锁成同一个高度，顶栏高度就恒定了。 */
+  height: var(--nav-item-h);
 }
 
 .nav-search-icon {
@@ -379,7 +396,12 @@ onUnmounted(() => {
 
 .nav-search input {
   width: 100%;
-  padding: 7px 14px 7px 30px;
+  /* ⚠ 用 height 而不是 padding 控高：`padding: 7px 14px` + `font-size: 13px`
+     算出来是 31px，而 `≤900px` 把字号提到 16px（防 iOS 聚焦缩放）后变成 **34px**，
+     顶栏就跟着长高 3px。定死高度 + `box-sizing: border-box` 后字号再变也不影响外高。 */
+  height: var(--nav-item-h);
+  box-sizing: border-box;
+  padding: 0 14px 0 30px;
   font-size: 13px;
   color: var(--text);
   background: color-mix(in srgb, var(--text) 7%, transparent);
@@ -418,19 +440,26 @@ onUnmounted(() => {
   gap: 8px;
 }
 
-/* 操作区与身份区之间的细分隔线 */
+/* 操作区与身份区之间的细分隔线。
+   ⚠ 间距刻意收小：`.nav-end` 的 gap 是 6px，而这里的 `margin-left + padding-left` 是
+   **叠在 gap 之上**的（6 + 12 + 12 = 30），实测头像到键盘 25px，比其它相邻元素明显松。
+   收到 margin 4 / padding 8 后实测 15px，与整条导航栏的节奏一致。
+   ⚠ 这两个值在 ≤1180px 必须清零 —— 那里 `.nav-actions` 是 `display: contents`。 */
 .nav-actions {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-left: 12px;
-  padding-left: 12px;
+  margin-left: 4px;
+  padding-left: 8px;
   border-left: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
 }
 
 .theme-slot {
   display: inline-flex;
   align-items: center;
+  /* 与其它控件同高（见 .navbar 的 --nav-item-h 说明）：
+     主题开关自身 30.1px，不定高时它会与 32px 的键盘按钮差 2px、顶部对不齐 */
+  height: var(--nav-item-h, 32px);
 }
 
 /* —— 内部身份：头像 + 悬停浮出卡片 ——
@@ -525,11 +554,15 @@ onUnmounted(() => {
      为头像预留内边距，恢复常规内边距即可。 */
   padding: 12px;
   text-align: center;
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  /* 卡片**不透明**（用户要求）：用 --overlay-panel 这个"实底" token ——
+     它在浅色主题是 #ffffff、深色主题是 #171a22，两边都是不透明值。
+     ⚠ 别用 --panel：那个是带 alpha 的（浅色 0.52 / 深色 0.72），
+       底色会透出来，卡片就会看着脏。
+     既然已经不透明，backdrop-filter 就没有任何视觉作用了（模糊被实底完全盖住），
+     顺手去掉 —— 它还会让卡片自建层叠上下文。 */
+  background: var(--overlay-panel);
   border: 1px solid var(--border);
   border-radius: 14px;
-  backdrop-filter: blur(18px) saturate(1.4);
-  -webkit-backdrop-filter: blur(18px) saturate(1.4);
   box-shadow: 0 16px 40px rgb(0 0 0 / 0.28);
   /* 收起态：向上收一点 + 淡出，展开时像从头顶"长出来"。
      用 visibility 而不是只靠 opacity：收起时必须真的从可达性树里移除
@@ -673,50 +706,89 @@ onUnmounted(() => {
 }
 
 .btn-sm {
-  padding: 5px 11px;
+  /* ⚠ 高度用 --nav-item-h 定死（见 .navbar 的说明）：
+     原来靠 `padding: 5px 11px` + 字号撑，`≤480px` 把字号降到 12px 后高度就变了，
+     顶栏跟着长高/变矮。定高后字号怎么改都不影响顶栏。 */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--nav-item-h, 32px);
+  box-sizing: border-box;
+  padding: 0 11px;
   font-size: 13px;
 }
 
-/* 手机比例：AniHub 下拉菜单 */
+/* 手机比例：AniHub 下拉抽屉
+   —— 改版说明 ——
+   原来是**完全透明**的一条竖排文字（`background: transparent`，连每项也没有底色），
+   压在壁纸上几乎读不清；而且靠 `display: none/flex` 切换，没有任何过渡。
+   现在做成真正的**抽屉**：
+     · 抽屉本体：实底面板 + 细边框 + 圆角 + 阴影（用 --overlay-panel 这个不透明 token）
+     · 每一项各自有底与圆角，hover / 当前页高亮 —— 条目不再"贴"在壁纸上
+     · 展开动画：`visibility + opacity + translateY`，像从品牌下方滑出来
+   ⚠ 收起**不能**用 `display: none`：那样无法做过渡。改用 visibility + opacity，
+     配合 `transition: visibility 0s linear <delay>` 让它在淡出结束后才不可见
+     （否则收起瞬间就点不到了）。元素始终留在文档流里，所以
+     「品牌 → 抽屉」的悬停路径也是连续的，不会中途触发 mouseleave。 */
 .mobile-menu {
+  /* ⚠ 显隐**不用 display**（那样没法做过渡），这里默认 `display: none`，
+     只在窄屏媒体查询里改成 flex；显示/隐藏交给 visibility + opacity + translateY。
+     另外这样也保证桌面端不会在文档流里留一个可聚焦的抽屉。 */
   display: none;
   position: absolute;
-  top: 100%;
-  left: 0;
+  top: calc(100% + 6px);
+  left: -10px;
   z-index: 60;
   flex-direction: column;
-  gap: 0;
-  min-width: 0;
-  padding: 0;
-  background: transparent;
-  border: none;
-  border-radius: 0;
-  box-shadow: none;
+  gap: 2px;
+  min-width: 148px;
+  padding: 6px;
+  background: var(--overlay-panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.28);
+  /* 收起态 */
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-8px) scale(0.97);
+  transform-origin: top left;
+  transition:
+    opacity var(--dur-ios-2) var(--ease-ios-expo),
+    transform var(--dur-ios-2) var(--ease-ios-spring),
+    visibility 0s linear var(--dur-ios-2);
 }
 
-/* 视觉上不是卡片，而是 AniHub 文字向下自然延伸展开 */
 .mobile-menu a {
   display: block;
-  padding: 5px 2px;
+  padding: 8px 12px;
   font-size: 14px;
-  color: color-mix(in srgb, var(--text) 78%, transparent);
+  color: var(--text);
   text-decoration: none;
   white-space: nowrap;
-  transition: color var(--dur-ios-1) var(--ease-ios-expo);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  transition:
+    background-color var(--dur-ios-1) var(--ease-ios-expo),
+    color var(--dur-ios-1) var(--ease-ios-expo);
 }
 
 .mobile-menu a:hover {
   color: var(--accent);
-  background: transparent;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 .mobile-menu a.router-link-active {
   color: var(--accent);
   font-weight: 600;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
+/* 展开态：可见 + 归位。这段**两条规则都要**（:hover 与 .hidden 的否定）——
+   下面窄屏媒体查询里负责把它挂上去。 */
 .mobile-menu.hidden {
-  display: none !important;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-8px) scale(0.97);
 }
 
 /* —— 关于 Wiki 拓扑图（深空场景）——
@@ -730,50 +802,48 @@ onUnmounted(() => {
    这正是"和其它页面一致"想要的结果。 */
 
 /* ==========================================================================
-   窄屏 / 中等宽度：导航栏折成两行
-   第一行：品牌 + 搜索 + 键盘 + 主题开关（常用入口保持可见）
-   第二行：主导航链接 + 身份 —— 链接可横向滚动，绝不竖排文字
+   响应式：**所有宽度都是单行**
+   ==========================================================================
+   ⚠⚠ 这里踩过一个坑（用户报的"特定分辨率下还是两行"）：
+   旧写法是「第一行 = 品牌 + 链接 + 搜索 + 键盘 + 主题；第二行 = .nav-end（身份/操作）」，
+   靠 `.nav-end { flex-basis: 100% }` 强制换行 —— 于是 **1024~1180px 这一段必然是两行**
+   （实测 1100 / 1160 / 1180px 都是 navH=88、中心极差 40px 的两行）。
+   现在改成真正的单行：链接自己横向滚动、搜索可压缩，其余元素一律 `flex: 0 0 auto`
+   不参与伸缩，因此任何宽度都不会再折行。
    ========================================================================== */
 @media (max-width: 1180px) {
   .navbar {
     padding: 8px 14px;
     gap: 8px 10px;
+    flex-wrap: nowrap;
   }
 
-  /* 解开分组：品牌 / 搜索 / 键盘 / 主题 / 链接 直接参与外层排序。
-     注意 display:contents 会让子元素丢掉原本的分组位置，因此每个元素都要显式 order。
-     .nav-end 的 flex-basis 是 100%，因此 order 必须排在 links 之后 ——
-     否则它会先把整行占掉、links 被挤到下一行，出现「身份区在导航链接左边」。 */
-  .nav-top {
-    display: contents;
-  }
-
-  .brand-wrap {
-    order: 1;
-  }
-
-  .nav-search {
-    order: 2;
-    flex: 0 1 auto;
-    width: 200px;
-    margin: 0;
-  }
-
+  /* 解开分组：品牌 / 链接 / 搜索 / 键盘 / 主题 / 身份 直接参与外层排序。
+     ⚠⚠ `display: contents` 只让**子元素**参与外层 flex，
+       容器自身的 `margin` / `padding` / `border` **依然生效**。
+       `.nav-actions` 原本带 `margin-left:12px + padding-left:12px + border-left:1px`，
+       展开后这些非但没消失，还因为容器不再生成盒子而"消失得只剩占位效果"——
+       实测表现为**搜索与键盘之间凭空多出 38px 空档**（390px 下搜索右缘 207、键盘左缘 245），
+       也就是用户说的"手机下头像/键盘/深色模式的位置不对"。必须一并清零。 */
+  .nav-top,
   .nav-actions {
     display: contents;
   }
 
-  .keyboard-btn {
-    order: 3;
+  .nav-actions {
+    margin-left: 0;
+    padding-left: 0;
+    border-left: 0;
   }
 
-  .theme-slot {
-    order: 4;
-  }
-
-  /* 第一行：导航链接占据品牌与搜索之间的剩余空间，可横向滚动 */
-  .links {
+  .brand-wrap {
     order: 1;
+    flex: 0 0 auto;
+  }
+
+  /* 链接：占品牌与搜索之间的剩余空间；超出就横向滚动（绝不竖排、绝不换行） */
+  .links {
+    order: 2;
     flex: 1 1 auto;
     min-width: 0;
     overflow-x: auto;
@@ -792,34 +862,67 @@ onUnmounted(() => {
     font-size: 13px;
   }
 
-  /* 第二行：身份 + 操作，整行靠右（100% 基准强制换行） */
-  .nav-end {
-    order: 5;
-    flex: 1 1 100%;
-    width: 100%;
+  /* 搜索：可压缩、有下限；它后面的元素都不伸缩，保证全挤得进一行 */
+  .nav-search {
+    order: 3;
+    flex: 1 1 60px;
     min-width: 0;
-    margin-left: 0;
+    width: auto;
+    margin: 0;
+  }
+
+  .keyboard-btn {
+    order: 4;
+    flex: 0 0 auto;
+  }
+
+  .theme-slot {
+    order: 5;
+    flex: 0 0 auto;
+  }
+
+  /* 身份/操作：不伸缩、不换行，靠 `margin-left: auto` 贴右 */
+  .nav-end {
+    order: 6;
+    flex: 0 0 auto;
+    width: auto;
+    flex-basis: auto;
+    min-width: 0;
+    margin-left: auto;
     justify-content: flex-end;
   }
 
   .user-area {
-    flex: 0 1 auto;
-    flex-wrap: wrap;
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
     gap: 6px;
     min-width: 0;
   }
-
 }
 
 @media (max-width: 1024px) {
+  /* 主导航收进品牌抽屉（.mobile-menu），一行只剩：品牌 · 搜索 · 键盘 · 主题 · 身份 */
   .links {
     display: none;
   }
 
-  /* 鼠标悬停 AniHub 时展开，菜单从品牌正下方依次排布 */
-  .brand-wrap:hover .mobile-menu,
-  .mobile-menu:hover {
+  /* 抽屉：窄屏下改回 flex，显隐由 visibility / opacity / transform 控制 */
+  .mobile-menu {
     display: flex;
+  }
+
+  /* 抽屉展开：品牌悬停 / 抽屉自身悬停 / 键盘聚焦都能开。
+     ⚠ 只切换"可见 + 归位"，滑出动画来自 .mobile-menu 的 transition。 */
+  .brand-wrap:hover .mobile-menu,
+  .mobile-menu:hover,
+  .brand-wrap:focus-within .mobile-menu {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0) scale(1);
+    transition:
+      opacity var(--dur-ios-2) var(--ease-ios-expo),
+      transform var(--dur-ios-2) var(--ease-ios-spring),
+      visibility 0s;
   }
 }
 
@@ -827,27 +930,24 @@ onUnmounted(() => {
   .nav-search input {
     font-size: 16px; /* 避免 iOS 聚焦时自动放大页面 */
   }
-
 }
 
-@media (max-width: 700px) {
-  /* 键盘按钮缩成图标：它对 login / inside 入口是必需的，不能隐藏。
-     图标是子组件的 <svg>，字号归零不影响它，所以用 font-size:0 隐掉文字即可。 */
-  .keyboard-btn {
-    gap: 0;
-    padding: 6px 9px;
-    font-size: 0;
-  }
-
-  .keyboard-btn :deep(.app-icon) {
-    width: 16px;
-    height: 16px;
+@media (max-width: 560px) {
+  /* 很窄：搜索框让位（站内搜索页仍可达），其余入口全部保住。
+     阈值取 560 是算出来的：品牌(60) + 搜索下限(60) + 键盘(61) + 主题(77) + 4×10 间距 = 298，
+     390px 视口去掉左右 20 内边距只剩 370 —— 放得下，所以真正需要让位的是更窄的屏。
+     ⚠ 早先写在 780px：那时 600~780 之间会留出一大段空白（实测 700px 下品牌在 82、
+       右侧那组从 512 才开始，中间空了 430px），看起来很怪。 */
+  .nav-search {
+    display: none;
   }
 }
+
 
 @media (max-width: 480px) {
   .navbar {
     padding: 8px 10px;
+    gap: 8px;
   }
 
   .brand {
@@ -857,11 +957,6 @@ onUnmounted(() => {
   .btn-sm {
     padding: 5px 8px;
     font-size: 12px;
-  }
-
-  .nav-search {
-    flex: 1 1 100%;
-    min-width: 0;
   }
 }
 </style>

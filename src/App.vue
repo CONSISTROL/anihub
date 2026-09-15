@@ -16,6 +16,7 @@ import { api } from './api/http'
 import { useAuth } from './composables/useAuth'
 import { useSettings } from './composables/useSettings'
 import { finishPageLoading } from './composables/usePageProgress'
+import { constellationLines, toggleConstellationLines } from './composables/uiOverlay'
 
 // 桌宠（Mascot.vue，774 行 + 全部动作表）只在真正要显示时才下载，
 // 不再打进首屏 chunk：多数访客（游客/手机端）根本不会加载它。
@@ -103,6 +104,13 @@ async function onInsideCommand() {
   closeKeyboard()
 }
 
+// 彩蛋 `Stella`：切换星座连线显形（深色主题的主页可见；浅色下整层隐藏）。
+// 先关掉键盘，否则面板会挡住星空。
+function onStellaCommand() {
+  closeKeyboard()
+  toggleConstellationLines()
+}
+
 // 内部人员口令：网页内虚拟键盘输入 inside 后回车触发
 // 关键词与 server/.env 的 INSIDER_KEYWORD 一致（默认 inside）
 async function enterInside() {
@@ -149,13 +157,18 @@ onUnmounted(() => {
 <template>
   <div class="app-shell">
     <!-- 全站壁纸图层：放在最前、z-index -1，让导航栏的毛玻璃能糊到它。
-         :on 表示"当前在主页" —— 主页在浅色主题下需要把壁纸压得更暗一点
-         （见 WallpaperLayer.vue 里的 .is-home 规则）。 -->
-    <WallpaperLayer :on="route.name === 'home'" />
+         各页面共用同一套取值（越来主页特殊化已移除，浅色主题下主页与 anime 等页面一致）。 -->
+    <WallpaperLayer />
     <!-- 主页星座背景：常驻挂载、只在主页显示。
          挂在 App 层是为了让粒子场在页面切换时延续 —— 放进 HomeView 就会随组件重建，
-         每次切回主页粒子都重新随机，看起来就是"闪一下然后重绘"。 -->
-    <ConstellationField :on="route.name === 'home'" />
+         每次切回主页粒子都重新随机，看起来就是"闪一下然后重绘"。
+         ⚠ 浅色主题下**整层隐藏**（`.theme-hide-light`）：用户要求"浅色模式不显示背景的星座"，
+           深色主题保持原样。用 CSS 隐藏而不是条件挂载 —— 这样主题切换时不用重建组件、
+           切回深色时星空还是原来那片（位置/相位不重置）。 -->
+    <ConstellationField
+      :on="route.name === 'home'"
+      :lines="constellationLines"
+    />
     <!-- 路由懒加载 / 页面切换时的进度反馈由右侧细条（ScrollIndicator）统一承担，
          不再另外放一条顶部横条 -->
     <NavBar />
@@ -177,6 +190,7 @@ onUnmounted(() => {
       @close="closeKeyboard"
       @login="onLoginCommand"
       @inside="onInsideCommand"
+      @stella="onStellaCommand"
     />
     <!-- 全站壁纸背景（组件内部按身份自检：管理员恒可见，游客/内部人员按设置开关）
          游戏页也保持挂载，避免进入 /game 时壁纸持有者释放后再重新加载导致背景闪烁 -->
@@ -202,12 +216,19 @@ onUnmounted(() => {
 }
 
 /* ---- iOS 式页面切换 ---- */
+/* ⚠⚠ 入场**只用 opacity，完全不要 transform**。这个坑修了三次，最终结论：
+   缩放位移量 = 距变换原点距离 × (1 − scale)。原点可以放到顶部把量级压到 0.4~1.6px，
+   但**它随页面高度增长**：实测同一份代码 blog/wiki/reading 约 0.5~0.6px、
+   anime 页（1812px 高、周历行在 y≈321）**1.09px**。对照实验：
+   关掉页面 transform 后，anime 文字漂移 **0.00px**（行高极差也 0）。
+   既然用户对"文字上下变一下"很敏感（已反馈两次），就不再保留这点"落定"感 ——
+   入场只做淡入，几何上**零位移**。整页的非线性收束感仍由 Expo 缓动的淡入体现。 */
 .page-enter-active {
-  transition:
-    opacity var(--dur-ios-3) var(--ease-ios-expo),
-    transform var(--dur-ios-3) var(--ease-ios-expo);
+  transition: opacity var(--dur-ios-3) var(--ease-ios-expo);
 }
 
+/* 离场保留位移是**安全**的：旧页面正在消失，它的位移不会被读成"内容跳了"，
+   而且离场元素不参与布局，不会推挤新页面。 */
 .page-leave-active {
   transition:
     opacity var(--dur-ios-1) var(--ease-ios),
@@ -216,7 +237,6 @@ onUnmounted(() => {
 
 .page-enter-from {
   opacity: 0;
-  transform: translateY(16px) scale(0.992);
 }
 
 .page-leave-to {

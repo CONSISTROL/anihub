@@ -138,14 +138,27 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* 浅色主题 + 主页：主页背景与深色主题一致（整屏深空底），
-   而壁纸图层只有 100vh 高，页面比视口高时下方会露出 body 底色 —— 会是一条亮带。
-   这里用 :has() 判断"主页的深空壁纸层存在"，把 body 底色也换成深空色。
-   ⚠ 用 :has() 而不是给 body 加类：body 不在 Vue 组件树里，加类要额外维护；
-     而且 :has() 能精确表达"浅色主题 **且** 主页深空层在场"这一个条件。
-     深色主题下该规则不生效（body 本来就是深空色）。 */
-:root[data-theme='light'] body:has(.wallpaper-layer.is-home) {
-  background-color: #0e1015;
+/* ⚠⚠ **深空底页面的 body 底色必须由「路由」决定，不能靠 `:has()` 找页面元素**。
+   用户反馈的"wiki 处于拓扑图模式时，从主页切过来刚开始的背景是白的"，根因就在这里。
+   路由切换是 `<Transition name="page" mode="out-in">`：
+   旧页面先淡出，淡到 0 之后**新页面才挂载**。实测逐帧（浅色主题，主页 → 拓扑图）：
+     dt=  0   home.op=1        body=rgb(242,244,249)   ← 旧页面淡出中
+     dt=144   home.op≈0.0007   body=rgb(242,244,249)
+     dt=178   wiki 挂载、graph 就位  body=rgb(11,19,34)     ← body **一帧之内硬切**成深空色
+   原来用 `body:has(.wiki-view.is-graph)` 触发的就是 dt=178 这一次硬切：新视图正以
+   opacity 1 淡入（它自己背景是 transparent），而底下的 body 在同一帧从近白跳到深空 ——
+   于是"刚开始那一下"是白的，随后啪地变暗。
+   现在改为由路由给 `<html data-deep>` 打标记（见 `main.js` 的 `router.afterEach`）：
+   标记在新页面挂载**之前**就已写好，所以整个过渡期间 body 都是深空色，旧页面在一张
+   深空底的画布上淡出、新页面淡入 —— 全程没有白色。
+   顺带把"主页浅色下整屏深空"也纳入同一套标记（原先它也是靠 `:has(.wallpaper-layer.is-home)`），
+   两处条件统一，少一个需要维护的选择器。
+   ⚠ 深色主题下**不要**改成 #0b1322：那时 body 本来就该是 `--bg`（#0e1015），
+     主页/拓扑页与其它页面同为深色底，硬改会让主页比别的页面偏蓝一点点。
+     实测踩过：加了无条件规则后，深色主页 body 从 rgb(14,16,21) 变成 rgb(11,19,34)。
+     所以只在**浅色主题**下把 body 压到深空色（深色主题保持 `--bg` 即可）。 */
+:root[data-theme='light'][data-deep] body {
+  background-color: #0b1322;
 }
 
 /* ==========================================================================
@@ -393,15 +406,34 @@ body::-webkit-scrollbar {
   display: none;
 }
 
-/* 全站通用的入场关键帧：组件内引用（页面切换动画在 App.vue 定义） */
+/* 全站通用的入场关键帧：组件内引用（页面切换动画在 App.vue 定义）
+   ⚠⚠ **不要给它加 `translateY`**。
+   原来是 `translateY(18px) scale(0.985)`，而引用它的地方大多是**带延迟**的
+   （`backwards` + animation-delay，或按序号错峰）—— 延迟期间元素停在 `from` 帧：
+   `opacity: 0` 但**布局已经占位**。于是页面一加载完，文字先以透明状态就位，
+   随后动画播起来，肉眼看到的就是"文字先出现、再自己往上走一段"。
+   用户报的 /tools「小工具集合，选择一项开始」、/anime 的 month-bar、/reading 都是这个。
+   实测（1500×900，量 `.page-title` 的 top）：一次入场里位移 19px。
+   现在改成**纯缩放微入场**（去掉位移，只留很轻的 scale）：观感是"淡入 + 极轻微落定"，
+   不再有方向性的"往上跳"，但错峰浮现的层次感仍在。 */
+/* 全站通用的入场关键帧：组件内引用（页面切换动画在 App.vue 定义）
+   ⚠⚠ **只做 opacity，不要动 transform**。这个关键帧踩过两次：
+   1) 最早是 `translateY(18px) scale(0.985)`：引用它的地方大多**带延迟/错峰**
+      （`backwards` + animation-delay），延迟期间元素停在 `from` 帧 —— 布局已占位、
+      只是透明的。于是动画播起来时文字"先出现、再自己往上走一段"。
+   2) 第一次修只去掉了 `translateY`、**留下了 `scale`** —— 位移没了，但"变形"还在：
+      `scale` 默认以元素中心为原点，缩放会让**元素内部文字的渲染位置整体平移**。
+      实测 106px 高的卡片，在 0.985 → 1 过程中文字顶部移动约 1.5px，
+      观感就是用户说的"卡片上的文字还会有上下位置小变一下"。
+   现在**只保留 opacity**：淡入 + 错峰层次全都还在，但元素几何完全不动，
+   任何位置都不会再"变一下"。整页的入场缩放由 `App.vue` 的 `.page-enter-from`
+   （`scale(0.996)`，整个页面一起缩放，内部相对位置不变）负责，足够体现"落定"感。 */
 @keyframes ios-rise-in {
   from {
     opacity: 0;
-    transform: translateY(18px) scale(0.985);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
   }
 }
 
@@ -439,7 +471,15 @@ body::-webkit-scrollbar {
   html,
   body {
     max-width: 100%;
-    overflow-x: hidden;
+    /* ⚠⚠ 这里必须是 `clip`，**不能**用 `hidden`。
+       在 body 上设 `overflow-x: hidden` 会让 `overflow-y` 从 `visible` 计算成 `auto`，
+       于是**整个 body 变成一个滚动容器** —— 而 `position: sticky` 的元素会以
+       "最近的滚动容器"为基准。后果：顶栏（.navbar 是 sticky）不再相对视口吸顶，
+       而是相对 body 吸顶，**页面一滚动顶栏就跟着滚走、直接看不见了**。
+       实测 390px 下 scroll=300 → navbar top=-300（1024px 下正常为 0）。
+       `overflow-x: clip` 不创建滚动容器，既能抑制横向溢出、又不破坏 sticky
+       （项目里 `.app-shell` / `.graph-full` 早就用的这个写法）。 */
+    overflow-x: clip;
   }
 
   input,

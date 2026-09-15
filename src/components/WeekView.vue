@@ -162,6 +162,16 @@ function coverOf(mediaId) {
   );
 }
 
+/* ⚠⚠ 这里**不要**加 backdrop-filter（原为 `blur(6px)`）。
+   表头本身是半透明面板色，而它所在的 `.main` 带 `ios-rise-in` 入场动画
+   （带 200ms 延迟、`backwards`）：动画前 200ms `.main` 的 opacity 是 0，随后从 0 爬到 1。
+   `backdrop-filter` 的元素若处在 **opacity < 1 的祖先**里，浏览器无法正确采样背景，
+   模糊等于没做 —— 于是这几百毫秒内表头只剩那层半透明底色，
+   透出的是页面背景（浅色主题下接近白色 `#f2f4f9`），
+   观感就是用户报的"刷新 anime 页面时 col-head 刚开始一瞬间是白色的"。
+   实测（浅色主题逐帧）：col-head 首次出现时祖先 `.main` 的 opacity=0，
+   一直爬到 ~1 才稳定；表头自己的背景色自始至终没变。
+   把底色加实一点即可，不用模糊 —— 它底下就是壁纸/页面背景，模糊换不来多少观感。 */
 .col-head {
   position: relative;
   z-index: 1;
@@ -170,13 +180,21 @@ function coverOf(mediaId) {
   align-items: flex-start;
   gap: 2px;
   padding: 12px 12px 10px;
-  background: color-mix(in srgb, var(--panel-2) 70%, transparent);
+  /* ⚠⚠ 底色要"自己够实"，而且**不能**用 `color-mix(..., transparent)` 去调 ——
+     `color-mix` 与 `transparent` 混合时，结果的 alpha **不会超过**源色的 alpha。
+     而 `--panel-2` 本身是 `rgb(29 33 44 / 0.66)` 这种带 alpha 的颜色，
+     所以无论把百分比调到 92% 还是 100%，实测最终 alpha 都卡在 0.46/0.5 上不去。
+     正确做法：先用**不透明**成分算出一个实色，再统一在最后叠一次透明度。
+     这里用 `--overlay-panel`（两个主题下都是不透明的实底）当基色：
+       浅色 #ffffff / 深色 #171a22 → 最后 62% 透明度 → alpha 0.62
+     （`--overlay-panel` 本就是"需要实底"的语义，正合适。） */
+  background: color-mix(in srgb, var(--overlay-panel) 62%, transparent);
   border-bottom: 1px solid var(--border);
-  backdrop-filter: blur(6px);
 }
 
+/* 「今天」那一列的表头：混一点 accent 区分出来，透明度与普通列一致。 */
 .col-today .col-head {
-  background: color-mix(in srgb, var(--accent) 15%, var(--panel-2));
+  background: color-mix(in srgb, color-mix(in srgb, var(--accent) 14%, var(--overlay-panel)) 62%, transparent);
 }
 
 .wd {

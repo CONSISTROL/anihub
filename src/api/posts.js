@@ -36,9 +36,14 @@ export function pinPost(id, pinned) {
   return api(`/posts/${id}/pin`, { method: 'POST', body: { pinned } })
 }
 
-// Wiki 批量导出 / 导入（仅管理员）
+// 管理员带 anihub.token，内部人员带 anihub.insider。
+// ⚠ 原来只读管理员 token —— 内部人员调用时会**一个 Authorization 都不带**，
+//   服务端按游客处理直接 401（实测"内部人员点下载 → 下载失败：请先获取内部人员或管理员身份"）。
+//   凡是"内部人员也可能调用"的接口都要用这个函数，别再只读 anihub.token。
 function authHeaders() {
-  const t = localStorage.getItem('anihub.token')
+  const admin = localStorage.getItem('anihub.token')
+  const insider = localStorage.getItem('anihub.insider')
+  const t = admin || insider
   const h = {}
   if (t) h.Authorization = `Bearer ${t}`
   return h
@@ -71,6 +76,25 @@ export async function importWikiZip(file) {
     throw err
   }
   return data
+}
+
+// 下载单条 Wiki → 返回 zip Blob（正文 + 正文引用的 /uploads 图片）。
+// 权限由服务端判定（public / insider 可下，private 不下；游客 401）。
+// ⚠ 文件名由**前端**决定：服务端**故意不下发 `Content-Disposition`** ——
+//   Chrome 看到 `attachment` 会把响应当成下载，导致这里的 `res.blob()` 拿到 204/0 字节
+//   （文件会被存下来，但内容是空的）。详见服务端该路由的注释。
+export async function downloadWikiZip(post) {
+  const res = await fetch(`/api/posts/${post.id}/download`, { headers: authHeaders() })
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}))
+    const err = new Error(d.error?.message || `下载失败 (${res.status})`)
+    err.status = res.status
+    throw err
+  }
+  const blob = await res.blob()
+  // 文件名沿用导出那套命名：<slug>.zip（slug 常是中文，download 属性支持）
+  const name = `${post.slug || 'wiki-' + post.id}.zip`
+  return { blob, name }
 }
 
 // 主页公告：返回置顶的博客文章摘要（无公告时 404）

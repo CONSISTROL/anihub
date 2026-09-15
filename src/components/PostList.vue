@@ -1,7 +1,7 @@
 <script setup>
 // 文章列表（博客/Wiki 共用）：搜索、分页、新建入口；博客支持置顶（置顶篇即主页公告）
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { listPosts, pinPost } from '../api/posts'
+import { listPosts, pinPost, downloadWikiZip } from '../api/posts'
 import { useAuth } from '../composables/useAuth'
 import AppIcon from './AppIcon.vue'
 
@@ -9,7 +9,37 @@ const props = defineProps({
   category: { type: String, required: true }, // 'blog' | 'wiki'
 })
 
-const { isLoggedIn } = useAuth()
+const { isLoggedIn, isInsider } = useAuth()
+
+// 下载单条 Wiki：内部人员与管理员都可用（游客没有入口 —— 服务端也会拒 401）。
+// wiki 条目分 md / html 两种，下载的是该条正文原格式 + 它引用的图片，打包成 zip。
+const downloadingId = ref(null)
+const downloadMsg = ref('')
+const downloadErr = ref(false)
+async function doDownload(p) {
+  if (downloadingId.value) return
+  downloadingId.value = p.id
+  downloadMsg.value = ''
+  downloadErr.value = false
+  try {
+    const { blob, name } = await downloadWikiZip(p)
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = name
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    // 交给浏览器读完再释放，立刻 revoke 会让部分浏览器拿到空文件
+    setTimeout(() => URL.revokeObjectURL(url), 4000)
+    downloadMsg.value = `已下载 ${name}（${(blob.size / 1024).toFixed(0)} KB）`
+  } catch (e) {
+    downloadErr.value = true
+    downloadMsg.value = `下载失败：${e.message}`
+  } finally {
+    downloadingId.value = null
+  }
+}
 
 const items = ref([])
 const total = ref(0)
@@ -164,6 +194,7 @@ const VIS_LABEL = { insider: '仅内部可见', private: '仅管理员可见' }
 
     <template v-else>
       <p v-if="actionError" class="list-error">{{ actionError }}</p>
+      <p v-if="downloadMsg" class="list-hint download-status" :class="{ err: downloadErr }">{{ downloadMsg }}</p>
       <div class="post-items">
         <div
           v-for="(p, i) in items"
@@ -191,6 +222,17 @@ const VIS_LABEL = { insider: '仅内部可见', private: '仅管理员可见' }
           <div v-if="isLoggedIn && category === 'blog'" class="post-actions">
             <button class="btn btn-sm" :disabled="pinningId === p.id" @click="togglePin(p)">
               {{ pinningId === p.id ? '…' : p.pinned ? '取消置顶' : '置顶' }}
+            </button>
+          </div>
+          <!-- Wiki 单条下载：内部人员与管理员可见（游客没有入口；服务端同样会拒） -->
+          <div v-else-if="(isLoggedIn || isInsider) && category === 'wiki'" class="post-actions">
+            <button
+              class="btn btn-sm"
+              :disabled="downloadingId === p.id"
+              :title="`下载该条目（正文 + 引用的图片，打包为 zip）`"
+              @click="doDownload(p)"
+            >
+              <AppIcon name="download" :size="13" /> {{ downloadingId === p.id ? '…' : '下载' }}
             </button>
           </div>
         </div>
@@ -572,6 +614,14 @@ const VIS_LABEL = { insider: '仅内部可见', private: '仅管理员可见' }
 .post-actions {
   display: flex;
   align-items: center;
+}
+
+/* 下载结果提示（成功/失败共用一行，失败时变红） */
+.download-status {
+  margin: 0 0 10px;
+}
+.download-status.err {
+  color: var(--danger, #e5484d);
 }
 
 .btn-sm {

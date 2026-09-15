@@ -418,6 +418,103 @@ router.get('/wiki/export', authRequired, async (req, res) => {
   res.send(buf)
 })
 
+// ================= Wiki 单条下载（内部人员及以上） =================
+// 为什么打包成 zip 而不是直接给单个文件：wiki 正文里常引用 /uploads 的图片，
+// 只给一个 .md 的话图片全丢；而且 HTML 类条目**本身就是一份自包含文档**
+// （前端用 iframe srcdoc 渲染它，见 PostDetail.vue / HtmlDocView.vue），
+// 把图片一起放进 zip 后，下载到本地解压即可直接打开、与站内所见一致。
+//
+// ⚠ 可见性**沿用条目自身规则**（`visibilityClause`）：public / insider 可下，private 不下。
+//   内部人员本来就能在页面上读到 insider 条目，能读就能下，不额外设限。
+//   注意 `visibilityClause()` 对**管理员**返回 null（表示"全可见"），所以这里要单独兜住
+//   private —— 否则管理员会把 private 条目也下载走，而需求明确是"内部人员及以上"。
+router.get('/:id/download', optionalAuth, async (req, res) => {
+  const row = db
+    .prepare(`SELECT ${POST_FIELDS} FROM posts p JOIN users u ON u.id = p.author_id WHERE p.id = ?`)
+    .get(Number(req.params.id))
+  if (!row) return res.status(404).json({ error: { code: 'NOT_FOUND', message: '条目不存在' } })
+  if (row.category !== 'wiki') {
+    return res.status(400).json({ error: { code: 'NOT_WIKI', message: '仅 Wiki 条目支持下载' } })
+  }
+  // 仅"内部人员及以上"：游客没有下载入口
+  if (!req.user) {
+    return res.status(401).json({ error: { code: 'UNAUTHORIZED', message: '请先获取内部人员或管理员身份' } })
+  }
+  const vis = visibilityClause(req.user)
+  const allowed =
+    vis === null
+      ? // 管理员：除 private 外都可下（private 只留在站内）
+        row.visibility !== 'private'
+      : vis === "p.visibility IN ('public', 'insider')"
+        ? row.visibility === 'public' || row.visibility === 'insider'
+        : row.visibility === 'public'
+  if (!allowed) return res.status(404).json({ error: { code: 'NOT_FOUND', message: '条目不存在' } })
+
+  const format = row.format === 'html' ? 'html' : 'md'
+  const body = format === 'html' ? row.content_html || '' : row.content_md || ''
+  const tags = parseTags(row.tags)
+  const safeSlug = String(row.slug || 'wiki-' + row.id).replace(/[\\/:*?"<>|]/g, '-')
+  const ext = format === 'html' ? 'html' : 'md'
+
+  const zip = new JSZip()
+  // HTML 条目原样保存（它本来就是完整文档）；md 条目补一段人类可读的头部。
+  const content =
+    format === 'html'
+      ? body
+      : `# ${row.title}\n\n` +
+        (row.summary ? `> ${row.summary}\n\n` : '') +
+        `标签：${tags.join('、') || '无'}\n` +
+        `可见性：${row.visibility}\n` +
+        `更新时间：${row.updated_at || ''}\n\n` +
+        '---\n\n' +
+        body
+  zip.file(`${safeSlug}.${ext}`, content)
+
+  // 正文引用的图片一并打包 —— 但**不重写正文里的链接**。
+  // 正文写的是站内绝对路径 `/uploads/x.png`，而 zip 解压后就是同级的 `uploads/x.png`：
+  // 直接双击打开 HTML/MD 时相对路径自然命中；这样既不用改用户的原文，
+  // 也不依赖站点是否可达（不塞 base64，文件不会膨胀）。
+  const refs = [...new Set(collectUploadRefs(body))]
+  let images = 0
+  for (const name of refs) {
+    const file = path.join(UPLOAD_DIR, name)
+    try {
+      if (fs.existsSync(file)) {
+        zip.file('uploads/' + name, fs.readFileSync(file))
+        images++
+      }
+    } catch (_) {
+      /* 单张图读失败不影响整体下载 */
+    }
+  }
+  if (images) {
+    zip.file(
+      'README.txt',
+      `${row.title}
+${'='.repeat(Math.min(40, Math.max(3, row.title.length)))}
+- ${safeSlug}.${ext}   Wiki 正文（${format === 'html' ? 'HTML 文档，可直接双击打开' : 'Markdown'}）
+- uploads/          正文里引用的 ${images} 张图片
+
+正文里的图片链接写作 /uploads/xxx —— 与 zip 内的 uploads/ 目录同名，
+解压后在本地打开即可正常显示。
+`
+    )
+  }
+
+  const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })
+  res.setHeader('Content-Type', 'application/zip')
+  /* ⚠⚠ **不要下发 `Content-Disposition`** —— 这是踩出来的硬结论：
+     Chrome 看到 `Content-Disposition: attachment` 会把响应当成"下载"处理，
+     于是**前端 `fetch()` 拿到的是 204 + 空 body**（实测：带该头 status=204/bytes=0，
+     不带则 status=200/bytes=10575）。文件确实会被浏览器存下来，但页面里
+     `await res.blob()` 拿到 0 字节 —— 我们是用 fetch 取 blob 再自己触发下载的，
+     所以下载下来就是一个 0 字节的 zip。
+     正确做法：服务端只给干净的字节，**文件名交给前端**（`<a download="...">`）。
+     顺带还避开另一个坑：该头只能是 ASCII，而 wiki 的 slug 常是中文，
+     直接写会抛 `ERR_INVALID_CHAR` 把请求打成 500（曾经就发生过）。 */
+  res.send(buf)
+})
+
 // 导入：上传导出的 zip；同 slug 已存在（wiki）→ 跳过，其余按“当前管理员”新建。
 // 图片文件名沿用导出时的名字，同名文件已存在则跳过写入（不覆盖）。
 const SAFE_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/

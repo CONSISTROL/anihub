@@ -88,7 +88,13 @@ onUnmounted(() => {
   align-items: center;
   gap: 7px;
   padding: 5px 9px 5px 6px;
-  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  /* ⚠ 底色加实、**不要 backdrop-filter**：这个按钮放在 `.header` 里，
+     而 `.header` 带 `ios-rise-in` 入场动画（`backwards` + 延迟）。
+     动画期间祖先 opacity < 1，`backdrop-filter` 无法正确采样背景、模糊等于没做，
+     只剩半透明底色透出页面背景 —— 表现就是"刚出现的一瞬间发白一下"
+     （浅色主题背景接近白色）。同 `.col-head`、`.month-bar`、公告条。
+     它本身已经是 88% 面板色，视觉上不需要模糊。 */
+  background: color-mix(in srgb, var(--panel) 96%, transparent);
   border: 1px solid var(--border);
   border-radius: 999px;
   cursor: pointer;
@@ -96,7 +102,6 @@ onUnmounted(() => {
   font-size: 13px;
   font-family: inherit;
   box-shadow: 0 2px 10px rgb(0 0 0 / 0.06);
-  backdrop-filter: blur(10px);
   transition:
     transform var(--dur-ios-1) var(--ease-ios-spring),
     border-color var(--dur-ios-2) var(--ease-ios-expo),
