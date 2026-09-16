@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import router from './router'
 import { isDeepRoute, prefetchWikiGraph } from './wikiView'
+import './tabVisit' // 启动时读一次"本标签页此前是否打开过本站"（错误页回上一页要用，见该文件）
 import './style.css'
 
 const app = createApp(App)

@@ -138,9 +138,14 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* 原设计 180×70em，font-size 决定实际尺寸（≈77×31 适配导航栏） */
+/* 原设计 180×70em，font-size 决定实际尺寸。
+   ⚠ 缩放基准必须绑到顶栏的 --nav-item-h（= 顶栏里所有控件的高度）：这样开关的
+     高度**恒等于**其它控件，上下边缘连成一条直线。
+     早先写死 `font-size: 0.43px` → 高 30.1px，比 32px 的键盘按钮矮 2px，
+     靠外面那层 32px 的槽位居中后，顶部/底部各差 1px，肉眼就是"没对齐"。
+     `calc(32px / 70)` 的写法让"70em 高 = 32px"这层关系留在代码里，不是魔数。 */
 .ts-wrap {
-  font-size: 0.43px;
+  font-size: calc(var(--nav-item-h, 32px) / 70);
   width: 180em;
   height: 70em;
   position: relative;

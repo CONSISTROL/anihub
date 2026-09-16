@@ -338,6 +338,8 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  /* 高度与其它控件一致（只是把可点区域撑高，图标本身仍居中原位、左缘依然是 20px） */
+  height: var(--nav-item-h, 32px);
   color: var(--accent);
   text-decoration: none;
   transition: opacity var(--dur-ios-1) var(--ease-ios-expo);
@@ -358,10 +360,15 @@ onUnmounted(() => {
 }
 
 .links a {
-  /* 纵向内边距是按"顶栏内容高度"定的：这一项（以及 .navbar 的上下 padding）
-     决定了整条顶栏多高（实测导航链接 35px 是最高子元素，搜索框只 31px）。
-     由 7px 收到 5px，链接高度 35→31px，与搜索框齐平。 */
-  padding: 5px 13px;
+  /* ⚠ 高度**定死**为顶栏控件高度，不要靠 padding + 行高去撑：
+     一是那样难免差半像素（早先实测 31px，比旁边的 32px 控件上下各差 0.5px，
+     当前页的胶囊底色就会跟按钮边缘错开）；
+     二是字号一变（断点里调过字号、或字体加载后度量变化）链接高度就跟着变，
+     整条顶栏的高度也会被它顶起来 —— 这个文件一直在防的就是这件事。 */
+  display: inline-flex;
+  align-items: center;
+  height: var(--nav-item-h, 32px);
+  padding: 0 13px;
   font-size: 14px;
   font-weight: 500;
   color: color-mix(in srgb, var(--text) 78%, transparent);
@@ -492,8 +499,9 @@ onUnmounted(() => {
 .theme-slot {
   display: inline-flex;
   align-items: center;
-  /* 与其它控件同高（见 .navbar 的 --nav-item-h 说明）：
-     主题开关自身 30.1px，不定高时它会与 32px 的键盘按钮差 2px、顶部对不齐 */
+  /* 与其它控件同高（见 .navbar 的 --nav-item-h 说明）。
+     开关自身的高度也由 --nav-item-h 推出来（见 ThemeSelector.vue 的 .ts-wrap），
+     两边恒等，所以上下边缘能连成一条直线，这里的定高只是兜底。 */
   height: var(--nav-item-h, 32px);
 }
 
@@ -535,8 +543,12 @@ onUnmounted(() => {
 
 .insider-avatar {
   display: block;
-  width: 28px;
-  height: 28px;
+  /* ⚠ 尺寸必须跟 --nav-item-h（顶栏统一控件高度）一致：早先是写死的 28px，
+     与旁边 32px 的键盘 / 主题按钮虽然中心对齐，但上下边缘各差 2px，
+     整条顶栏的控件边缘连不成一条直线（用户反馈"像不在一根中轴上"）。
+     边框已由全局 box-sizing: border-box 计入这个尺寸，不会撑大。 */
+  width: var(--nav-item-h, 32px);
+  height: var(--nav-item-h, 32px);
   object-fit: cover;
   border: 1.5px solid rgb(122 77 8 / 0.5);
   border-radius: 50%;
@@ -568,17 +580,18 @@ onUnmounted(() => {
   /* 纵向位置要让"头像 → 卡片"这条悬停路径不断开：
      卡片、头像都是 .insider-wrap 的子元素，指针一旦离开两者的并集，
      就会触发 pointerleave 把卡片收起来（表现为卡片闪一下消失）。
-     头像以右上角为原点放大到 1.55 倍后底边下移约 15px，
-     因此把卡片顶边放在 100% + 13px：
-       · 收起态：卡片顶边在头像底边下方约 2.6px（不贴着，视觉干净）
+     头像以右上角为原点放大到 1.55 倍后底边下移 32 × 0.55 ≈ 17.6px，
+     因此把卡片顶边放在 100% + 15px：
+       · 收起态：卡片顶边在头像底边下方约 15px（不贴着，视觉干净）
        · 展开态：卡片顶边落在放大后头像底边**之上**约 2.6px，
          与头像相接、路径连续；这 2.6px 落在头像下缘的空白处，不会盖到脸
-     实测展开态卡片顶边低于「匿名模式」标题，不遮挡任何文字。 */
-  top: calc(100% + 13px);
+     实测展开态卡片顶边低于「匿名模式」标题，不遮挡任何文字。
+     ⚠ 这两个数都是按头像 32px、放大 1.55 倍算出来的；改头像尺寸要同步改。 */
+  top: calc(100% + 15px);
   /* 横向对齐**放大后头像的视觉中心**，而不是 .insider-wrap 的布局中心。
      头像以右上角为原点放大，视觉中心相对布局中心左移
-     (28 × 0.55) / 2 ≈ 7.7px；卡片若按 50% 居中就会整体偏右。 */
-  --ic-shift: 7.7px;
+     (32 × 0.55) / 2 ≈ 8.8px；卡片若按 50% 居中就会整体偏右。 */
+  --ic-shift: 8.8px;
   left: calc(50% - var(--ic-shift));
   z-index: 1;
   display: flex;
@@ -895,7 +908,7 @@ onUnmounted(() => {
 
   .links a {
     flex: 0 0 auto;
-    padding: 6px 11px;
+    padding: 0 11px;
     font-size: 13px;
   }
 
