@@ -27,12 +27,66 @@ const OPTIONS = [
   { key: 'pet', label: '桌宠（蓝毛小女仆）', desc: '网页右下角的动画小宠物，默认内部人员可见、游客不可见' },
 ]
 
+// 侧边导航分组：与右侧面板一一对应。分组的边界刻意与保存边界对齐 ——
+// 「权限」组恰好是 onSave 写入的那几项，壁纸/书目各自带自己的保存按钮。
+const GROUPS = [
+  { key: 'perm', label: '权限', icon: 'eye', desc: '页面与内容的身份可见范围' },
+  { key: 'content', label: '外观与内容', icon: 'folder', desc: '配色方案、壁纸管理与书目上架' },
+  { key: 'stats', label: '统计', icon: 'history', desc: '访问量、访问记录与 IP 来源' },
+  { key: 'monitor', label: '监控', icon: 'monitor', desc: '服务器实时状态与历史图表' },
+  { key: 'system', label: '系统', icon: 'gear', desc: '版本检查与升级' },
+]
+const activeGroup = ref('perm')
+// 只读面板改为分组内展示后，不再在进入设置页时就拉取（避免为没人看的
+// 面板发请求）；首次切到该组时加载一次，之后保留数据。
+const loadedGroups = new Set()
+
+function switchGroup(key) {
+  if (activeGroup.value === key) return
+  activeGroup.value = key
+  // 各面板高度差别很大，切换后回到页顶，避免停在空白区
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+  // 监控轮询只在监控组前台时进行，切回来立即补一次，避免看到过期数据
+  if (key === 'monitor') {
+    refreshMonitor()
+    loadHistory()
+  }
+  if (key === 'stats' && !loadedGroups.has('stats')) {
+    loadedGroups.add('stats')
+    loadVisits()
+  }
+}
+
 const guestSelected = ref([])
 const insiderSelected = ref([])
 const wallpaperGuest = ref(true)
 const wallpaperInsider = ref(true)
 const adultGuest = ref(false)
 const adultInsider = ref(false)
+const schemeSelected = ref('classic')
+
+/**
+ * 配色方案列表与预览色卡。
+ * ⚠ 色卡取值与 src/style.css 的 [data-scheme] 块是同一套数字（CSS 读不到 JS），
+ *   调整配色时两处要一起改。预览纯装饰，即使略有出入也不影响实际渲染。
+ *   面板给的是带透明度的原值，色卡里叠在底色上自然合成，能直观看出通透度差异。
+ */
+const SCHEME_OPTIONS = [
+  {
+    id: 'classic',
+    label: '经典',
+    desc: '原有配色：面板更透，壁纸感更强',
+    light: { bg: '#f2f4f9', panel: 'rgb(255 255 255 / 0.52)', border: '#d5dae6', text: '#1b2030', muted: '#6a7284', accent: '#4a6cf7' },
+    dark: { bg: '#0e1015', panel: 'rgb(23 26 34 / 0.72)', border: '#262b38', text: '#e8eaf0', muted: '#8b93a7', accent: '#6c8cff' },
+  },
+  {
+    id: 'indigo',
+    label: '靛蓝',
+    desc: '面板更实、文字对比更高，长文更好读',
+    light: { bg: '#eef1f7', panel: 'rgb(255 255 255 / 0.82)', border: '#d3d9e6', text: '#171b26', muted: '#4d5670', accent: '#2f4bc4' },
+    dark: { bg: '#0f1218', panel: 'rgb(25 29 38 / 0.82)', border: '#2a303d', text: '#eceef4', muted: '#98a1b8', accent: '#7b9bff' },
+  },
+]
 const loading = ref(true)
 const saving = ref(false)
 const message = ref('')
@@ -265,6 +319,7 @@ onMounted(async () => {
     wallpaperInsider.value = d.wallpaper?.insider === true
     adultGuest.value = d.showAdult?.guest === true
     adultInsider.value = d.showAdult?.insider === true
+    schemeSelected.value = d.themeScheme || 'classic'
   } catch (e) {
     error.value = e.message
   } finally {
@@ -284,24 +339,50 @@ const guestCovered = computed(() =>
   OPTIONS.filter((o) => guestSelected.value.includes(o.key))
 )
 
+/** PUT /settings 是全量覆盖（服务端要求 guestPages 必填），所以两个入口共用同一份 payload */
+function settingsPayload() {
+  return {
+    guestPages: guestSelected.value,
+    insiderPages: insiderSelected.value,
+    wallpaper: { guest: wallpaperGuest.value, insider: wallpaperInsider.value },
+    showAdult: { guest: adultGuest.value, insider: adultInsider.value },
+    themeScheme: schemeSelected.value,
+  }
+}
+
 async function onSave() {
   saving.value = true
   message.value = ''
   error.value = ''
   try {
-    const d = await updateSettings({
-      guestPages: guestSelected.value,
-      insiderPages: insiderSelected.value,
-      wallpaper: { guest: wallpaperGuest.value, insider: wallpaperInsider.value },
-      showAdult: { guest: adultGuest.value, insider: adultInsider.value },
-    })
-    settings.apply(d) // 导航 / 主页立即生效
+    const d = await updateSettings(settingsPayload())
+    settings.apply(d) // 导航 / 主页立即生效（含配色方案：applyData 里会 applyScheme）
     insiderSelected.value = d.insiderPages
     message.value = '已保存'
   } catch (e) {
     error.value = e.message
   } finally {
     saving.value = false
+  }
+}
+
+/* 配色方案在「外观与内容」组里，与本组的壁纸/书目一致：自带保存与反馈，
+   不去够「权限」组底部那个按钮。写入的是同一份全量 payload（值都由服务端回填过，
+   对权限项等于原样写回）。 */
+const schemeSaving = ref(false)
+const schemeMessage = ref('')
+
+async function saveScheme() {
+  schemeSaving.value = true
+  schemeMessage.value = ''
+  try {
+    const d = await updateSettings(settingsPayload())
+    settings.apply(d) // applyData → applyScheme，配色立即生效
+    schemeMessage.value = '配色方案已保存'
+  } catch (e) {
+    schemeMessage.value = '保存失败：' + e.message
+  } finally {
+    schemeSaving.value = false
   }
 }
 
@@ -597,36 +678,35 @@ function closeIpDetail() {
 
 // 轮询调度：使用自排程 setTimeout 而不是 setInterval，
 // 这样在标签页不可见时可以直接跳过本次请求（后台页面没必要 5 秒一次打接口/查数据库）。
-// 重新可见时立刻补一次，保证数据不会看起来过期。
+// 监控面板改成分组内展示后，不在该分组时也一并跳过。
 function scheduleMonitor() {
   clearTimeout(monTimer)
   monTimer = setTimeout(async () => {
-    if (!document.hidden) await refreshMonitor()
+    if (!document.hidden && activeGroup.value === 'monitor') await refreshMonitor()
     scheduleMonitor()
   }, 5000)
 }
 function scheduleHistory() {
   clearTimeout(histTimer)
   histTimer = setTimeout(async () => {
-    if (!document.hidden) await loadHistory()
+    if (!document.hidden && activeGroup.value === 'monitor') await loadHistory()
     scheduleHistory()
   }, 15000)
 }
 
 function onVisibilityChange() {
   if (document.hidden) return
-  refreshMonitor()
-  loadHistory()
+  if (activeGroup.value === 'monitor') {
+    refreshMonitor()
+    loadHistory()
+  }
   if (upgProgress.value?.running) loadUpgradeProgress()
 }
 
 onMounted(() => {
-  refreshMonitor()
   scheduleMonitor()
   setCustomNow()
-  loadHistory()
   scheduleHistory()
-  loadVisits()
   document.addEventListener('visibilitychange', onVisibilityChange)
 })
 onUnmounted(() => {
@@ -645,93 +725,28 @@ onUnmounted(() => {
     <p v-if="error" class="settings-error">{{ error }}</p>
     <p v-if="loading" class="settings-hint">加载中…</p>
 
-    <div v-else class="settings-stack">
-      <section class="settings-card">
-        <h2 class="section-title">网站升级</h2>
-        <p class="section-sub">检查服务器代码与远程仓库的版本差异；升级需要 su/root 权限</p>
+    <div v-else class="settings-layout">
+      <nav class="settings-nav" role="tablist" aria-label="设置分组">
+        <button
+          v-for="g in GROUPS"
+          :key="g.key"
+          type="button"
+          class="nav-item"
+          :class="{ active: activeGroup === g.key }"
+          role="tab"
+          :aria-selected="activeGroup === g.key"
+          :title="g.desc"
+          @click="switchGroup(g.key)"
+        >
+          <AppIcon :name="g.icon" :size="15" />
+          <span>{{ g.label }}</span>
+        </button>
+      </nav>
 
-        <p v-if="upgLoading" class="settings-hint">正在检查更新…</p>
-        <p v-else-if="upgError" class="settings-error">{{ upgError }}</p>
+      <div class="settings-panels">
 
-        <template v-else-if="upg">
-          <p v-if="upg.git === false" class="settings-hint">{{ upg.message }}</p>
-          <template v-else>
-            <div class="upg-row">
-              <span>当前版本</span>
-              <b>{{ upg.currentCommitShort || '—' }}</b>
-            </div>
-
-            <p v-if="upg.fetchError" class="settings-error">{{ upg.fetchError }}</p>
-
-            <template v-if="upg.updateAvailable !== null">
-              <div class="upg-row">
-                <span>远程最新</span>
-                <b>{{ upg.remoteCommitShort || '—' }}</b>
-              </div>
-              <div class="upg-row">
-                <span>提交差异</span>
-                <b :class="upg.behind > 0 ? 'upg-behind' : 'upg-ok'">
-                  {{ upg.ahead > 0 ? `领先 ${upg.ahead} 个提交 · ` : '' }}{{ upg.behind > 0 ? `落后 ${upg.behind} 个提交` : '已是最新' }}
-                </b>
-              </div>
-
-              <div v-if="upg.remoteCommits?.length" class="upg-commits">
-                <p class="upg-commits-title">远程新增提交：</p>
-                <div v-for="c in upg.remoteCommits" :key="c.hash" class="upg-commit">
-                  <code>{{ c.hash }}</code>
-                  <span>{{ c.subject }}</span>
-                </div>
-              </div>
-
-              <div class="upg-actions">
-                <button
-                  class="btn btn-primary"
-                  :disabled="!upg.updateAvailable || upgBusy"
-                  @click="openUpgradeModal"
-                >{{ upg.updateAvailable ? '立即升级' : upg.fetchError ? '检查失败' : '无需升级' }}</button>
-                <span v-if="upg.updateAvailable === false" class="upg-ok-text">当前已是最新版本</span>
-              </div>
-
-            </template>
-          </template>
-        </template>
-
-        <!-- 升级进度：仅在升级中/完成/失败时展示，空闲时隐藏 -->
-        <div v-if="upgProgress && upgProgress.state !== 'idle'" class="upg-progress">
-          <div class="upg-progress-head">
-            <span class="upg-progress-label">{{ upgProgressLabel }}</span>
-            <span v-if="upgProgress.running" class="upg-progress-spinner"></span>
-            <span v-else-if="upgProgress.state === 'done'" class="upg-ok-text">升级完成</span>
-            <span v-else-if="upgProgress.state === 'failed'" class="upg-behind">升级失败</span>
-          </div>
-          <div class="upg-progress-track">
-            <div class="upg-progress-bar" :style="{ width: upgProgressPercent + '%' }"></div>
-          </div>
-          <pre ref="upgLogEl" v-if="upgProgress.log" class="upg-log">{{ upgProgress.log }}</pre>
-        </div>
-
-        <!-- su/root 密码确认弹窗 -->
-        <div v-if="upgModal" class="upg-modal-mask" @click.self="upgModal = false">
-          <div class="upg-modal">
-            <h3 class="upg-modal-title">确认升级</h3>
-            <p class="upg-modal-desc">升级将执行 <code>deploy/update.sh</code>，需要 su/root 权限，请输入 root 密码。</p>
-            <input
-              v-model="upgPassword"
-              type="password"
-              placeholder="su / root 密码"
-              autocomplete="current-password"
-              @keyup.enter="confirmUpgrade"
-            />
-            <p v-if="upgMessage" class="settings-error">{{ upgMessage }}</p>
-            <div class="upg-modal-actions">
-              <button class="btn" :disabled="upgBusy" @click="upgModal = false">取消</button>
-              <button class="btn btn-primary" :disabled="upgBusy" @click="confirmUpgrade">
-                {{ upgBusy ? '升级中…' : '确认升级' }}
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
+      <!-- 权限：恰好是 onSave 写入的范围，保存按钮就近放在本面板末尾 -->
+      <div v-show="activeGroup === 'perm'" class="settings-panel" role="tabpanel" aria-label="权限">
 
       <section class="settings-card">
         <h2 class="section-title">游客可见页面</h2>
@@ -780,8 +795,88 @@ onUnmounted(() => {
             <span class="opt-desc">内部人员身份访问时显示壁纸背景</span>
           </span>
         </label>
+      </section>
 
-        <h3 class="sub-title">壁纸管理</h3>
+      <section class="settings-card">
+        <h2 class="section-title">Anime 内容</h2>
+        <p class="section-sub">成人内容对哪些身份显示（管理员登录后恒可见；默认仅管理员可见）</p>
+        <label class="opt">
+          <input v-model="adultGuest" type="checkbox" />
+          <span class="opt-main">
+            <span class="opt-label">游客可见成人内容</span>
+            <span class="opt-desc">Anime 日历 / 站内搜索对游客展示标注为成人的番剧</span>
+          </span>
+        </label>
+        <label class="opt">
+          <input v-model="adultInsider" type="checkbox" />
+          <span class="opt-main">
+            <span class="opt-label">内部人员可见成人内容</span>
+            <span class="opt-desc">Anime 日历 / 站内搜索对内部人员展示标注为成人的番剧</span>
+          </span>
+        </label>
+      </section>
+
+      <div class="actions">
+        <button class="btn btn-primary" :disabled="saving" @click="onSave">
+          {{ saving ? '保存中…' : '保存' }}
+        </button>
+        <span v-if="message" class="saved">{{ message }}</span>
+      </div>
+
+      </div>
+
+      <!-- 内容 -->
+      <div v-show="activeGroup === 'content'" class="settings-panel" role="tabpanel" aria-label="外观与内容">
+
+      <section class="settings-card">
+        <h2 class="section-title">配色方案</h2>
+        <p class="section-sub">
+          全站配色，对访客同样生效。深浅两套仍按时间自动切换，方案只决定色板。
+        </p>
+        <div class="scheme-grid" role="radiogroup" aria-label="配色方案">
+          <button
+            v-for="s in SCHEME_OPTIONS"
+            :key="s.id"
+            type="button"
+            class="scheme-card"
+            :class="{ on: schemeSelected === s.id }"
+            role="radio"
+            :aria-checked="schemeSelected === s.id"
+            @click="schemeSelected = s.id"
+          >
+            <span class="scheme-preview" aria-hidden="true">
+              <span
+                v-for="mode in ['light', 'dark']"
+                :key="mode"
+                class="sp-mode"
+                :style="{ background: s[mode].bg }"
+              >
+                <span class="sp-panel" :style="{ background: s[mode].panel, borderColor: s[mode].border }">
+                  <span class="sp-line" :style="{ background: s[mode].text }"></span>
+                  <span class="sp-line sp-short" :style="{ background: s[mode].muted }"></span>
+                  <span class="sp-dot" :style="{ background: s[mode].accent }"></span>
+                </span>
+              </span>
+            </span>
+            <span class="scheme-meta">
+              <span class="scheme-name">
+                {{ s.label }}
+                <AppIcon v-if="schemeSelected === s.id" name="check" :size="12" :stroke-width="2.6" />
+              </span>
+              <span class="scheme-desc">{{ s.desc }}</span>
+            </span>
+          </button>
+        </div>
+        <div class="wp-actions">
+          <button class="btn btn-sm btn-primary" :disabled="schemeSaving" @click="saveScheme">
+            {{ schemeSaving ? '保存中…' : '保存配色方案' }}
+          </button>
+          <span v-if="schemeMessage" class="wp-msg">{{ schemeMessage }}</span>
+        </div>
+      </section>
+
+      <section class="settings-card">
+        <h2 class="section-title">壁纸管理</h2>
         <p class="section-sub">勾选参与展示的壁纸（轮播只在选中项中随机）；不勾选任何时自动使用全部</p>
         <div class="wp-grid">
           <div
@@ -857,24 +952,10 @@ onUnmounted(() => {
         </div>
       </section>
 
-      <section class="settings-card">
-        <h2 class="section-title">Anime 内容</h2>
-        <p class="section-sub">成人内容对哪些身份显示（管理员登录后恒可见；默认仅管理员可见）</p>
-        <label class="opt">
-          <input v-model="adultGuest" type="checkbox" />
-          <span class="opt-main">
-            <span class="opt-label">游客可见成人内容</span>
-            <span class="opt-desc">Anime 日历 / 站内搜索对游客展示标注为成人的番剧</span>
-          </span>
-        </label>
-        <label class="opt">
-          <input v-model="adultInsider" type="checkbox" />
-          <span class="opt-main">
-            <span class="opt-label">内部人员可见成人内容</span>
-            <span class="opt-desc">Anime 日历 / 站内搜索对内部人员展示标注为成人的番剧</span>
-          </span>
-        </label>
-      </section>
+      </div>
+
+      <!-- 统计 -->
+      <div v-show="activeGroup === 'stats'" class="settings-panel" role="tabpanel" aria-label="统计">
 
       <section class="settings-card">
         <h2 class="section-title">访问统计</h2>
@@ -913,7 +994,7 @@ onUnmounted(() => {
         </div>
 
         <div v-if="visitChart()" class="visit-chart">
-          <LineChart title="近 30 天访问趋势" :series="visitChart().trend" :x-labels="visitChart().xLabels" y-type="plain" height="160" />
+          <LineChart title="近 30 天访问趋势" :series="visitChart().trend" :x-labels="visitChart().xLabels" y-type="plain" :height="160" />
         </div>
         <p v-else-if="visitSummary" class="settings-hint">暂无访问数据</p>
 
@@ -1024,6 +1105,10 @@ onUnmounted(() => {
         </div>
       </section>
 
+      </div>
+
+      <!-- 监控 -->
+      <div v-show="activeGroup === 'monitor'" class="settings-panel" role="tabpanel" aria-label="监控">
 
       <section class="settings-card">
         <h2 class="section-title">服务器监控</h2>
@@ -1121,11 +1206,99 @@ onUnmounted(() => {
         </div>
       </section>
 
-      <div class="actions">
-        <button class="btn btn-primary" :disabled="saving" @click="onSave">
-          {{ saving ? '保存中…' : '保存' }}
-        </button>
-        <span v-if="message" class="saved">{{ message }}</span>
+      </div>
+
+      <!-- 系统 -->
+      <div v-show="activeGroup === 'system'" class="settings-panel" role="tabpanel" aria-label="系统">
+
+      <section class="settings-card">
+        <h2 class="section-title">网站升级</h2>
+        <p class="section-sub">检查服务器代码与远程仓库的版本差异；升级需要 su/root 权限</p>
+
+        <p v-if="upgLoading" class="settings-hint">正在检查更新…</p>
+        <p v-else-if="upgError" class="settings-error">{{ upgError }}</p>
+
+        <template v-else-if="upg">
+          <p v-if="upg.git === false" class="settings-hint">{{ upg.message }}</p>
+          <template v-else>
+            <div class="upg-row">
+              <span>当前版本</span>
+              <b>{{ upg.currentCommitShort || '—' }}</b>
+            </div>
+
+            <p v-if="upg.fetchError" class="settings-error">{{ upg.fetchError }}</p>
+
+            <template v-if="upg.updateAvailable !== null">
+              <div class="upg-row">
+                <span>远程最新</span>
+                <b>{{ upg.remoteCommitShort || '—' }}</b>
+              </div>
+              <div class="upg-row">
+                <span>提交差异</span>
+                <b :class="upg.behind > 0 ? 'upg-behind' : 'upg-ok'">
+                  {{ upg.ahead > 0 ? `领先 ${upg.ahead} 个提交 · ` : '' }}{{ upg.behind > 0 ? `落后 ${upg.behind} 个提交` : '已是最新' }}
+                </b>
+              </div>
+
+              <div v-if="upg.remoteCommits?.length" class="upg-commits">
+                <p class="upg-commits-title">远程新增提交：</p>
+                <div v-for="c in upg.remoteCommits" :key="c.hash" class="upg-commit">
+                  <code>{{ c.hash }}</code>
+                  <span>{{ c.subject }}</span>
+                </div>
+              </div>
+
+              <div class="upg-actions">
+                <button
+                  class="btn btn-primary"
+                  :disabled="!upg.updateAvailable || upgBusy"
+                  @click="openUpgradeModal"
+                >{{ upg.updateAvailable ? '立即升级' : upg.fetchError ? '检查失败' : '无需升级' }}</button>
+                <span v-if="upg.updateAvailable === false" class="upg-ok-text">当前已是最新版本</span>
+              </div>
+
+            </template>
+          </template>
+        </template>
+
+        <!-- 升级进度：仅在升级中/完成/失败时展示，空闲时隐藏 -->
+        <div v-if="upgProgress && upgProgress.state !== 'idle'" class="upg-progress">
+          <div class="upg-progress-head">
+            <span class="upg-progress-label">{{ upgProgressLabel }}</span>
+            <span v-if="upgProgress.running" class="upg-progress-spinner"></span>
+            <span v-else-if="upgProgress.state === 'done'" class="upg-ok-text">升级完成</span>
+            <span v-else-if="upgProgress.state === 'failed'" class="upg-behind">升级失败</span>
+          </div>
+          <div class="upg-progress-track">
+            <div class="upg-progress-bar" :style="{ width: upgProgressPercent + '%' }"></div>
+          </div>
+          <pre ref="upgLogEl" v-if="upgProgress.log" class="upg-log">{{ upgProgress.log }}</pre>
+        </div>
+
+        <!-- su/root 密码确认弹窗 -->
+        <div v-if="upgModal" class="upg-modal-mask" @click.self="upgModal = false">
+          <div class="upg-modal">
+            <h3 class="upg-modal-title">确认升级</h3>
+            <p class="upg-modal-desc">升级将执行 <code>deploy/update.sh</code>，需要 su/root 权限，请输入 root 密码。</p>
+            <input
+              v-model="upgPassword"
+              type="password"
+              placeholder="su / root 密码"
+              autocomplete="current-password"
+              @keyup.enter="confirmUpgrade"
+            />
+            <p v-if="upgMessage" class="settings-error">{{ upgMessage }}</p>
+            <div class="upg-modal-actions">
+              <button class="btn" :disabled="upgBusy" @click="upgModal = false">取消</button>
+              <button class="btn btn-primary" :disabled="upgBusy" @click="confirmUpgrade">
+                {{ upgBusy ? '升级中…' : '确认升级' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      </div>
       </div>
     </div>
     <VisitRecordDetailModal
@@ -1153,7 +1326,7 @@ onUnmounted(() => {
 
 <style scoped>
 .settings-page {
-  max-width: min(1200px, 95vw); /* 高分辨率适配 */
+  max-width: min(1400px, 94vw); /* 高分辨率适配；放宽是为了给左侧分组导航留出宽度 */
   margin: 0 auto;
   padding: 24px 20px 60px;
 }
@@ -1173,7 +1346,7 @@ onUnmounted(() => {
 }
 
 .settings-error {
-  color: #ff9d9d;
+  color: var(--danger);
   font-size: 14px;
 }
 
@@ -1184,10 +1357,103 @@ onUnmounted(() => {
   padding: 30px 0;
 }
 
-.settings-stack {
+.settings-layout {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+/* 侧边分组导航：吸在顶栏下方（--nav-h 由 NavBar 实测写入 :root） */
+.settings-nav {
+  position: sticky;
+  top: calc(var(--nav-h, 48px) + 12px);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-ios-2) var(--ease-ios-expo),
+    color var(--dur-ios-1) var(--ease-ios-expo),
+    box-shadow var(--dur-ios-2) var(--ease-ios-expo);
+}
+
+.nav-item:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.nav-item.active {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/* min-width:0 让宽表格不会把网格列撑破 */
+.settings-panels {
+  min-width: 0;
+}
+
+.settings-panel {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+/* 窄屏：导航退化为横向可滚动胶囊条，仍吸在顶栏下方 */
+@media (max-width: 860px) {
+  .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .settings-nav {
+    flex-direction: row;
+    gap: 3px;
+    padding: 3px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .settings-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nav-item {
+    flex: 0 0 auto;
+    padding: 6px 11px; /* 比桌面端的 12px 更紧：5 个分组里有「外观与内容」这个长名，375px 下要能全部显示 */
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+
+  /* 图标在胶囊条里很占宽度；分组名只有两个字，隐藏后 5 个分组在手机宽度内
+     可以全部显示，不必横向滚动、也不会漏掉末尾的「系统」 */
+  .nav-item .app-icon {
+    display: none;
+  }
+
+  .nav-item.active {
+    box-shadow: none;
+  }
 }
 
 .settings-card {
@@ -1274,7 +1540,7 @@ onUnmounted(() => {
   height: 20px;
   border-radius: 50%;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.35);
   animation: ios-pop-in var(--dur-ios-2) var(--ease-ios-spring) both;
 }
@@ -1302,6 +1568,116 @@ onUnmounted(() => {
 
 .wp-msg {
   font-size: 12px;
+  color: var(--muted);
+}
+
+/* —— 配色方案选择器 —— */
+.scheme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.scheme-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-ios-2) var(--ease-ios-expo),
+    background-color var(--dur-ios-2) var(--ease-ios-expo),
+    transform var(--dur-ios-2) var(--ease-ios-spring);
+}
+
+.scheme-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+
+.scheme-card.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* 深浅两格并排，点选前就能看到方案在两个模式下的样子 */
+.scheme-preview {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
+.sp-mode {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 54px;
+  height: 42px;
+  border-radius: 7px;
+}
+
+.sp-panel {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  width: 40px;
+  height: 28px;
+  padding: 0 5px;
+  border: 1px solid;
+  border-radius: 5px;
+  position: relative;
+}
+
+.sp-line {
+  height: 3px;
+  border-radius: 2px;
+}
+
+.sp-short {
+  width: 60%;
+  opacity: 0.75;
+}
+
+.sp-dot {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.scheme-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.scheme-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.scheme-card.on .scheme-name {
+  color: var(--accent);
+}
+
+.scheme-desc {
+  font-size: 11px;
+  line-height: 1.5;
   color: var(--muted);
 }
 
@@ -1884,7 +2260,7 @@ onUnmounted(() => {
 }
 
 .upg-behind {
-  color: #ffb35c;
+  color: var(--warning);
 }
 
 .upg-ok {
@@ -1983,7 +2359,7 @@ onUnmounted(() => {
 .upg-progress-bar {
   height: 100%;
   border-radius: 4px;
-  background: linear-gradient(90deg, var(--accent), #a78bfa);
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
   transition: width 0.4s var(--ease-ios-expo);
 }
 

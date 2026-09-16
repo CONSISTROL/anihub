@@ -429,7 +429,7 @@ async function onImportFile(e) {
 
 .view-float button.on {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 /* 在拓扑图（深空区）里：切换按钮固定为深色玻璃浅字，不随站点主题变浅 */
@@ -588,6 +588,9 @@ async function onImportFile(e) {
   color: var(--muted);
 }
 
+/* ⚠ 同 WikiGraphView：这条状态文字渲染在**拓扑图模式的 HUD 里**
+   （模板中位于 v-if="viewMode === 'graph'" 的 .graph-full 内），那是一张两个主题下
+   都深色的深空底。--danger 在浅色主题下是深红，压上去看不见，所以保持固定的浅红。 */
 .admin-status.err {
   color: #ff9d9d;
 }

@@ -1009,6 +1009,10 @@ onBeforeUnmount(() => {
   min-height: 260px;
 }
 
+/* ⚠ 刻意**不**用 var(--danger)：本组件只在 wiki 拓扑图里渲染，那是一张
+   深空底（浅色主题下 `body` 也被压到 #0b1322，两个主题都是深色）。
+   而 --danger 在浅色主题下是深红 #c62828，压在深底上几乎看不见。
+   这里固定用浅红，是「深色表面上用亮红」的既有约定，不要跟着收口去改。 */
 .graph-error {
   color: #ff9d9d;
   font-size: 14px;
@@ -1092,7 +1096,7 @@ onBeforeUnmount(() => {
 .filter-bar button.on {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .filter-bar .filter-clear {

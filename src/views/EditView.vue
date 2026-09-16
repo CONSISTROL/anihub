@@ -603,7 +603,7 @@ async function onSubmit() {
 }
 
 .edit-error {
-  color: #ff9d9d;
+  color: var(--danger);
   font-size: 14px;
 }
 
@@ -667,7 +667,7 @@ async function onSubmit() {
 
 .mode-btn.on {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 /* Markdown 源码区：与工具栏连成一体 */
@@ -809,7 +809,7 @@ async function onSubmit() {
 .vis-pill input:checked + span {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .vis-pill input:focus-visible + span {

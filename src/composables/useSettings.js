@@ -1,12 +1,14 @@
-// 站点设置：游客可见页面 + 内部人员可见页面 + 壁纸/成人内容（按身份呈现，管理员恒可见）（模块级单例）
+// 站点设置：游客可见页面 + 内部人员可见页面 + 壁纸/成人内容（按身份呈现，管理员恒可见）+ 配色方案（模块级单例）
 import { ref } from 'vue'
 import { getSettings } from '../api/settings'
+import { applyScheme, SCHEMES } from './useTheme'
 
 /** null 表示尚未加载（此时默认全部可见，避免误拦截） */
 const guestPages = ref(null)
 const insiderPages = ref(null)
 const wallpaper = ref({ guest: true, insider: true }) // 网站壁纸：{ guest, insider }（管理员恒可见）
 const showAdult = ref({ guest: false, insider: false }) // Anime 成人内容：{ guest, insider }，默认仅管理员可见
+const themeScheme = ref('classic') // 全站配色方案（与昼夜主题正交），默认经典
 let loading = null
 let loadedValue = null // 已加载成功的数据（非 null 表示可以跳过网络请求）
 
@@ -20,6 +22,13 @@ function applyData(d) {
   showAdult.value = {
     guest: d.showAdult?.guest === true,
     insider: d.showAdult?.insider === true,
+  }
+  // 配色方案：applyData 是 load() 与 apply() 的共同汇聚点（访客与管理员都走这里），
+  // 在这里落地即可让服务端下发的值生效。
+  // ⚠ 未知取值一律**保持原值**而不是回退 classic —— 旧服务端或半截响应不该把方案打回默认。
+  if (SCHEMES.includes(d.themeScheme)) {
+    themeScheme.value = d.themeScheme
+    applyScheme(d.themeScheme)
   }
   loadedValue = d
 }
@@ -89,6 +98,7 @@ export function useSettings() {
     insiderPages,
     wallpaper,
     showAdult,
+    themeScheme,
     load,
     reload,
     apply,

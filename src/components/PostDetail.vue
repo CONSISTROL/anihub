@@ -411,7 +411,7 @@ onMounted(() => window.addEventListener('message', onMessage))
 }
 
 .detail-error {
-  color: #ff9d9d;
+  color: var(--danger);
   font-size: 14px;
 }
 
@@ -429,10 +429,13 @@ onMounted(() => window.addEventListener('message', onMessage))
   border-radius: 14px;
 }
 
-/* 浅色模式 Wiki：比默认面板更透明一些，让壁纸直接透出来，不加毛玻璃 */
+/* 浅色模式 Wiki：比默认面板更透明一些，让壁纸直接透出来，不加毛玻璃。
+   取值走 --panel-read / --panel-read-border 而非写死 —— 以对比度为前提的配色
+   方案会在自己的块里把这两个 token 改回常规面板，否则这里是长文阅读区，
+   恰好会把该方案的效果抵消掉。 */
 :root[data-theme='light'] .post-detail.detail-wide .post-card {
-  background: rgb(255 255 255 / 0.42);
-  border-color: rgb(255 255 255 / 0.55);
+  background: var(--panel-read);
+  border-color: var(--panel-read-border);
 }
 
 .post-head {
@@ -460,8 +463,8 @@ onMounted(() => window.addEventListener('message', onMessage))
 }
 
 .post-hidden {
-  color: #ffb35c;
-  border: 1px solid color-mix(in srgb, #ffb35c 50%, transparent);
+  color: var(--warning);
+  border: 1px solid color-mix(in srgb, var(--warning) 50%, transparent);
   border-radius: 4px;
   padding: 0 6px;
   font-size: 11px;
@@ -476,12 +479,12 @@ onMounted(() => window.addEventListener('message', onMessage))
 }
 
 .btn-danger {
-  color: #ff9d9d;
-  border-color: color-mix(in srgb, #ff5c5c 50%, var(--border));
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 50%, var(--border));
 }
 
 .btn-danger:hover {
-  border-color: #ff5c5c;
+  border-color: var(--danger);
 }
 
 /* 页面内标题滚动定位时给固定导航留出间距 */
@@ -596,7 +599,7 @@ onMounted(() => window.addEventListener('message', onMessage))
 /* 当前所在小节高亮 */
 .side-toc a.active {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .side-toc .lv-2 {

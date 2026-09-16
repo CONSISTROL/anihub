@@ -39,4 +39,13 @@
   transition-duration: 70ms;
   transition-timing-function: var(--ease-ios);
 }
+
+/* 手机上不出现召唤入口：它固定在右下角，会压在正文上挡字（阅读页尤其明显）。
+   断点与 App.vue 里算 isMobile 的 (max-width: 768px) 保持一致。
+   用媒体查询而不是 JS 判断：isMobile 要等 mounted 才更新，首帧会先闪一下按钮。 */
+@media (max-width: 768px) {
+  .pet-button {
+    display: none;
+  }
+}
 </style>

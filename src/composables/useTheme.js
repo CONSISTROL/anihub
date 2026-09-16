@@ -130,6 +130,55 @@ export function setTheme(t) {
   applyTheme()
 }
 
+/* ---------------------------------------------------------------------------
+   配色方案（与昼夜主题正交）
+   data-theme 只管明暗、data-scheme 只管色板 —— 这样站内按 'light'/'dark' 分支的
+   几处逻辑、以及书籍 iframe 的主题桥接脚本都不用知道方案的存在。
+   ⚠ 刻意**不复用 applyTheme**：它按 data-theme 的 lastApplied 值提前返回，
+     只改方案不改昼夜时会被它吞掉，所以这里单独维护一份 lastAppliedScheme。
+   --------------------------------------------------------------------------- */
+const SCHEME_KEY = 'anime-calendar.scheme'
+/** 与 src/style.css 的 [data-scheme] 块、服务端 SCHEMES 一一对应 */
+export const SCHEMES = ['classic', 'indigo']
+export const DEFAULT_SCHEME = 'classic'
+
+const storedScheme = localStorage.getItem(SCHEME_KEY)
+export const scheme = ref(SCHEMES.includes(storedScheme) ? storedScheme : DEFAULT_SCHEME)
+
+let lastAppliedScheme = null
+
+/**
+ * 应用配色方案。未知取值回退 classic。
+ *
+ * localStorage 只是**首屏前的提示值**（index.html 内联脚本读它抢首帧），
+ * 服务端下发的值永远优先 —— 所以这里每次都把生效值回写 localStorage。
+ */
+export function applyScheme(next, { animate = true } = {}) {
+  const s = SCHEMES.includes(next) ? next : DEFAULT_SCHEME
+  scheme.value = s
+  localStorage.setItem(SCHEME_KEY, s)
+  if (s === lastAppliedScheme) return // 值没变：不重写 DOM
+  lastAppliedScheme = s
+  const el = document.documentElement
+  if (animate) {
+    // 复用 applyTheme 的定时器：两者同时变更时不会被对方提前摘掉过渡类
+    el.classList.add('theme-animating')
+    clearTimeout(animTimer)
+    animTimer = setTimeout(() => el.classList.remove('theme-animating'), 600)
+  }
+  el.dataset.scheme = s
+}
+
+/** 切换配色方案（设置页保存后调用） */
+export function setScheme(s) {
+  const next = SCHEMES.includes(s) ? s : DEFAULT_SCHEME
+  if (scheme.value === next && lastAppliedScheme === next) return
+  applyScheme(next)
+}
+
+// 模块加载时立即生效（index.html 内联脚本已先设过一次，这里是状态对齐，不需要动画）
+applyScheme(scheme.value, { animate: false })
+
 // 模块加载时立即生效（index.html 内联脚本已先设过一次，这里是状态对齐，不需要动画）
 applyTheme({ animate: false })
 

@@ -269,7 +269,7 @@ async function copyJson() {
 .tool-error {
   margin: 8px 0 0;
   font-size: 13px;
-  color: #ff9d9d;
+  color: var(--danger);
   white-space: pre-line;
   line-height: 1.5;
 }

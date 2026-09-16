@@ -32,7 +32,7 @@ const emit = defineEmits(['prev', 'current', 'next'])
   min-width: 132px;
   font-weight: 600;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   border-color: transparent;
 }
 

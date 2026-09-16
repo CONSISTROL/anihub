@@ -99,9 +99,9 @@ async function onSubmit() {
   margin: 0;
   padding: 8px 12px;
   font-size: 13px;
-  color: #ff9d9d;
-  background: color-mix(in srgb, #ff5c5c 12%, var(--panel));
-  border: 1px solid color-mix(in srgb, #ff5c5c 40%, transparent);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
   border-radius: 8px;
   animation: ios-pop-in var(--dur-ios-2) var(--ease-ios-spring) both;
 }

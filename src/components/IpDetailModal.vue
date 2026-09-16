@@ -224,7 +224,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 .ip-detail-error {
-  color: #ff9d9d;
+  color: var(--danger);
 }
 
 .ip-detail-body {
@@ -264,13 +264,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 .ip-status.skipped {
-  color: #ffb35c;
-  border-color: color-mix(in srgb, #ffb35c 45%, transparent);
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 45%, transparent);
 }
 
 .ip-status.failed {
-  color: #ff9d9d;
-  border-color: color-mix(in srgb, #ff9d9d 45%, transparent);
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
 }
 
 .ip-detail-days {

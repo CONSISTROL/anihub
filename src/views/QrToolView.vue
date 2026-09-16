@@ -261,7 +261,7 @@ function clearQr() {
 .tool-error {
   margin: 12px 0 0;
   font-size: 13px;
-  color: #ff9d9d;
+  color: var(--danger);
 }
 
 .output-wrap {

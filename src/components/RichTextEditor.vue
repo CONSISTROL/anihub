@@ -336,8 +336,8 @@ function onPickImage(e) {
   margin: 0;
   padding: 6px 12px;
   font-size: 12px;
-  color: #ff9d9d;
-  background: color-mix(in srgb, #ff5c5c 10%, transparent);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
 }
 
 .rt-content {

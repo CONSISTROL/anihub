@@ -279,7 +279,7 @@ const VIS_LABEL = { insider: '仅内部可见', private: '仅管理员可见' }
 }
 
 .list-error {
-  color: #ff9d9d;
+  color: var(--danger);
   font-size: 14px;
   margin-bottom: 10px;
 }
@@ -598,8 +598,8 @@ const VIS_LABEL = { insider: '仅内部可见', private: '仅管理员可见' }
 }
 
 .post-hidden {
-  color: #ffb35c;
-  border: 1px solid color-mix(in srgb, #ffb35c 50%, transparent);
+  color: var(--warning);
+  border: 1px solid color-mix(in srgb, var(--warning) 50%, transparent);
   border-radius: 4px;
   padding: 0 6px;
   font-size: 11px;

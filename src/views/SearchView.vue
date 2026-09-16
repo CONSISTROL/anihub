@@ -279,7 +279,7 @@ function fmtDate(s) {
 }
 
 .tag-chip.active {
-  color: #fff;
+  color: var(--on-accent);
   background: var(--accent);
   border-color: var(--accent);
 }
@@ -318,13 +318,13 @@ function fmtDate(s) {
 }
 
 .genre-chip.active {
-  color: #fff;
+  color: var(--on-accent);
   background: var(--accent);
   border-color: var(--accent);
 }
 
 .search-error {
-  color: #ff9d9d;
+  color: var(--danger);
   font-size: 14px;
 }
 

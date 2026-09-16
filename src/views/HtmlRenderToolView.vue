@@ -164,7 +164,7 @@ function clearCode() {
 
 .tool-error {
   margin: 0 0 10px;
-  color: #ff9d9d;
+  color: var(--danger);
   font-size: 13px;
 }
 

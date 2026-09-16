@@ -151,7 +151,7 @@ function weekdayOf(key) {
   margin-left: auto;
   font-size: 11px;
   font-weight: 700;
-  color: #fff;
+  color: var(--on-accent);
   background: var(--accent);
   border-radius: 999px;
   padding: 2px 10px;

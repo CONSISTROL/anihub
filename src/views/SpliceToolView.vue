@@ -392,7 +392,7 @@ function download() {
 
 .tool-error {
   margin: 12px 0 0;
-  color: #ff9d9d;
+  color: var(--danger);
   font-size: 13px;
 }
 

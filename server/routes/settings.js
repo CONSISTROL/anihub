@@ -17,6 +17,8 @@ const GUEST_KEY = 'guest_pages'
 const INSIDER_KEY = 'insider_pages'
 const WALLPAPER_KEY = 'wallpaper' // JSON: { guest: bool, insider: bool }
 const SHOW_ADULT_KEY = 'show_adult' // JSON: { guest: bool, insider: bool }
+const SCHEME_KEY = 'theme_scheme' // 配色方案 id；未设置过 = classic（沿用原有配色）
+const SCHEMES = ['classic', 'indigo'] // 与前端 src/style.css 的 [data-scheme] 块一一对应
 
 function readList(key, fallback) {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key)
@@ -100,6 +102,18 @@ function writeWallpaper(w) {
   ).run(WALLPAPER_KEY, JSON.stringify({ guest: !!w.guest, insider: !!w.insider }))
 }
 
+/** 配色方案：全站一套（与昼夜主题正交）。值不在白名单内一律回退 classic。 */
+function readScheme() {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(SCHEME_KEY)
+  return row && SCHEMES.includes(row.value) ? row.value : 'classic'
+}
+
+function writeScheme(v) {
+  db.prepare(
+    'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+  ).run(SCHEME_KEY, v)
+}
+
 // 游客也可读：前端需要知道哪些页面可见（路由守卫 + 导航过滤）
 router.get('/', (req, res) => {
   res.json({
@@ -107,12 +121,13 @@ router.get('/', (req, res) => {
     insiderPages: readInsiderPages(),
     wallpaper: readWallpaper(),
     showAdult: readFeature(SHOW_ADULT_KEY, { guest: false, insider: false }), // 默认仅管理员可见
+    themeScheme: readScheme(), // 配色方案是全站一套，游客也要拿到才能按管理员的选择渲染
   })
 })
 
 // 仅登录后可改
 router.put('/', authRequired, (req, res) => {
-  const { guestPages, insiderPages, wallpaper, showAdult } = req.body || {}
+  const { guestPages, insiderPages, wallpaper, showAdult, themeScheme } = req.body || {}
   const validFeat = (f) =>
     f === undefined ||
     (typeof f === 'object' &&
@@ -128,14 +143,15 @@ router.put('/', authRequired, (req, res) => {
         wallpaper === null ||
         typeof wallpaper.guest !== 'boolean' ||
         typeof wallpaper.insider !== 'boolean')) ||
-    !validFeat(showAdult)
+    !validFeat(showAdult) ||
+    (themeScheme !== undefined && !SCHEMES.includes(themeScheme))
   ) {
     return res
       .status(400)
       .json({
         error: {
           code: 'VALIDATION_ERROR',
-          message: 'guestPages / insiderPages 需为 anime/blog/wiki/tools/game/pet 的子集；wallpaper 需 {guest,insider}；showAdult 需 {guest,insider}',
+          message: `guestPages / insiderPages 需为 ${PAGE_KEYS.join('/')} 的子集；wallpaper 需 {guest,insider}；showAdult 需 {guest,insider}；themeScheme 需为 ${SCHEMES.join('/')}`,
         },
       })
   }
@@ -146,11 +162,13 @@ router.put('/', authRequired, (req, res) => {
   writeList(INSIDER_KEY, insiders)
   if (wallpaper !== undefined) writeWallpaper(wallpaper)
   if (showAdult !== undefined) writeFeature(SHOW_ADULT_KEY, showAdult)
+  if (themeScheme !== undefined) writeScheme(themeScheme)
   res.json({
     guestPages: guests,
     insiderPages: insiders,
     wallpaper: readWallpaper(),
     showAdult: readFeature(SHOW_ADULT_KEY, { guest: false, insider: false }),
+    themeScheme: readScheme(),
   })
 })
 

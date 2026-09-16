@@ -3,6 +3,8 @@
 // 效果参考：https://recent.design/i/3driga1-animated-qr-code-morphing
 // 纯前端 three.js：
 //  - 树底下是「嫩绿色二维码草坪」——只含二维码本身内容的 3D 方块，无静区/无外框；
+//  - 俯视（2D）时深色模块转到樱花粉、浅色模块提亮一档：粉色随树收拢从草坪中心
+//    （树冠所在处）向外扩散到四角，配色逐帧插值，不重建几何；
 //  - 3D 视角为 45° 俯视、正面朝向二维码的角；点击场景在「3D 树」与「俯视草坪」间
 //    平滑过渡（俯视时体素收回地面，只留干净草坪，不出现黑白二维码/压平层）；
 //  - 更新字符串时不做过渡动画，直接替换成新渲染好的树。
@@ -37,6 +39,11 @@ const CANOPY_COLORS = [0xffdde8, 0xffc3d7, 0xfba6c9, 0xf58cba, 0xee75a9]
 const PETAL_TIP = 0xfff4f8 // 花瓣亮色点缀
 const LAWN_LIGHT = 0xb7f0c3 // 二维码浅色模块 → 嫩绿
 const LAWN_DARK = 0x2c9e55 // 二维码深色模块 → 深草绿
+// 俯视（2D）时深色模块换成樱花粉：树收拢后，树冠的颜色落回二维码里。
+// 粉必须压到比树冠更深的一段——浅樱粉与嫩绿的明度太接近，二元化之后二维码就扫不出来了；
+// 浅色模块同时提亮一档扩大明度差。这组配色实测（含逐块随机色差）仍可被解码器读出。
+const LAWN_TOP_LIGHT = 0xc9f4d3
+const LAWN_PINK = [0xd45f92, 0xcc5486, 0xc34b7e]
 
 /* —— 相机轨迹：3D（45° 俯视、草坪一角正对前方）↔ 俯视（近乎垂直） —— */
 const CAM_YAW = (Math.PI * 3) / 4 // 3D 时方位角（前左角对向相机）
@@ -48,6 +55,11 @@ const VIEW_TARGET_Y = 3.2 // 3D 时注视高度（树冠中下部）；俯视时
 /* —— 过渡动画 —— */
 const MORPH_DUR = 1350 // 3D ↔ 俯视完整过渡时长（ms）
 const GROW_SPAN = 3 // 体素平滑生长带（体素层数）：每层有一段渐显过渡，消除“逐层弹跳”
+// 3D → 俯视时樱粉由草坪中心向外扩散（树冠的位置正是中心），不是整块同时变色：
+// 波前按 P（1 = 3D 树，0 = 俯视）推进，PINK_SPAN 是波前柔化宽度（归一化半径）
+const PINK_START = 0.9 // P 降到这里，中心开始泛粉
+const PINK_END = 0.05 // P 到这里，最远的四角也完成
+const PINK_SPAN = 0.2 // 波前宽度：越小越像一道清晰的涟漪
 
 /* —— 场景对象 —— */
 const mount = ref(null)
@@ -56,6 +68,10 @@ let scene = null
 let camera = null
 let world = null // 草坪 + 树整体
 let lawnMesh = null
+let lawnGreen = null // 每块草皮在 3D 视角下的嫩绿颜色（线性空间 RGB）
+let lawnTop = null // 每块草皮在俯视下的颜色：深色模块已换成樱花粉
+let lawnDist = null // 每块草皮到草坪中心的归一化距离（中心 0 → 四角 1），波前按它推进
+let lawnFront = Infinity // 已写入的波前位置，用于跳过无变化的重复写入
 let treeMesh = null
 let voxels = [] // { x, z, j, l, color }
 let rafId = 0
@@ -110,6 +126,13 @@ function pickColor(rng, palette, sat = 0.07, lit = 0.06) {
   const c = new THREE.Color(palette[Math.floor(rng() * palette.length)])
   c.offsetHSL((rng() - 0.5) * 0.02, (rng() - 0.5) * sat, (rng() - 0.5) * lit)
   return c
+}
+// 把当前颜色写进浮点数组的第 i 个槽位（与 setColorAt 一样取工作空间分量）
+function writeRGB(arr, i, color) {
+  const k = i * 3
+  arr[k] = color.r
+  arr[k + 1] = color.g
+  arr[k + 2] = color.b
 }
 
 /* —— 场景初始化 —— */
@@ -181,6 +204,10 @@ function clearContent() {
     world.remove(lawnMesh)
     lawnMesh = null
   }
+  lawnGreen = null
+  lawnTop = null
+  lawnDist = null
+  lawnFront = Infinity
   if (treeMesh) {
     disposeObject3D(treeMesh)
     world.remove(treeMesh)
@@ -205,7 +232,10 @@ function moduleDarkAt(x, z) {
   return qr.isDark(r, c)
 }
 
-/* —— 嫩绿色二维码草坪：3D 方块，只含二维码内容（无静区/外框） —— */
+/* —— 嫩绿色二维码草坪：3D 方块，只含二维码内容（无静区/外框） ——
+   同一块草坪备两套颜色：3D 视角是嫩绿二维码；俯视时深色模块转樱花粉、浅色模块提亮一档，
+   且按到草坪中心的距离由内向外依次变色。两套颜色和距离都按实例存下来，
+   过渡时逐帧插值，不重建几何。 */
 function buildLawn() {
   const count = qrN * qrN
   const geo = new THREE.BoxGeometry(MODULE * 0.86, LAWN_H, MODULE * 0.86)
@@ -216,6 +246,14 @@ function buildLawn() {
 
   const m4 = new THREE.Matrix4()
   const col = new THREE.Color()
+  // 每块草皮轻微色差，避免呆板纯色网格
+  const jitter = (sat, lit) =>
+    col.offsetHSL((Math.random() - 0.5) * 0.015, (Math.random() - 0.5) * sat, (Math.random() - 0.5) * lit)
+  lawnGreen = new Float32Array(count * 3)
+  lawnTop = new Float32Array(count * 3)
+  lawnDist = new Float32Array(count)
+  const half = ((qrN - 1) / 2) * MODULE
+  const maxDist = Math.hypot(half, half) // 中心到四角，波前走到 1 即扫完全图
   for (let r = 0; r < qrN; r++) {
     for (let c = 0; c < qrN; c++) {
       const dark = qr.isDark(r, c)
@@ -226,16 +264,46 @@ function buildLawn() {
       m4.makeTranslation(x, -LAWN_H / 2 + lift, z)
       const idx = r * qrN + c
       mesh.setMatrixAt(idx, m4)
+      lawnDist[idx] = Math.hypot(x, z) / maxDist
       col.set(dark ? LAWN_DARK : LAWN_LIGHT)
-      // 每块草皮轻微色差，避免呆板纯色网格
-      col.offsetHSL((Math.random() - 0.5) * 0.015, (Math.random() - 0.5) * 0.05, (Math.random() - 0.5) * 0.055)
-      mesh.setColorAt(idx, col)
+      jitter(0.05, 0.055)
+      writeRGB(lawnGreen, idx, col)
+      // 俯视配色：深色模块樱花粉、浅色模块嫩绿（另掷一次色差）
+      col.set(dark ? LAWN_PINK[Math.floor(Math.random() * LAWN_PINK.length)] : LAWN_TOP_LIGHT)
+      jitter(dark ? 0.06 : 0.05, 0.05)
+      writeRGB(lawnTop, idx, col)
     }
   }
   mesh.instanceMatrix.needsUpdate = true
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
   lawnMesh = mesh
+  lawnFront = Infinity
   world.add(mesh)
+  updateLawnColors(morphT)
+}
+
+// 波前位置：P = 1 时在草坪外（全绿），P = 0 时越过四角（全粉）
+function lawnFrontAt(P) {
+  return ((PINK_START - clamp(P, 0, 1)) / (PINK_START - PINK_END)) * (1 + PINK_SPAN)
+}
+
+function updateLawnColors(P) {
+  if (!lawnMesh || !lawnGreen || !lawnTop || !lawnDist) return
+  const front = lawnFrontAt(P)
+  if (Math.abs(front - lawnFront) < 0.003) return
+  lawnFront = front
+  for (let i = 0; i < lawnMesh.count; i++) {
+    // 每个模块在波前扫过自己时开始泛粉，扫过 PINK_SPAN 宽度后完成
+    const q = clamp((front - lawnDist[i]) / PINK_SPAN, 0, 1)
+    const t = q * q * (3 - 2 * q)
+    const k = i * 3
+    _color.setRGB(
+      lawnGreen[k] + (lawnTop[k] - lawnGreen[k]) * t,
+      lawnGreen[k + 1] + (lawnTop[k + 1] - lawnGreen[k + 1]) * t,
+      lawnGreen[k + 2] + (lawnTop[k + 2] - lawnGreen[k + 2]) * t
+    )
+    lawnMesh.setColorAt(i, _color)
+  }
+  lawnMesh.instanceColor.needsUpdate = true
 }
 
 /* —— 樱花体素树 —— */
@@ -362,9 +430,10 @@ function updateVoxels(P) {
   treeMesh.instanceMatrix.needsUpdate = true
 }
 
-// 直接落到当前变形进度的静止姿态（体素矩阵 + 相机）
+// 直接落到当前变形进度的静止姿态（体素矩阵 + 草坪配色 + 相机）
 function snapScene() {
   if (treeMesh) updateVoxels(morphT)
+  updateLawnColors(morphT)
   updateCamera(morphT)
 }
 
@@ -525,12 +594,13 @@ function tick(ts) {
       status.value =
         morphTarget === 1
           ? '完成：已生成 3D 樱花二维码树。点击画面可切换俯视草坪 / 3D。'
-          : '俯视：二维码草坪可直接扫码，无多余边距。点击画面回到 3D 树。'
+          : '俯视：深色模块已转成樱花粉，无多余边距。点击画面回到 3D 树。'
     } else {
       // 固定时长 + easeInOutQuint：起止平滑无顿挫，与帧率无关
       const eased = easeInOutQuint(pr)
       morphT = animFrom + (morphTarget - animFrom) * eased
       updateVoxels(morphT)
+      updateLawnColors(morphT)
       updateCamera(morphT)
     }
   }
@@ -593,7 +663,7 @@ onUnmounted(() => {
     <router-link to="/tools" class="back-link"><AppIcon name="arrow-left" :size="13" /> 返回工具箱</router-link>
     <h1 class="page-title"><AppIcon name="tree" :size="21" /> 二维码生成</h1>
     <p class="sub">
-      输入 URL / 文本，生成一棵 <strong>3D 樱花二维码体素树</strong>；树下的嫩绿色草坪就是二维码本身（无静区边距）。<strong>点击画面</strong>可在 3D 树与俯视草坪间平滑切换。纯前端处理，内容不会上传。
+      输入 URL / 文本，生成一棵 <strong>3D 樱花二维码体素树</strong>；树下的嫩绿色草坪就是二维码本身（无静区边距）。<strong>点击画面</strong>可在 3D 树与俯视草坪间平滑切换，切到俯视时，樱花粉会从草坪中心向外扩散开。纯前端处理，内容不会上传。
     </p>
 
     <div class="controls">
@@ -698,7 +768,7 @@ onUnmounted(() => {
 }
 
 .tool-error {
-  color: #ff9d9d;
+  color: var(--danger);
   font-size: 13px;
   margin: 4px 0;
 }

@@ -18,6 +18,11 @@ let map = null
 let markersLayer = null
 let heatLayer = null
 let heatReady = false
+let ro = null
+// 挂载时容器是否已有真实尺寸。为 false 说明是在隐藏状态下挂载的（面板/标签页被
+// display:none 收起时 clientWidth 为 0），那次 render() 的取景不可信，需要在
+// 容器第一次真正可见时按真实尺寸重来一次。
+let sizedAtMount = false
 
 function fmtLocation(p) {
   return [p.country, p.region, p.city].filter(Boolean).join(' · ') || '未知位置'
@@ -137,9 +142,25 @@ onMounted(async () => {
     heatReady = false
   }
   render()
+
+  // Leaflet 只在初始化时读一次容器尺寸，且只跟随 window resize 重测；
+  // 容器自己从隐藏变为可见时它不会察觉，会一直按 0（或旧尺寸）绘制。
+  // 用 ResizeObserver 补齐：重新测量，并在尺寸原本不可信时重新取景。
+  sizedAtMount = el.value.clientWidth > 0
+  ro = new ResizeObserver(() => {
+    if (!map || !el.value || el.value.clientWidth === 0) return
+    map.invalidateSize()
+    if (!sizedAtMount) {
+      sizedAtMount = true
+      render()
+    }
+  })
+  ro.observe(el.value)
 })
 
 onUnmounted(() => {
+  ro?.disconnect()
+  ro = null
   if (map) {
     map.remove()
     map = null
@@ -254,7 +275,7 @@ onUnmounted(() => {
 
 .map-mode.active {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 

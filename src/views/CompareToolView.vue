@@ -477,7 +477,7 @@ function humanSize(n) {
 }
 
 .tool-error {
-  color: #ff9d9d;
+  color: var(--danger);
   font-size: 13px;
   margin: 6px 0;
 }

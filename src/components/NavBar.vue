@@ -89,6 +89,18 @@ function closeMenu() {
   menuOpen.value = false
 }
 
+// 点抽屉以外的任何地方收起抽屉。折叠态下它是浮层、没有遮罩，缺了这一条就只能
+// 靠再点一次品牌关掉 —— 用户反馈的「点网页内其它东西抽屉不关」。
+// 用**捕获阶段**：站内多处用了 @click.stop（日历条目、表格里的 IP 链接等），
+// 冒泡阶段会被它们截住，抽屉就关不掉了。捕获阶段在它们之前跑，不受影响；
+// 落在品牌/抽屉内的点击直接跳过，开合仍由 onBrandTap 处理。
+function onDocClick(e) {
+  if (!menuOpen.value) return
+  const target = e.target instanceof Element ? e.target : null
+  if (target?.closest('.brand-wrap')) return
+  menuOpen.value = false
+}
+
 // 登录后右上角显示当前站点版本号 + 提交 ID。
 // 初始不显示旧 bundle 的构建 commit，避免先闪旧值再被服务端最新 commit 替换；
 // 先显示“版本号…”占位，接口返回后更新为“版本号.commit”。
@@ -155,12 +167,14 @@ onMounted(() => {
     navRo.observe(navEl.value)
   }
   window.addEventListener('resize', syncWpShift)
+  document.addEventListener('click', onDocClick, true)
 })
 onUnmounted(() => {
   window.removeEventListener('scroll', onScroll)
   cancelAnimationFrame(shiftRaf)
   navRo?.disconnect()
   window.removeEventListener('resize', syncWpShift)
+  document.removeEventListener('click', onDocClick, true)
 })
 </script>
 

@@ -541,7 +541,7 @@ if (route.query.id) selectedId.value = Number(route.query.id)
 }
 
 .refresh-msg.error {
-  color: #ff9d9d;
+  color: var(--danger);
 }
 
 .anime-search {
@@ -582,7 +582,7 @@ if (route.query.id) selectedId.value = Number(route.query.id)
 
 .search-error {
   font-size: 13px;
-  color: #ff9d9d;
+  color: var(--danger);
 }
 
 .search-results {
@@ -632,7 +632,7 @@ if (route.query.id) selectedId.value = Number(route.query.id)
 }
 
 .genre-chip.active {
-  color: #fff;
+  color: var(--on-accent);
   background: var(--accent);
   border-color: var(--accent);
 }
@@ -727,9 +727,9 @@ if (route.query.id) selectedId.value = Number(route.query.id)
 }
 
 .banner.error {
-  background: color-mix(in srgb, #ff5c5c 12%, var(--panel));
-  border: 1px solid color-mix(in srgb, #ff5c5c 40%, transparent);
-  color: #ff9d9d;
+  background: color-mix(in srgb, var(--danger) 12%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+  color: var(--danger);
 }
 
 .loading {
@@ -923,7 +923,7 @@ if (route.query.id) selectedId.value = Number(route.query.id)
 
 .toggle-btn.active {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
   box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 35%, transparent);
 }
@@ -1007,7 +1007,7 @@ if (route.query.id) selectedId.value = Number(route.query.id)
   border: none;
   border-radius: 50%;
   color: #fff;
-  background: linear-gradient(135deg, var(--accent), #a78bfa);
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
   box-shadow: 0 2px 6px color-mix(in srgb, var(--accent) 35%, transparent);
   cursor: pointer;
   transition:
@@ -1205,7 +1205,7 @@ if (route.query.id) selectedId.value = Number(route.query.id)
 
 .dp-day.selected {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 800;
   box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 40%, transparent);
 }
@@ -1235,7 +1235,7 @@ if (route.query.id) selectedId.value = Number(route.query.id)
   border: none;
   border-radius: 999px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
@@ -1283,7 +1283,7 @@ if (route.query.id) selectedId.value = Number(route.query.id)
   padding: 5px 12px;
   font-size: 12px;
   font-weight: 600;
-  color: #fff;
+  color: var(--on-accent);
   background: var(--accent);
   border: none;
   border-radius: 999px;

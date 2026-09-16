@@ -211,7 +211,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 .path-ips-error {
-  color: #ff9d9d;
+  color: var(--danger);
 }
 
 .path-ips-summary {

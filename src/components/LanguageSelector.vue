@@ -117,7 +117,7 @@ onUnmounted(() => {
   height: 24px;
   border-radius: 50%;
   color: #fff;
-  background: linear-gradient(135deg, var(--accent), #a78bfa);
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
   box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 35%, transparent);
   transition: transform var(--dur-ios-1) var(--ease-ios-spring);
 }

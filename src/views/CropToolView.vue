@@ -988,7 +988,7 @@ function clearAll() {
 .tool-error {
   margin: 0 0 10px;
   font-size: 13px;
-  color: #ff9d9d;
+  color: var(--danger);
 }
 
 .stage-wrap {
@@ -1107,7 +1107,7 @@ function clearAll() {
 }
 
 .line-x:hover {
-  color: #ff5c5c;
+  color: var(--danger);
 }
 
 /* 裁切结果 */

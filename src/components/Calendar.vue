@@ -330,7 +330,7 @@ onUnmounted(() => window.removeEventListener('scroll', hideTooltip))
 
 .day-today .day-num {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 800;
   box-shadow: 0 3px 10px color-mix(in srgb, var(--accent) 45%, transparent);
 }
@@ -540,7 +540,7 @@ onUnmounted(() => window.removeEventListener('scroll', hideTooltip))
 .calendar-today-badge {
   font-size: 11px;
   font-weight: 700;
-  color: #fff;
+  color: var(--on-accent);
   background: var(--accent);
   border-radius: 999px;
   padding: 2px 9px;

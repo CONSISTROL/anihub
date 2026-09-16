@@ -20,6 +20,11 @@
         var h = new Date().getHours()
         var r = t === 'auto' ? (h >= 6 && h < 18 ? 'light' : 'dark') : t
         document.documentElement.dataset.theme = r
+        // 配色方案（与昼夜正交，全站一套）：真实值由服务端下发（见 src/composables/useSettings.js），
+        // 这里只用上次的缓存值抢在首帧前渲染，避免"先经典再切方案"的跳变。
+        // 取到未知值也无妨：没有任何 CSS 块匹配它，等价于经典方案。
+        var s = localStorage.getItem('anime-calendar.scheme')
+        if (s) document.documentElement.dataset.scheme = s
         // Anime 页 / 登录管理员 / 内部人员模式：在首帧前恢复上次的壁纸（与 useWallpaper 的缓存键一致），
         // 避免刷新时先显示纯色背景再闪出壁纸
         var isInsider = !!localStorage.getItem('anihub.insider')

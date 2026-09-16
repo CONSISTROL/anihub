@@ -222,7 +222,7 @@ function coverOf(mediaId) {
   right: 10px;
   font-size: 10px;
   font-weight: 700;
-  color: #fff;
+  color: var(--on-accent);
   background: var(--accent);
   border-radius: 999px;
   padding: 2px 8px;

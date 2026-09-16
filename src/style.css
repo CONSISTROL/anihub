@@ -45,6 +45,14 @@
   --muted: #6a7284;
   --accent: #4a6cf7;
   --accent-hover: #3d5ee8;
+  /* 强调色的渐变搭档（三处 linear-gradient 用）。
+     ⚠ 本文件四个配色块里都必须有定义：linear-gradient() 中任一变量未定义，
+     整条声明会被判无效而**整个背景消失**，不是降级成单色。 */
+  --accent-2: #a78bfa;
+  /* accent 作背景时的前景色（全站 23 处「选中态/徐标」用它）。
+     浅色主题的强调色够深，白字就行；深色主题的强调色偏亮，白字只有约
+     2.6–3.1:1（远低于 4.5），要用近黑才达标（约 6–7:1）。 */
+  --on-accent: #ffffff;
   /* 语义色：danger 在浅色底上必须够深才可读（原实现散落硬编码 #ff9d9d，对比度仅约 1.7:1） */
   --danger: #c62828;
   --danger-strong: #b71c1c;
@@ -52,6 +60,11 @@
   --danger-border: rgb(198 40 40 / 0.42);
   --success: #1b7f3b;
   --warning: #a15c00;
+  /* wiki 长文阅读区的面板与描边（PostDetail 的 detail-wide 卡片）。
+     浅色下刻意比常规面板更透明、让壁纸直接透出来；以对比度为前提的配色方案
+     会在自己的块里把它改回常规面板，否则会在最需要可读性的长文页被抵消。 */
+  --panel-read: rgb(255 255 255 / 0.42);
+  --panel-read-border: rgb(255 255 255 / 0.55);
   /* 悬浮滚动条（液态玻璃）：浅色主题用偏灰玻璃保证可见度 */
   --sbar-track-1: rgba(255, 255, 255, 0.9);
   --sbar-track-2: rgba(255, 255, 255, 0.45);
@@ -75,6 +88,8 @@
   --muted: #8b93a7;
   --accent: #6c8cff;
   --accent-hover: #7d9aff;
+  --accent-2: #a78bfa;
+  --on-accent: #0e1015;
   /* 深色底上用亮红，才够醒目 */
   --danger: #ff8f8f;
   --danger-strong: #ff6b6b;
@@ -82,6 +97,9 @@
   --danger-border: rgb(255 92 92 / 0.48);
   --success: #6ee7a5;
   --warning: #ffd166;
+  /* 深色下阅读区与常规面板一致（PostDetail 那条更透明的覆盖只作用于浅色） */
+  --panel-read: var(--panel);
+  --panel-read-border: var(--border);
   /* 悬浮滚动条（液态玻璃）：深色主题用亮白玻璃 */
   --sbar-track-1: rgba(255, 255, 255, 0.34);
   --sbar-track-2: rgba(255, 255, 255, 0.1);
@@ -90,6 +108,58 @@
   --sbar-thumb-1: rgba(255, 255, 255, 0.95);
   --sbar-thumb-2: rgba(255, 255, 255, 0.55);
   color-scheme: dark;
+}
+
+/* ==========================================================================
+   配色方案「靛蓝」—— 由 <html data-scheme='indigo'> 启用
+   --------------------------------------------------------------------------
+   与 data-theme（昼夜）**正交**：data-theme 只管明暗，data-scheme 只管色板。
+   这样站内 6 处按 'light'/'dark' 分支的逻辑、以及书籍 iframe 的主题桥接脚本
+   都完全不用动。属性缺失或取值未知 = 经典方案（上面的 :root[data-theme=…]
+   本就匹配），所以这里只写与经典**不同**的变量，靠选择器特异性覆盖
+   （0,3,0 对 0,2,0，与源码先后无关）。
+
+   取值依据：按压在壁纸上的真实链路（壁纸 → 蒙 --bg 72%/62% → 半透明面板
+   → 文字）实测 WCAG 对比度。经典方案在「浅色 + 深色壁纸」下次要文字只有
+   1.97:1、强调色 1.79:1，基本看不清；本方案同场景为 5.38:1 / 5.30:1。
+   --panel 提到 0.82 是该场景达标的必要条件，代价是玻璃感变弱。
+   语义色（danger/warning/success）沿用经典——它们本就达标。
+   ========================================================================== */
+:root[data-scheme='indigo'],
+:root[data-scheme='indigo'][data-theme='light'] {
+  --bg: #eef1f7;
+  --panel: rgb(255 255 255 / 0.82);
+  --panel-2: rgb(238 241 247 / 0.78);
+  --border: #d3d9e6;
+  --text: #171b26;
+  --text-2: #3d4557;
+  --text-faint: #78829a;
+  --muted: #4d5670;
+  --accent: #2f4bc4;
+  --accent-hover: #2740a8;
+  --accent-2: #7c5cff;
+  --on-accent: #ffffff;
+  /* 阅读区跟随本方案的面板不透明度 —— 本方案的前提就是提对比度 */
+  --panel-read: var(--panel);
+  --panel-read-border: var(--border);
+}
+
+:root[data-scheme='indigo'][data-theme='dark'] {
+  --bg: #0f1218;
+  --panel: rgb(25 29 38 / 0.82);
+  --panel-2: rgb(32 37 48 / 0.76);
+  --overlay-panel: #191d26;
+  --border: #2a303d;
+  --text: #eceef4;
+  --text-2: #b9c0cf;
+  --text-faint: #79839a;
+  --muted: #98a1b8;
+  --accent: #7b9bff;
+  --accent-hover: #93aeff;
+  --accent-2: #a78bfa;
+  --on-accent: #0f1218;
+  --panel-read: var(--panel);
+  --panel-read-border: var(--border);
 }
 
 /* 主题切换过渡：useTheme 切换瞬间给 <html> 加 .theme-animating，
@@ -238,7 +308,7 @@ a {
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .btn-primary:hover:not(:disabled) {
