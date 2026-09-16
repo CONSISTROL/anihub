@@ -22,6 +22,7 @@ import { useSettings } from '../composables/useSettings'
 import { getAnnouncement } from '../api/posts'
 import AppIcon from '../components/AppIcon.vue'
 import HomeLogoMark from '../components/HomeLogoMark.vue'
+import HomeNodeArt from '../components/HomeNodeArt.vue'
 
 const { isLoggedIn, isInsider } = useAuth()
 const settings = useSettings()
@@ -38,54 +39,53 @@ onMounted(async () => {
 })
 
 // 入口配置：与导航/路由一致（page 用于按身份过滤可见性）
-// 说明文案用猫娘口吻（轻快、随口介绍的感觉），不要写成产品说明书，
-// 也**不要罗列页面的具体功能**（例如"周历/月历/多语言""Markdown/HTML"这类），
-// 只讲这个页面是干嘛的、有什么气氛。控制在两行内，卡片高度才不会被撑开。
+// 说明文案一句话讲清"这一页是干嘛的"，别写成产品说明书，
+// 也**不要罗列页面的具体功能**（例如"周历/月历/多语言""Markdown/HTML"这类）。
+// ⚠ 用平实口吻：不要语气词和波浪号，不要"喵""呀""～"这类卖萌写法（用户明确要求去掉）。
+// 控制在一到两行，卡片高度才不会被撑开。
+// ⚠ 卡片中间那一格**不再用图片**（public/home/*.webp 已删除）：每张约 100KB、
+//   与主题无关（深色主题下是一块亮斑），改用 HomeNodeArt 画的 SVG 节点插画，
+//   颜色吃卡片的 --accent，动效与文案各自对应页面内容。
 const SECTIONS = [
   {
     to: '/anime',
     page: 'anime',
-    img: '/home/anime.webp',
-    icon: 'calendar',
+    art: 'anime',
     title: 'Anime',
     cn: '新番日历',
-    desc: '这周看什么？哪部几点播我都给你排好啦，打开就知道～',
+    desc: '这周看什么、几点更新，日历里都排好了。',
   },
   {
     to: '/blog',
     page: 'blog',
-    img: '/home/blog.webp',
-    icon: 'pen',
+    art: 'blog',
     title: 'Blog',
     cn: '更新日志',
-    desc: '这个站又改了啥、踩了哪些坑，都会随手记在这儿喵～',
+    desc: '网站的改动和踩过的坑，都记在这里。',
   },
   {
     to: '/wiki',
     page: 'wiki',
-    img: '/home/wiki.webp',
-    icon: 'book-open',
+    art: 'wiki',
     title: 'Wiki',
     cn: '笔记',
-    desc: '攒了一堆笔记呢！也能点拓扑图，看它们牵着手转圈圈～',
+    desc: '平时攒下的笔记，也能点开拓扑图看它们的关系。',
   },
   {
     to: '/tools',
     page: 'tools',
-    img: '/home/tools.webp',
-    icon: 'wrench',
+    art: 'tools',
     title: 'Tools',
     cn: '工具箱',
-    desc: '都是你能用上的小工具，大多在你本机跑，不上传喵～',
+    desc: '一些用得上的小工具，多数在本地运行，不上传。',
   },
   {
     to: '/game',
     page: 'game',
-    img: '/home/game.webp',
-    icon: 'flame',
+    art: 'game',
     title: 'Game',
     cn: '像素地牢',
-    desc: '想下地牢随时来～地图每局都不一样，摸鱼的时候很合适喵。',
+    desc: '像素地牢，地图每局都不一样，随时可以来一局。',
   },
 ]
 
@@ -204,14 +204,10 @@ function onCardLeave(e) {
             @pointerleave="onCardLeave"
           >
             <span class="node-glow" aria-hidden="true"></span>
+            <span class="node-idx" aria-hidden="true">0{{ i + 1 }}</span>
 
-            <span class="node-top">
-              <span class="node-icon"><AppIcon :name="s.icon" :size="20" /></span>
-              <span class="node-idx">0{{ i + 1 }}</span>
-            </span>
-
-            <span class="node-visual">
-              <img :src="s.img" :alt="s.title" width="512" height="512" loading="lazy" decoding="async" />
+            <span class="node-visual" aria-hidden="true">
+              <HomeNodeArt :name="s.art" />
             </span>
 
             <span class="node-title">
@@ -558,53 +554,36 @@ function onCardLeave(e) {
   transition-duration: 70ms;
 }
 
-.node-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+/* 序号：右上角一枚很大的淡色数字。
+   ⚠ 它现在**绝对定位**在大号插画之上 —— 插画是居中的，数字只占右上角，
+   两者在视觉上不会打架（早先它是 .node-top 里和图标并排的一行，
+   有了插画之后那一行会把卡片顶得过高，已整行去掉）。 */
+.node-idx {
+  position: absolute;
+  top: 16px;
+  right: 18px;
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--muted) 34%, transparent);
+  pointer-events: none;
 }
 
-.node-icon {
+/* 插画区：卡片中间那一格。构图与画法在 HomeNodeArt.vue，这里只负责两件事：
+     ① 用 --art-size 把插画的尺寸定死（子组件消费这个变量，窄屏会调小）
+     ② 按它留出一格空间
+   ⚠ 不要改回 `height: 100%` 那套：父级高度若是被内容撑开的，百分比就解不开，
+   插画会退回"按宽度算高度" —— 曾在 413px 宽的卡片里渲染成 371×371 的巨方块。
+   变量一定要在这里（而不是子组件里）设，父组件才管得住这个尺度。 */
+.node-visual {
+  --art-size: 128px;
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 13%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
-  border-radius: 12px;
-  transition: transform var(--dur-ios-2) var(--ease-ios-spring);
-}
-
-.node:hover .node-icon {
-  transform: scale(1.08) rotate(-4deg);
-}
-
-.node-idx {
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.16em;
-  color: color-mix(in srgb, var(--muted) 70%, transparent);
-}
-
-.node-visual {
-  display: block;
-  height: 118px;
-  margin: 2px 0;
-  text-align: center;
-}
-
-.node-visual img {
-  height: 100%;
-  width: auto;
-  max-width: 100%;
-  object-fit: contain;
-  filter: drop-shadow(0 12px 24px rgb(0 0 0 / 0.2));
-  transition: transform var(--dur-ios-3) var(--ease-ios-spring);
-}
-
-.node:hover .node-visual img {
-  transform: translateY(-4px) scale(1.05);
+  flex: 1 1 auto;
+  min-height: calc(var(--art-size) + 8px);
+  padding: 4px 0;
 }
 
 .node-title {
@@ -698,8 +677,13 @@ function onCardLeave(e) {
     padding: 16px;
   }
 
+  /* 窄屏卡片变成一列，插画不需要再撑高度，收一点让卡片更紧凑 */
   .node-visual {
-    height: 96px;
+    --art-size: 104px;
+  }
+
+  .node-idx {
+    font-size: 24px;
   }
 }
 

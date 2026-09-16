@@ -46,18 +46,47 @@ const links = computed(() => {
   return ALL_LINKS.filter((l) => settings.canAccess(l.page, isInsider.value))
 })
 
-// 导航折叠成下拉列表时：AniHub 点击只展开菜单，不跳转回首页
-const menuHidden = ref(false)
-function onBrandClick(e) {
-  // 直接根据当前 DOM 状态判断是否处于折叠态，避免依赖具体断点
+// 导航折叠成下拉抽屉时（≤1024px）：品牌图标是**抽屉开关**，不是回首页的链接。
+// 点它只开合抽屉，不跳转 —— 回首页走抽屉里那一项。
+//
+// ⚠ 为什么挂在 .brand-wrap 的**捕获阶段**、而不是 <router-link> 的 @click：
+//   品牌是 router-link，它自己的跳转处理器在冒泡阶段执行，捕获阶段先
+//   preventDefault，RouterLink 才会因为 defaultPrevented 放弃跳转。
+//   捕获阶段还有个好处：抽屉里链接的点击也能在这里一并处理（见下面的收起步），
+//   不必指望 <router-link> 会把模板上的 @click 一起执行。
+//
+// ⚠ 抽屉的显隐**只认这个状态**，样式里不再有任何 :hover / :focus-within 展开规则。
+//   早先保留过"鼠标悬停品牌时展开"，结果是关不掉：点完链接指针还停在抽屉上，
+//   `.brand-wrap:hover` 一直匹配，把显式关闭又盖了回去（用户反馈的
+//   "点了 Blog/Wiki 列表不消失"）。悬停展开与"点击开合"本来就是两套心智，
+//   窄屏统一成后者。键盘用户依然可用：Tab 到品牌按回车即开合。
+const menuOpen = ref(false)
+
+/** 当前是否为"导航已折叠成抽屉"的布局（直接看 DOM，不写死断点） */
+function isCollapsedNav() {
   const linksEl = document.querySelector('.links')
-  const collapsed = !!linksEl && getComputedStyle(linksEl).display === 'none'
-  if (!collapsed) return
-  e.preventDefault()
-  menuHidden.value = false
+  return !!linksEl && getComputedStyle(linksEl).display === 'none'
 }
+
+function onBrandTap(e) {
+  const target = e.target instanceof Element ? e.target : null
+  if (!target) return
+  // ① 抽屉里的链接：先收起（跳转照常走 router-link，这里不动默认行为）
+  if (target.closest('.mobile-menu a')) {
+    menuOpen.value = false
+    return
+  }
+  // ② 抽屉的空白处：什么都不做
+  if (target.closest('.mobile-menu')) return
+  // ③ 宽屏：品牌照常回首页
+  if (!isCollapsedNav()) return
+  // ④ 折叠态的品牌：只开合抽屉，不回首页
+  e.preventDefault()
+  menuOpen.value = !menuOpen.value
+}
+
 function closeMenu() {
-  menuHidden.value = true
+  menuOpen.value = false
 }
 
 // 登录后右上角显示当前站点版本号 + 提交 ID。
@@ -139,10 +168,14 @@ onUnmounted(() => {
   <nav ref="navEl" class="navbar" :class="{ scrolled }">
     <!-- nav-top：标识 + 主导航 -->
     <div class="nav-top">
-      <div class="brand-wrap" @mouseleave="menuHidden = false">
-        <router-link to="/" class="brand" @click="onBrandClick">AniHub</router-link>
-        <!-- 手机比例：鼠标悬停 AniHub 时展开，菜单位置紧贴品牌下方 -->
-        <div class="mobile-menu" :class="{ hidden: menuHidden }">
+      <div class="brand-wrap" @click.capture="onBrandTap">
+        <router-link to="/" class="brand" aria-label="AniHub 首页" title="AniHub">
+          <AppIcon name="atom" :size="23" :stroke-width="1.5" />
+        </router-link>
+        <!-- 折叠态的下拉抽屉：点品牌开合（见 onBrandTap）。
+             第一项是「首页」—— 折叠态下品牌不再负责跳转，没有这一项就回不了首页。 -->
+        <div class="mobile-menu" :class="{ open: menuOpen }">
+          <router-link to="/" @click="closeMenu">首页</router-link>
           <router-link v-for="l in links" :key="l.to" :to="l.to" @click="closeMenu">{{ l.label }}</router-link>
         </div>
       </div>
@@ -292,7 +325,8 @@ onUnmounted(() => {
   min-width: 0;
 }
 
-/* —— 品牌：保持原有的纯文字样式（accent 色 + 800 字重） —— */
+/* —— 品牌：原子图标（SF Symbols 线性风格，accent 色，深浅主题自适应）。
+   原先这里是纯文字「AniHub」，改成图标后靠 aria-label / title 保留可访问名称。 —— */
 .brand-wrap {
   position: relative;
   display: inline-flex;
@@ -301,8 +335,9 @@ onUnmounted(() => {
 }
 
 .brand {
-  font-size: 18px;
-  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--accent);
   text-decoration: none;
   transition: opacity var(--dur-ios-1) var(--ease-ios-expo);
@@ -728,8 +763,7 @@ onUnmounted(() => {
      · 展开动画：`visibility + opacity + translateY`，像从品牌下方滑出来
    ⚠ 收起**不能**用 `display: none`：那样无法做过渡。改用 visibility + opacity，
      配合 `transition: visibility 0s linear <delay>` 让它在淡出结束后才不可见
-     （否则收起瞬间就点不到了）。元素始终留在文档流里，所以
-     「品牌 → 抽屉」的悬停路径也是连续的，不会中途触发 mouseleave。 */
+     （否则收起瞬间就点不到了）。 */
 .mobile-menu {
   /* ⚠ 显隐**不用 display**（那样没法做过渡），这里默认 `display: none`，
      只在窄屏媒体查询里改成 flex；显示/隐藏交给 visibility + opacity + translateY。
@@ -783,13 +817,10 @@ onUnmounted(() => {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
-/* 展开态：可见 + 归位。这段**两条规则都要**（:hover 与 .hidden 的否定）——
-   下面窄屏媒体查询里负责把它挂上去。 */
-.mobile-menu.hidden {
-  opacity: 0;
-  visibility: hidden;
-  transform: translateY(-8px) scale(0.97);
-}
+/* 展开态只在下面的 @media (max-width: 1024px) 里定义，且**只认 .open 状态**。
+   ⚠ 别再引入 `.hidden` 这种"另写一份收起态"的写法去和展开规则打特异性官司 ——
+     早先就是这么坏掉的（`.brand-wrap:hover .mobile-menu` 0,3,0 压过
+     `.mobile-menu.hidden` 0,2,0，于是"关闭"根本关不掉）。 */
 
 /* —— 关于 Wiki 拓扑图（深空场景）——
    这里不再对导航栏做任何"固定深色玻璃"的特殊处理：
@@ -841,10 +872,16 @@ onUnmounted(() => {
     flex: 0 0 auto;
   }
 
-  /* 链接：占品牌与搜索之间的剩余空间；超出就横向滚动（绝不竖排、绝不换行） */
+  /* 链接：**不抢剩余空间**（flex-grow: 0），超出就横向滚动。
+     ⚠ 这里曾经是 `flex: 1 1 auto`，本意是"由链接占掉品牌与搜索之间的空档"，
+       结果链接自己把自己撑开、内容却左对齐，中间空出一大块，还把搜索框顶到
+       612px 附近（1100px 实测）——而跨过 1180px 断点后搜索框又跳回 467px，
+       同一个搜索框在两个区间位置不同（用户反馈的"位置不对"）。
+       现在链接保持自然宽度、紧挨品牌，剩余空间全部交给 .nav-end 的
+       margin-left: auto，搜索框就始终紧跟在链接后面，与宽屏布局一致。 */
   .links {
     order: 2;
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     min-width: 0;
     overflow-x: auto;
     overflow-y: hidden;
@@ -890,6 +927,13 @@ onUnmounted(() => {
     min-width: 0;
     margin-left: auto;
     justify-content: flex-end;
+    /* ⚠ 这里必须补上 gap：`.nav-actions` 被 display: contents 解开后，
+       键盘 / 主题开关直接变成 .nav-end 的 flex 子项，而宽屏下它们与头像之间的
+       间距**全靠 .nav-actions 自己的 margin-left + padding-left + border-left**。
+       上面那句清零把那套间距一起抹掉了，于是「头像 · 键盘 · 主题」三个元素
+       严丝合缝地贴在一起（实测 227/227、288/288，间隙 0）。
+       取 10px 与整条顶栏在窄屏下的列间距（.navbar 的 column-gap）对齐。 */
+    gap: 10px;
   }
 
   .user-area {
@@ -911,11 +955,11 @@ onUnmounted(() => {
     display: flex;
   }
 
-  /* 抽屉展开：品牌悬停 / 抽屉自身悬停 / 键盘聚焦都能开。
-     ⚠ 只切换"可见 + 归位"，滑出动画来自 .mobile-menu 的 transition。 */
-  .brand-wrap:hover .mobile-menu,
-  .mobile-menu:hover,
-  .brand-wrap:focus-within .mobile-menu {
+  /* 展开态：**只**由点击/触摸切换的显式状态决定（见 onBrandTap）。
+     ⚠ 不要在这里恢复 :hover / :focus-within 展开：那样会与"点击开合"打架 ——
+       点完抽屉里的链接，指针还停在抽屉上，:hover 仍然匹配，显式关闭就被盖回去，
+       表现为"列表关不掉"。 */
+  .mobile-menu.open {
     opacity: 1;
     visibility: visible;
     transform: translateY(0) scale(1);
@@ -926,20 +970,25 @@ onUnmounted(() => {
   }
 }
 
-@media (max-width: 900px) {
+/* 触摸设备 + 窄屏才把输入框字号提到 16px：iOS Safari 在聚焦时会给字号 < 16px
+   的输入框自动放大页面。⚠ 必须带 (pointer: coarse)：这条原本对所有设备生效，
+   于是**窄窗口的桌面浏览器**在 900px 上下会出现"站内搜索几个字突然变大"的跳变
+   （用户反馈）。鼠标设备不会触发 iOS 那套缩放，字号保持 13px 即可。 */
+@media (max-width: 900px) and (pointer: coarse) {
   .nav-search input {
-    font-size: 16px; /* 避免 iOS 聚焦时自动放大页面 */
+    font-size: 16px;
   }
 }
 
 @media (max-width: 560px) {
-  /* 很窄：搜索框让位（站内搜索页仍可达），其余入口全部保住。
-     阈值取 560 是算出来的：品牌(60) + 搜索下限(60) + 键盘(61) + 主题(77) + 4×10 间距 = 298，
-     390px 视口去掉左右 20 内边距只剩 370 —— 放得下，所以真正需要让位的是更窄的屏。
-     ⚠ 早先写在 780px：那时 600~780 之间会留出一大段空白（实测 700px 下品牌在 82、
-       右侧那组从 512 才开始，中间空了 430px），看起来很怪。 */
+  /* 很窄：搜索框**保留**，只是被压到最窄。
+     （早先这里是 `display: none` 直接藏掉，理由是"放不下"；但手机上站内搜索
+     就彻底没有入口了 —— 用户反馈"这个搜索框直接没了"。实测 320px 下
+     品牌(21) + 搜索 + 键盘(61) + 主题(77) + 4×10 间距 + 左右 20 内边距
+     仍能给搜索框留下约 100px，虽紧但可用；再窄才会挤压链接行。） */
   .nav-search {
-    display: none;
+    flex: 1 1 40px;
+    min-width: 0;
   }
 }
 
@@ -950,8 +999,10 @@ onUnmounted(() => {
     gap: 8px;
   }
 
-  .brand {
-    font-size: 16px;
+  /* 很窄的屏上图标略微收小，仍然保持可点面积 */
+  .brand :deep(svg) {
+    width: 21px;
+    height: 21px;
   }
 
   .btn-sm {

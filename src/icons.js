@@ -9,6 +9,10 @@ const pl = (points) => ({ t: 'polyline', points })
 const pg = (points, fill = false) => ({ t: 'polygon', points, fill })
 const r = (x, y, width, height, rx = 0) => ({ t: 'rect', x, y, width, height, rx })
 const e = (cx, cy, rx, ry) => ({ t: 'ellipse', cx, cy, rx, ry })
+// 以 (cx,cy) 为心、长轴 rx、短轴 ry 的椭圆，绕心顺时针旋转 deg 度（等价于 SVG 的 rotate 变换）。
+const ellipseRotatedCw = (cx, cy, rx, ry, deg) => {
+  return { t: 'ellipse', cx, cy, rx, ry, transform: `rotate(${deg} ${cx} ${cy})` }
+}
 
 export const ICONS = {
   // ---------- 通用操作 ----------
@@ -184,4 +188,13 @@ export const ICONS = {
 
   // ---------- 通用/装饰 ----------
   flame: [p('M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z')],
+  // 原子（站点品牌标识）：三条夹角 60° 的电子轨道 + 原子核。
+  // 椭圆本身不支持「轨道倾角」属性，用绕心 rotate 变换实现，AppIcon 已透传 transform。
+  // 尺寸实测过：ry 再大轨道就会互相挤在一起（24px 下糊成一朵花），再小则读不出「原子」。
+  atom: [
+    { t: 'ellipse', cx: 12, cy: 12, rx: 8.8, ry: 3.3 },
+    { t: 'ellipse', ...ellipseRotatedCw(12, 12, 8.8, 3.3, 60) },
+    { t: 'ellipse', ...ellipseRotatedCw(12, 12, 8.8, 3.3, 120) },
+    c(12, 12, 1.6),
+  ],
 }

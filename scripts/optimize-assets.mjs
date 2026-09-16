@@ -2,9 +2,9 @@
 // 静态插图资源优化：把 public/ 下体积过大的 PNG 转成 WebP，并生成合适的站点图标。
 //
 // 为什么需要：这些图在仓库里以 PNG 形式存在，单张 250KB~490KB，
-// 而它们只是主页卡片缩略图 / 错误码插画（原生尺寸 512×512、433×401），
-// 转 WebP 后同画质只剩约 1/5 体积。
+// 而它们只是错误码插画（原生尺寸 433×401），转 WebP 后同画质只剩约 1/5 体积。
 // 壁纸目录（public/wallpapers）**不在本脚本处理范围内**，那是用户自己的原图。
+// 主页功能卡片插图已改为纯 SVG（src/components/HomeNodeArt.vue），不再有位图需要处理。
 //
 // 用法：node scripts/optimize-assets.mjs
 // 依赖：ImageMagick 7（magick 命令）。Windows 常见安装路径会自动探测；
@@ -99,24 +99,12 @@ console.log('\n[1/3] 站点图标（浏览器标签页 / 主屏图标）')
 makePngIcon('anihub.png', 'favicon-32.png', 32)
 makePngIcon('anihub.png', 'apple-touch-icon.png', 180)
 
-console.log('\n[2/3] 主页功能卡片插图')
-for (const f of [
-  'home/anime.png',
-  'home/blog.png',
-  'home/wiki.png',
-  'home/tools.png',
-  'home/game.png',
-  'home/to_be_continue.png',
-]) {
-  toWebp(f)
-}
-
-console.log('\n[3/3] 错误码插画')
+console.log('\n[2/3] 错误码插画')
 for (const code of [400, 401, 403, 404, 500, 502, 503, 504]) {
   toWebp(`http_status_code/${code}.png`)
 }
 
-console.log('\n[4/4] 站点分享/装饰图标')
+console.log('\n[3/3] 站点分享/装饰图标')
 // anihub.png（929KB）在改用 favicon-32.png 后不再被页面引用，但保留原图供再生成
 // deepseek_maid_icon.png 是桌宠召唤按钮的圆形底图（1254×1254），缩到 256 足够显示
 const maid = path.join(PUBLIC, 'deepseek_maid_icon.png')
@@ -132,5 +120,5 @@ if (fs.existsSync(maid)) {
 }
 
 console.log(`\n完成。共减少约 ${(savedTotal / 1024 / 1024).toFixed(2)} MB。`)
-console.log('提示：主页卡片图与错误码插画现在都是 .webp，引用路径已同步更新；')
+console.log('提示：错误码插画现在都是 .webp，引用路径已同步更新；')
 console.log('      若新增同类插图，请用本脚本转换后一并提交。')

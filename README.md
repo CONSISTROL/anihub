@@ -865,8 +865,9 @@ sudo -i                       # 或直接进 root shell（su 需 root 密码，s
 
 ### 插画资源（`scripts/optimize-assets.mjs`）
 
-`pnpm optimize:assets` 会：把 `public/home/*.png`、`public/http_status_code/*.png` 转成 WebP（同画质约 -78%）；用 `public/anihub.png` 生成 `favicon-32.png` 与 `apple-touch-icon.png`；把桌宠召唤图标缩到 256×256。需要本机装 ImageMagick（Windows 常见路径会自动探测，也可用 `MAGICK_PATH` 指定）。**产物已提交进仓库，服务器上不需要装 ImageMagick。**
+`pnpm optimize:assets` 会：把 `public/http_status_code/*.png` 转成 WebP（同画质约 -78%）；用 `public/anihub.png` 生成 `favicon-32.png` 与 `apple-touch-icon.png`；把桌宠召唤图标缩到 256×256。需要本机装 ImageMagick（Windows 常见路径会自动探测，也可用 `MAGICK_PATH` 指定）。**产物已提交进仓库，服务器上不需要装 ImageMagick。**
 
+> 主页五个功能卡片中间的插图已从位图（原 `public/home/*.webp`）换成纯 SVG：见 `src/components/HomeNodeArt.vue`，颜色继承卡片的 `--accent`，深浅主题自适应，所以不再有位图需要转换。
 > `public/wallpapers/` 是用户自己的壁纸原图，不在本脚本处理范围内。
 
 ## 已知说明

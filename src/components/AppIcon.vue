@@ -61,6 +61,7 @@ const paths = computed(() => ICONS[props.name] || [])
         :cy="el.cy"
         :rx="el.rx"
         :ry="el.ry"
+        :transform="el.transform"
         :fill="el.fill ? 'currentColor' : 'none'"
       />
     </template>
