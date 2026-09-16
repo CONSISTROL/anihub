@@ -53,3 +53,6 @@ server/uploads/
 # 临时验收脚本 / 截图（开发时用，不入库）
 .probe/
 probe-trash-*/
+
+# 编辑器 / AI 助手的本地配置（个人环境，不入库；项目约定见 CLAUDE.md）
+.claude/
