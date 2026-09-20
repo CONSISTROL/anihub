@@ -471,12 +471,33 @@ function rewriteLocalHtml(html, endpoint) {
   })
   // 内联脚本里的引导数据（/plugins/、/assets/）→ 加前缀
   out = rewriteInlineScriptPaths(out, prefix)
+  // 上游自己的绝对地址（http/https://127.0.0.1:<port>/… 等三种回环写法）→ 前缀
+  out = out.replace(upstreamAbsoluteUrlPattern(endpoint, 'https?'), prefix)
   // ⚠ 注入脚本必须放在**所有文本改写之后**：垫片自身也是页面文本，
   // 先注入就会被上面的属性 / url() 正则改写。
   // 垫片紧跟 <head> 之后（最早执行）；Service Worker 注册放 </head> 前。
-  out = injectAfterHead(out, apiShimScript(prefix))
+  out = injectAfterHead(out, apiShimScript(prefix, endpoint))
   if (/<\/head>/i.test(out)) out = out.replace(/<\/head>/i, `${serviceWorkerScript()}</head>`)
   return out
+}
+
+/**
+ * 匹配「上游自己的绝对地址」的正则：`<scheme>://<回环写法>:<端口>`。
+ *
+ * 很多本地服务会把自身地址硬编码进前端（配置文件、注入的 runtime config、
+ * 拼接的接口地址），写法可能是 `127.0.0.1` / `localhost` / `[::1]`。
+ * 不改写的话，浏览器会去**访问者自己的机器**上找这个端口 —— 远程通过统一入口
+ * 访问时必然失败（而这恰恰是"统一 Web"要解决的场景）。
+ *
+ * 只认**同端口**：端口相同才说明指的是同一个本机服务；不同端口是另一个服务，
+ * 不能替它做主（也就不会把用户故意指向别的端口的地址改写掉）。
+ *
+ * @param endpoint - 当前目标回环服务。
+ * @param schemes - 要匹配的协议（HTML/JS 文本里用 `https?`；ws 交给页面垫片）。
+ */
+function upstreamAbsoluteUrlPattern(endpoint, schemes) {
+  const hosts = ['127\\.0\\.0\\.1', 'localhost', '\\[::1\\]']
+  return new RegExp(`\\b(?:${schemes})://(?:${hosts.join('|')}):${endpoint.port}(?=[/?#"'\\s]|$)`, 'gi')
 }
 
 /**
@@ -531,10 +552,39 @@ function serviceWorkerScript() {
  * （垫片改过的请求落到 `/local-web/...`，SW 会原样放行）。
  *
  * @param prefix - 当前服务的代理前缀（如 `/local-web/http/127.0.0.1:3080`）。
+ * @param endpoint - 当前目标回环服务（垫片要用它的端口识别"写死自身地址"的 URL）。
  */
-function apiShimScript(prefix) {
+function apiShimScript(prefix, endpoint) {
   return `<script>(function(){
+/* ⚠⚠ 让页面以「操作者本机」语义运行（统一 Web 入口的关键一步）。
+ *
+ * 背景：DSH 客户端把「本页是否拥有 Host」当成权限判据 ——
+ *   packages/client/connection/src/client/index.ts
+ *     pageLocation = location; transport = globalThis.__DSH_TRANSPORT__
+ *     isLoopback = transport?.ownsHost === true || isLoopbackHostname(location.hostname)
+ *   packages/client/ui-settings/src/client/index.ts
+ *     persistence = ctx.remote.$host.isLoopback ? 'host' : 'memory'
+ * 于是从**域名**（我们的统一入口）打开时 hostname 不是回环 → 设置镜像被设成 memory，
+ * settings/describe 根本不会发出 → 设置/模型 页恒显示
+ * "settings are unavailable in this browser"，工作区相关面板同样残缺。
+ *
+ * 这里声明 ownsHost（DSH 自己的官方缝隙：其注释写明 served pages never carry the
+ * global）。连接插件因此把 isLoopback 置真，而传输层**原样回落到 HTTP + WebSocket**
+ * —— 见 rpc = ... ?? createWebConnectionRpc(transport?.fetch, transport?.openStream)，
+ * 只给 ownsHost 时 fetch/openStream 都是 undefined，走浏览器默认通道，不打断链路。
+ *
+ * 为什么在代理里声明是成立的：本页面只对**已登录的管理员**开放，且请求一律转发到
+ * 回环地址上的上游（localWebAuth + parseEndpoint 双重限制），也就是说这一页确实独占
+ * 该 Host —— 正是 ownsHost 的语义。放到域名下只是把通道换成公开入口，
+ * 信任边界仍然等于站点管理员会话。
+ *
+ * 已存在 __DSH_TRANSPORT__ 时**不覆盖**（worker/desktop 外壳自带真传输）。 */
+try {
+  var g = typeof globalThis !== 'undefined' ? globalThis : window;
+  if (!g.__DSH_TRANSPORT__) g.__DSH_TRANSPORT__ = { ownsHost: true };
+} catch (e) { /* 忽略 */ }
 var PREFIX = ${JSON.stringify(prefix)};
+var PORT = ${JSON.stringify(String(endpoint.port))};
 var ORIGIN = location.origin;
 var HOST = location.host;
 function fixPath(pathname) {
@@ -542,10 +592,26 @@ function fixPath(pathname) {
   if (pathname === PREFIX || pathname.indexOf(PREFIX + '/') === 0) return pathname;
   return PREFIX + pathname;
 }
+/* 上游自己的绝对地址（http(s)/ws(s)://127.0.0.1|localhost|[::1]:<本端口>/…）→ 代理前缀。
+   很多服务的配置/前端会把自身地址写死；远程访问时那个 127.0.0.1 指的是**访问者的机器**，
+   必须拦下来改写到代理前缀，否则接口/实时通道都会指向错误的地方。只认同端口。 */
+function fixUpstream(href) {
+  try {
+    var target = new URL(String(href), location.href);
+    if (target.port !== PORT) return href;
+    if (!/^(127\\.0\\.0\\.1|localhost|\\[::1\\])$/.test(target.hostname)) return href;
+    var path = PREFIX + (target.pathname.charAt(0) === '/' ? target.pathname : '/' + target.pathname);
+    if (target.protocol === 'ws:' || target.protocol === 'wss:') {
+      var wsScheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      return wsScheme + '//' + location.host + path + target.search + target.hash;
+    }
+    return ORIGIN + path + target.search + target.hash;
+  } catch (e) { return href; }
+}
 function fix(href) {
   try {
     var target = new URL(String(href), location.href);
-    if (target.origin !== ORIGIN) return href;
+    if (target.origin !== ORIGIN) return fixUpstream(href);
     var pathname = fixPath(target.pathname);
     if (pathname === target.pathname) return href;
     target.pathname = pathname;
@@ -574,10 +640,14 @@ XMLHttpRequest.prototype.open = function (method, target) {
 };
 var RawWebSocket = window.WebSocket;
 if (RawWebSocket) {
-  // ws:/wss: 的 URL.origin 与页面的 http(s) origin 不同，所以这里比较 host
+  // ws:/wss: 的 URL.origin 与页面的 http(s) origin 不同，所以这里比较 host；
+  // 另外先过一遍 fixUpstream（服务把自己写死成 127.0.0.1:<port> 的实时通道）
   var fixSocketUrl = function (address) {
     try {
-      var target = new URL(String(address && address.url ? address.url : address), location.href);
+      var raw = String(address && address.url ? address.url : address);
+      var upstream = fixUpstream(raw);
+      if (upstream !== raw) return upstream;
+      var target = new URL(raw, location.href);
       if (target.host !== HOST) return address;
       var pathname = fixPath(target.pathname);
       if (pathname === target.pathname) return address;
@@ -639,6 +709,7 @@ function rewriteSetCookie(endpoint, cookie) {
 /** 改写外部 JS 里常见的 API 根路径：
  *  1. axios.create({ baseURL: "/api" })
  *  2. 动态拼接的 /api/reports/xxx、/api/jobs/xxx 等字符串
+ *  3. 把**服务自身地址**写死的字符串（`http://127.0.0.1:<port>/…`）
  *  不能把所有根路径字符串都改写，否则会破坏前端路由字符串。 */
 function rewriteLocalJavaScript(js, endpoint) {
   const prefix = proxyPrefix(endpoint)
@@ -649,6 +720,9 @@ function rewriteLocalJavaScript(js, endpoint) {
   //                          例如 DSH 的 `import("/plugins/??...")`）
   out = out.replace(/(["'`])\/api\//g, `$1${prefix}/api/`)
   out = out.replace(/(["'`])\/(plugins|assets)\//g, `$1${prefix}/$2/`)
+  // 服务把自身地址写成绝对 URL（含 token 类的服务很常见）→ 前缀路径。
+  // ws(s) 的绝对地址留给页面垫片在运行期处理（静态文本里改协议会把 URL 弄坏）。
+  out = out.replace(upstreamAbsoluteUrlPattern(endpoint, 'https?'), prefix)
   return out
 }
 
