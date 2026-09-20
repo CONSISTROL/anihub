@@ -13,7 +13,7 @@ import monitorRouter, { serverStats } from './routes/monitor.js'
 import consoleRouter from './routes/console.js'
 import upgradeRouter, { finalizeUpgradeState } from './routes/upgrade.js'
 import visitsRouter, { recordPageVisit, flushPendingVisits } from './routes/visits.js'
-import localWebRouter, { proxyRouter as localWebProxy } from './routes/localWeb.js'
+import localWebRouter, { proxyRouter as localWebProxy, localWebUpgrade } from './routes/localWeb.js'
 import readingRouter from './routes/reading.js'
 import { BOOKS_DIR, booksGuard, booksInjectGuard, sendBookHtml, blockManifest } from './books.js'
 import { attachConsoleSocket, closeConsoleSockets } from './consoleSocket.js'
@@ -241,6 +241,19 @@ const server = app.listen(PORT, () => {
   startMonitor() // 服务器指标采集（每 5 秒采样 CPU/内存/网络/磁盘）
   startMaintenance() // WAL checkpoint + 过期访问记录清理
   finalizeUpgradeState() // 如果上次升级停在 restart 阶段，新进程起来后标记完成
+})
+// 本地 Web 代理的 WebSocket 升级（SPA 实时通道，如 DSH 的 /api/remote.mux）。
+// 必须**早于** attachConsoleSocket 注册：控制台那个处理器对非 /ws/console 的路径
+// 一律 destroy，晚注册的处理器拿不到 socket（事件是广播给所有 listener 的）。
+server.on('upgrade', (req, socket, head) => {
+  // 兜底：这个 listener 抛异常会**中断同一次 emit 里后面的 listener**（控制台 WS），
+  // 所以这里必须自己吞掉并关掉 socket。非 /local-web 路径不会抛（第一行就 return）。
+  try {
+    localWebUpgrade(req, socket, head)
+  } catch (err) {
+    console.error('[local-web] 升级代理异常：', err)
+    socket.destroy()
+  }
 })
 attachConsoleSocket(server) // 控制台实时流式输出（WebSocket）
 

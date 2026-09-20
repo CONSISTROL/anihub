@@ -31,7 +31,11 @@ export default defineConfig({
       // 否则本地的身份校验（booksGuard）会被绕过
       '/books': 'http://localhost:3001',
       // 本地 Web 代理：控制台新标签页打开 /local-web/http/... 时转发到后端
-      '/local-web': 'http://localhost:3001',
+      // ⚠⚠ 必须带 `ws: true`：被代理的本地服务自身往往有 WebSocket 实时通道
+      // （DSH Web GUI 的 /api/remote.mux 就是），少了这个开关 vite 只转发普通 HTTP，
+      // 升级请求根本到不了后端 → 页面能开、接口能用，但**永远"自动重连中…"、
+      // 消息发不出去**（只在 dev 模式出现；直连 3001 或生产 Express 都正常）。
+      '/local-web': { target: 'http://localhost:3001', ws: true },
       // 控制台 WebSocket 实时输出
       '/ws': { target: 'http://localhost:3001', ws: true },
     },

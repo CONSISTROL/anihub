@@ -48,7 +48,10 @@ export function attachConsoleSocket(server) {
       return
     }
     if (url.pathname !== '/ws/console') {
-      socket.destroy()
+      // /local-web/* 的升级归本地 Web 代理（index.js 里先注册的处理器）所有。
+      // Node 的 'upgrade' 是广播：本处理器也会被调用，直接 destroy 会把
+      // 已经被代理接管的 socket 打死（表现为本地 Web 的 WebSocket 一握手就断）。
+      if (!url.pathname.startsWith('/local-web/')) socket.destroy()
       return
     }
     const token = url.searchParams.get('token') || ''

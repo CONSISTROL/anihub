@@ -741,7 +741,7 @@ sudo -i                       # 或直接进 root shell（su 需 root 密码，s
 │   ├── routes/visits.js          # 访问统计（内存缓冲批量落库 + 有上限的 IP 归属地解析）
 │   ├── routes/reading.js         # 在线阅读接口（按身份过滤 + 上架配置 + /books 会话 Cookie）
 │   ├── books.js                  # 书库：清单读取、上架配置、/books 目录的鉴权中间件
-│   ├── routes/localWeb.js        # 本地 Web 代理（会话 Cookie / 本机端口扫描 / 回环反向代理）
+│   ├── routes/localWeb.js        # 本地 Web 代理（会话 Cookie / 本机端口扫描 / 回环反向代理 / WebSocket 升级）
 │   ├── logger.js                 # console 输出捕获（环形缓冲，供控制台查看）
 │   ├── monitorCollector.js       # 指标采集器（每 5s 采样 CPU/内存/网络/磁盘 → SQLite metrics）
 │   ├── consoleSocket.js          # 控制台 WebSocket（背压保护 + 心跳 + 退出时关闭）
@@ -872,7 +872,20 @@ sudo -i                       # 或直接进 root shell（su 需 root 密码，s
 
 ## 已知说明
 
-- **本地 Web 代理是路径前缀反向代理**（`/local-web/http/<host>:<port>/...`），适合纯静态页面、支持子路径部署的服务和简单 HTTP 服务；如果目标服务硬编码从根路径发起 `/api` 等请求且不支持配置 base URL，可能需要先在服务自身配置子路径前缀，或使用控制台/SSH 做端口转发访问。
+- **本地 Web 代理是路径前缀反向代理**（`/local-web/http/<host>:<port>/...`）：目标服务在**路径前缀**下运行，而它自己以为在根路径下。代理用四层手段把这落差抹平，让"硬编码根路径"的 SPA（如 DSH Web GUI）也能直接用：
+  1. **HTML 改写**：注入/改写 `<base href="/local-web/http/<host:port>/">`，把标签属性里的根路径资源、CSS `url(/...)`、`srcset` 都加上前缀；
+  2. **内联脚本改写**：把内联 `<script>` 里 `"/plugins/`、`"/assets/` 这类字符串字面量加上前缀（运行期再取脚本的引导数据，属性改写够不着）；
+  3. **页面垫片**：紧跟 `<head>` 注入一小段脚本改写 `fetch` / `XMLHttpRequest` / `WebSocket` 的目标地址；
+  4. **Service Worker**（`/local-web/sw.js`，scope `/local-web/`）：兜住页面垫片够不到的请求（`import()`、DOM 插入的标签、Worker 内部）。
+  - ⚠⚠ **dev 模式下 vite 也必须转发升级请求**（`vite.config.js`：`'/local-web': { target: …, ws: true }`）。少了 `ws: true`，vite 只代理普通 HTTP，**WebSocket 升级根本到不了后端**；而 HTTP 一切正常 —— 于是症状是最迷惑人的一种：**模型/设置等接口都能用，但永远"自动重连中…"、消息发不出去**。实测 A/B（两条 vite 配置各起一个实例，同一后端同一上游）：无 `ws:true` → 握手挂住、一帧都收不到；有 `ws:true` → 101 + 帧正常。**只在 dev 出现**：直连 `:3001` 与生产 Express 都正常，所以必须在 `http://localhost:5173` 上复验才算数（vite 默认绑 `localhost`＝IPv6，`netstat | findstr 127.0.0.1` 是看不到它的）
+  - ⚠⚠ **Nginx 部署必须给 `/local-web/` 单开一段带 Upgrade 的 location**（`deploy/anihub.nginx.conf` 已加）。`location /` 里没有 `Upgrade` 头，控制台的 `/ws/` 之前单独开过，本地 Web 前缀同样需要 —— 否则线上与 dev 同病：HTTP 能通、WebSocket 全废
+  - ⚠⚠ **上游空闲超时不能是 30s**。本机跑的往往是重后端（DSH 的 workspace 创建 / 会话恢复 / 导出 / 一轮对话确认都可能远超 30s），30s 会 `upstream.destroy()` 回 `502 PROXY_FAILED: upstream timeout`，客户端侧表现是"点了没反应 / 一直等待中 / 连接不上"，**完全看不出是超时**。实测：上游 45s 才回 → 30s 整被掐成 502。现在默认 10 分钟（`LOCAL_WEB_UPSTREAM_TIMEOUT_MS` 可覆盖），并**顺带在客户端断开时销毁上游请求**（超时放宽后这一步是必须的，否则被放弃的慢请求会占着上游连接）
+  - ⚠⚠ **`SW 拦不到 WebSocket 握手`**，所以 WS 必须"页面垫片改 URL + 服务端在 `server.on('upgrade')` 上转发"两头补（`localWebUpgrade()`，只允许回环 + 校验 `anihub_local_web`）。缺了它的症状：页面能打开、按钮能点，但一直"自动重连中…"，会话/流式输出/设置同步停在加载态
+    - ⚠ **注册顺序会决定生死**：Node 的 `upgrade` 是**广播**给所有 listener 的，`consoleSocket.js` 对非 `/ws/console` 的路径一律 `socket.destroy()`。所以本地 Web 的升级处理器必须**先**注册，且 `consoleSocket` 要放过 `/local-web/*`（两边都做了注释，别删）
+    - ⚠ 接管裸 socket 后要**立刻** `socket.on('error', …)`：对端 reset 时没有监听器的 `'error'` 会以 uncaughtException 把整个进程带走（实测过一次被拒的 WS 让服务端整体退出）
+  - ⚠⚠ **页面里的 POST 会因 `duplex` 全线"Failed to fetch"**。SW 转发带 body 的请求时 `new Request(url, {body: request.body})` **缺少 `duplex: 'half'` 会直接抛 TypeError**，`respondWith` 的 Promise 被拒 → 浏览器只报一句 `Failed to fetch`（网络错误）。症状极具辨识度：**页面、样式、脚本全部正常，只有调 API（POST）失败**。修法：转发时对非 GET/HEAD 声明 `duplex: 'half'`（不支持 duplex 的浏览器再去掉重试）；原型里的 `<Request>` 垫片则根本不走 SW
+  - ⚠⚠ **必须把 `Origin` / `Referer` 改写成上游视角**。转发时 `Host` 换成了 `127.0.0.1:<port>`，但浏览器的 `Origin` 还是站点自己的地址 —— 上游只要做同源/CSRF 栅栏就会判成跨站而拒绝。实测 DSH Web GUI：`POST /api/llm/listProviders` 恒定 `403 forbidden`，页面表现是"模型：加载提供方目录失败"，而**同一条请求不带 `Origin` 就是 200**。现在：`Origin` 主机是站点 → 改写成上游 origin（`null`/外部来源原样保留，不替上游洗白）；`Referer` 在前缀下 → 改写路径，指向站点其它页面 → 直接删掉。见 `rewriteUpstreamSourceHeaders()`
+    - ⚠ 改写后**不要**再从 `req.headers` 覆盖回来：`handleProxy()` 里原先那两行 `if (req.headers.origin) headers.origin = …` 会把改写结果冲掉，是"改了却没生效"的典型坑
   - ⚠⚠ **代理改写过的响应必须绕开压缩中间件**（`server/middleware/compress.js` 已修）。代理在改写 HTML/JS 后用 `res.writeHead(200, headers)` + `res.end(body)` 发送，`writeHead` **立刻提交响应头**；而压缩中间件要做两件必然改头的事（`removeHeader('Content-Length')` 改成 chunked、`setHeader('Content-Encoding')`），对已提交的头调用会抛 `ERR_HTTP_HEADERS_SENT`
     - 这个异常抛在 `res.end()` 的调用栈里 → **uncaughtException**，表现为"响应要么 500、要么连接挂着不断开"
     - 实际症状：**打开 `/local-web/...` 只能看到首页，样式/脚本全部加载不出来**（实测 CSS 返回 500 空体、JS 请求永久挂起）。注意**首页本身是好的**（不会触发压缩路径），所以很容易误判成"代理整个挂了"
@@ -889,7 +902,10 @@ sudo -i                       # 或直接进 root shell（su 需 root 密码，s
     - 代价可忽略：本机回环代理，不压缩反而省 CPU
   - ⚠ **改写条件不能要求 `content-length`**。上游常用 `transfer-encoding: chunked`（没有 content-length），老条件 `Number.isFinite(declaredLen) && declaredLen > 0` 直接判否 → HTML/JS 原样透传、`<base>` 不注入
     - 现在：有 length 就按 length 预判，没有就**先收下来**，累积过程中用 `HTML_REWRITE_LIMIT`（10MB）兜住内存 —— 超限立即改写为直通，不再缓存
-  - 验收方法（可复用）：造一个**忠实复刻目标服务鉴权行为**的上游（`?token=` → 303 + `Set-Cookie`，其余要求该 Cookie，页面引用绝对路径 `/assets/*`，且只在客户端要 gzip 时才压缩），然后检查：① `?token=` 是否 303 ② `/` 是否明文 ③ `<base>` 是否注入 ④ 资源引用是否都带前缀 ⑤ 子资源是否 200 ⑥ 应用是否真的跑起来
+  - 验收方法（可复用）：`.probe/localweb-e2e.mjs` —— 用 CDP 起一个真实 Chrome，注入"代理会话 Cookie + 上游会话 Cookie"后打开代理地址，收集控制台/网络失败，并在**页面上下文**里直接发一次 RPC（`fetch('/api/llm/listProviders')`）与一次 WebSocket 握手，最后截图。`node .probe/localweb-e2e.mjs <输出前缀> <站点地址>`；加第三个参数 `direct` 就是直连上游的对照组（用来区分"代理引入的问题"和"上游本来就有的问题"——实测那两个 `cannot get property "remote.session" without inject` 异常直连同样存在）。代理本身可以用 `.probe/proxy-harness.mjs` 单独挂在测试端口上验收（不碰数据库、不影响正在跑的服务）；WebSocket 的三种分支（正常 101 / 上游拒绝 / 代理拒绝）用 `.probe/proxy-ws.mjs` 验
+  - 另一种验收方法（不依赖真实上游）：造一个**忠实复刻目标服务鉴权行为**的探针上游（`?token=` → 303 + `Set-Cookie`，其余要求该 Cookie，页面引用绝对路径 `/assets/*`，且只在客户端要 gzip 时才压缩），然后检查：① `?token=` 是否 303 ② `/` 是否明文 ③ `<base>` 是否注入 ④ 资源引用是否都带前缀 ⑤ 子资源是否 200 ⑥ POST 是否 200（不是 `Failed to fetch`）⑦ WS 是否 101
+  - 已知小瑕疵：`manifest.webmanifest` 会回一个 401（浏览器抓 PWA manifest 时不带 Cookie，上游的会话鉴权必然拒绝）。只影响 PWA 安装提示，控制台会多一条 401，功能无碍
+  - 改完服务端要**重启** `server/index.js` 才会生效（`pnpm dev:server` 是 `node --watch`，`pnpm start` 不是）；浏览器侧不用清缓存：`/local-web/sw.js` 带 `Cache-Control: no-store`，且 SW 主脚本每次导航都会重新校验，改完会在下一次加载自动更新
 - **中文标题与中文简介为人工维护的映射表**（AniList 不提供中文标题/简介字段）：标题见 [src/data/zhTitles.js](src/data/zhTitles.js)、简介见 [src/data/zhDescriptions.js](src/data/zhDescriptions.js)、类型标签中文翻译见 [src/data/zhGenres.js](src/data/zhGenres.js)，均完整覆盖 2026 夏季档全部正常向作品（成人向除外）；语言为中文时点开详情会优先显示中文简介，未收录的动画回退显示罗马音标题与英文简介。新增条目时在文件中按 `AniList id: '内容'` 追加即可（id 可在动画详情弹窗的 AniList 链接中查到）
 - 档期内已完结 / 未开播 / 缺排期的动画不出现在日历上，会列在日历下方
 - 日历数据由服务器按需回源 AniList 并缓存（外网需可达）；首次请求或缓存过期时服务器拉取，之后页面只读服务器缓存。AniList 官方故障时若服务器已有缓存仍可正常显示，无缓存时日历会显示错误提示，其余页面不受影响

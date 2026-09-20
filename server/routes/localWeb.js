@@ -17,7 +17,17 @@ const proxyRouter = Router()
 
 const COOKIE_NAME = 'anihub_local_web'
 const SCAN_TTL_MS = 30000
-const UPSTREAM_TIMEOUT_MS = 30000
+/* 上游**空闲**超时（不是总耗时）：多久没收到任何字节才算挂死。
+ *
+ * ⚠⚠ 这里原来是 30s，对本地服务是灾难性的：本机跑的往往是**重后端**
+ * （DSH 的 workspace 创建 / 会话恢复 / 导出 / 一轮对话的接收确认都可能远超 30s），
+ * 一旦超时，代理会 `upstream.destroy()` 并回 `502 PROXY_FAILED: upstream timeout`
+ * —— 客户端侧表现就是"点了没反应 / 一直等待中 / 连接不上"，而且**看起来完全不像是超时**。
+ * 实测（`.probe/slow-upstream.mjs`）：上游 45s 才回，30s 整被掐断成 502。
+ * 现在默认 10 分钟，仍能在上游真的挂死时回收；可用 LOCAL_WEB_UPSTREAM_TIMEOUT_MS 覆盖。 */
+const UPSTREAM_TIMEOUT_MS = Number(process.env.LOCAL_WEB_UPSTREAM_TIMEOUT_MS) > 0
+  ? Number(process.env.LOCAL_WEB_UPSTREAM_TIMEOUT_MS)
+  : 10 * 60 * 1000
 
 /* -------------------- 会话 Cookie（供新标签页全页代理鉴权） -------------------- */
 
@@ -333,6 +343,80 @@ function proxyPrefix(endpoint) {
   return `/local-web/http/${endpoint.formatHost}:${endpoint.port}`
 }
 
+/** 上游自己的 origin（浏览器直连该服务时会用的那个）。 */
+function upstreamOrigin(endpoint) {
+  return `http://${endpoint.formatHost}:${endpoint.port}`
+}
+
+/** 只看主机名（去掉端口）的规范化形式，用来容忍中间层丢端口的 Host 改写。 */
+function hostNameOf(authority) {
+  try {
+    return new URL(`http://${String(authority || '')}`).hostname.toLowerCase()
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * 把浏览器的来源头（`Origin` / `Referer`）改写成**上游视角**的值。
+ *
+ * ⚠⚠ 代理转发时会把 `Host` 改写成 `127.0.0.1:<port>`（上游才知道自己是谁），
+ * 但浏览器附带的 `Origin` / `Referer` 仍然是**站点自己的地址**。上游只要做了
+ * 同源 / CSRF 栅栏，就会把这条请求判成"跨站发来的"而拒绝 —— 表现是页面能打开、
+ * 一类调用（多为 POST）却恒定失败。
+ *
+ * 实测（DSH Web GUI，即本机 3080 的 `dsh web`）：
+ *   - `POST /api/llm/listProviders` 带 `Origin: http://<站点>` 经代理转发后回 `403 forbidden`
+ *     （上游 `isTrustedApiRequest()` 的比较是 `new URL(origin).host === host`），
+ *     页面上的表现是"模型：加载提供方目录失败"；
+ *   - 不带 `Origin` 时同一条请求 200。
+ *
+ * "这条请求确实来自站点自己的页面"按三条**任一**成立判定：
+ *   1. 浏览器自带标记 `sec-fetch-site` 是 `same-origin` / `same-site`（最可靠：浏览器自己说的）；
+ *   2. Origin 的 `host` 与本站 Host 完全一致；
+ *   3. Origin 的**主机名**与本站 Host 的主机名一致（端口不同也算）—— 中间层
+ *      （nginx `proxy_set_header Host $host;`、隧道、端口转发）可能把 Host 的端口吃掉，
+ *      这种"端口对不上"会让判定整体失效、上游继续 403。
+ * 外部来源与 `null`（不透明来源）一律原样保留，不替上游洗白。
+ *
+ * `Referer` 用同一套判定：命中就按前缀映射成上游地址，指向站点其它页面则删掉。
+ *
+ * @param headers - 即将发给上游的可变头对象（尚未改写 `host`）。
+ * @param endpoint - 目标回环服务。
+ * @param siteHost - 浏览器请求本站时用的 Host（`req.headers.host`）。
+ */
+function rewriteUpstreamSourceHeaders(headers, endpoint, siteHost) {
+  const origin = upstreamOrigin(endpoint)
+  const site = String(siteHost || '').toLowerCase()
+  const siteName = hostNameOf(siteHost)
+  const marker = String(headers['sec-fetch-site'] || '').toLowerCase()
+  const browserSaysSameSite = marker === 'same-origin' || marker === 'same-site'
+  const isOurPage = (host, hostname) => {
+    if (browserSaysSameSite) return true
+    if (host && String(host).toLowerCase() === site) return true
+    return Boolean(siteName) && String(hostname || '').toLowerCase() === siteName
+  }
+  if (headers.origin && headers.origin !== 'null') {
+    try {
+      const ref = new URL(headers.origin)
+      if (isOurPage(ref.host, ref.hostname)) headers.origin = origin
+    } catch { /* 解析不了就原样保留 */ }
+  }
+  if (headers.referer) {
+    try {
+      const ref = new URL(headers.referer)
+      if (isOurPage(ref.host, ref.hostname)) {
+        const prefix = proxyPrefix(endpoint)
+        if (ref.pathname.startsWith(prefix)) {
+          headers.referer = `${origin}${ref.pathname.slice(prefix.length)}${ref.search}`
+        } else {
+          delete headers.referer
+        }
+      }
+    } catch { /* 解析不了就原样保留 */ }
+  }
+}
+
 const HTML_REWRITE_LIMIT = 10 * 1024 * 1024
 
 /** 在 HTML 中注入/改写 <base href>，让 Vue Router 等前端路由把根路径
@@ -356,19 +440,13 @@ function ensureProxyBase(html, prefix) {
   return html.replace(/(<head[^>]*>)/i, `$1<base href="${proxyBase}">`)
 }
 
-/** 把本地服务返回的 HTML 中“根路径引用”改写到当前代理前缀下。
- *  只改写 HTML 标签属性里的资源地址与 CSS url()/srcset，
- *  不改写 <script> 里的 JS 源码——路由字符串等会被错误破坏。 */
+/** 把本地服务返回的 HTML 中“根路径引用”改写到当前代理前缀下：
+ *  - 标签属性里的资源地址（href/src/action/...）与 CSS url()/srcset；
+ *  - 内联脚本里的 `/plugins/`、`/assets/` 字面量（见 rewriteInlineScriptPaths）；
+ *  只按"明确的资源前缀"改写，不碰前端路由字符串（改错会把 SPA 拆坏）。 */
 function rewriteLocalHtml(html, endpoint) {
   const prefix = proxyPrefix(endpoint)
   let out = ensureProxyBase(html, prefix)
-  // 注册同源 Service Worker：把页面里发往网站根路径的同源请求
-  // （例如 SPA 里 fetch('/api/...')）改写到当前代理前缀，解决路径前缀代理下
-  // JS 硬编码根路径 API 的问题。
-  const swScript = `<script>(function(){try{if('serviceWorker' in navigator&&location.pathname.indexOf('/local-web/http/')===0){navigator.serviceWorker.register('/local-web/sw.js',{scope:'/local-web/'}).catch(function(){})}}catch(e){}})();<\/script>`
-  if (/<\/head>/i.test(out)) {
-    out = out.replace(/<\/head>/i, `${swScript}</head>`)
-  }
   // href / src / action / poster 等根路径资源
   out = out.replace(
     /(\b(?:href|src|action|poster|data-src|data-href|data-url|formaction)\s*=\s*["'])\/(?!\/|local-web\/http\/)/gi,
@@ -391,7 +469,137 @@ function rewriteLocalHtml(html, endpoint) {
       .join(', ')
     return open + next
   })
+  // 内联脚本里的引导数据（/plugins/、/assets/）→ 加前缀
+  out = rewriteInlineScriptPaths(out, prefix)
+  // ⚠ 注入脚本必须放在**所有文本改写之后**：垫片自身也是页面文本，
+  // 先注入就会被上面的属性 / url() 正则改写。
+  // 垫片紧跟 <head> 之后（最早执行）；Service Worker 注册放 </head> 前。
+  out = injectAfterHead(out, apiShimScript(prefix))
+  if (/<\/head>/i.test(out)) out = out.replace(/<\/head>/i, `${serviceWorkerScript()}</head>`)
   return out
+}
+
+/**
+ * 改写**内联 `<script>` 正文**里的根路径资源 URL（`/plugins/`、`/assets/`）。
+ *
+ * ⚠ 为什么不能只靠 Service Worker：内联脚本里的 `<script>` 引导数据
+ * （例如 DSH 的 `globalThis.__DSH_BOOT__ = {...batches:[{url:"/plugins/??..."}]}`）
+ * 是**运行期**再去取脚本的，属性改写够不着、页面垫片也拦不住（可能是 `import()`）。
+ * 而 SW 接管存在先有鸡还是先有蛋的竞态：**首次打开时**引导数据往往早于
+ * `clients.claim()` 生效，那批 `/plugins/??...` 就会打到站点根路径上
+ * （生产站会落进 SPA fallback 返回 HTML，控制台报 `Unexpected token '<'`；
+ * 表现为首屏丢模块、"自动重连中…"或设置页空白）。
+ * 这里直接按前缀改写，从源头消除竞态。
+ *
+ * 只改 `"/plugins/`、`'/plugins/`、`` `/plugins/ `` 这类**字符串字面量开头**的地址，
+ * 不碰其它根路径字符串（前端路由字符串被改写会直接把 SPA 拆坏）。
+ */
+function rewriteInlineScriptPaths(html, prefix) {
+  return html.replace(/(<script\b[^>]*>)([\s\S]*?)(<\/script\s*>)/gi, (match, open, body, close) => {
+    if (/\bsrc\s*=/i.test(open)) return match
+    const next = body.replace(/(["'`])\/(plugins|assets)\//g, `$1${prefix}/$2/`)
+    return next === body ? match : open + next + close
+  })
+}
+
+/** 在 `<head>` 开始标签之后插入一段内联脚本（没有 `<head>` 就原样返回）。 */
+function injectAfterHead(html, snippet) {
+  const match = /<head[^>]*>/i.exec(html)
+  if (!match) return html
+  const at = match.index + match[0].length
+  return html.slice(0, at) + snippet + html.slice(at)
+}
+
+/** 注册同源 Service Worker：把页面里发往网站根路径的同源请求（例如 SPA 里
+ *  `import('/plugins/...')`、`fetch('/api/...')`）改写到当前代理前缀。 */
+function serviceWorkerScript() {
+  return `<script>(function(){try{if('serviceWorker' in navigator&&location.pathname.indexOf('/local-web/http/')===0){navigator.serviceWorker.register('/local-web/sw.js',{scope:'/local-web/'}).catch(function(){})}}catch(e){}})();<\/script>`
+}
+
+/**
+ * 注入到被代理页面最前面的 API 垫片：把 `fetch` / `XMLHttpRequest` / `WebSocket`
+ * 的目标地址改写到当前代理前缀。
+ *
+ * 为什么 SW 之外还要这个：
+ *   1. **Service Worker 拦截不到 WebSocket 握手** —— 实时通道（DSH 的
+ *      `/api/remote.mux`）只能靠改 WebSocket 构造参数指回代理前缀；
+ *   2. SW 只能在安全上下文注册（https / localhost）。站点若从局域网 `http://IP`
+ *      打开，navigator.serviceWorker 直接不存在，垫片是此时唯一的改写手段；
+ *   3. 带 body 的请求经 SW 转发要处理 `duplex` 之类的坑，页面内直接改写少一层。
+ *
+ * 只处理**同源**请求，且已带前缀的地址不重复改写：与 SW 的分工互不冲突
+ * （垫片改过的请求落到 `/local-web/...`，SW 会原样放行）。
+ *
+ * @param prefix - 当前服务的代理前缀（如 `/local-web/http/127.0.0.1:3080`）。
+ */
+function apiShimScript(prefix) {
+  return `<script>(function(){
+var PREFIX = ${JSON.stringify(prefix)};
+var ORIGIN = location.origin;
+var HOST = location.host;
+function fixPath(pathname) {
+  if (pathname.charAt(0) !== '/' || pathname.charAt(1) === '/') return pathname;
+  if (pathname === PREFIX || pathname.indexOf(PREFIX + '/') === 0) return pathname;
+  return PREFIX + pathname;
+}
+function fix(href) {
+  try {
+    var target = new URL(String(href), location.href);
+    if (target.origin !== ORIGIN) return href;
+    var pathname = fixPath(target.pathname);
+    if (pathname === target.pathname) return href;
+    target.pathname = pathname;
+    return target.href;
+  } catch (e) { return href; }
+}
+var rawFetch = window.fetch;
+if (rawFetch) {
+  window.fetch = function (input, init) {
+    try {
+      if (typeof input === 'string') return rawFetch.call(this, fix(input), init);
+      if (typeof URL !== 'undefined' && input instanceof URL) return rawFetch.call(this, fix(input.href), init);
+      if (typeof Request !== 'undefined' && input instanceof Request) {
+        var moved = fix(input.url);
+        if (moved !== input.url) return rawFetch.call(this, new Request(moved, input), init);
+      }
+    } catch (e) { /* 交给原生实现，出问题按原样发 */ }
+    return rawFetch.call(this, input, init);
+  };
+}
+var rawOpen = XMLHttpRequest.prototype.open;
+XMLHttpRequest.prototype.open = function (method, target) {
+  var args = Array.prototype.slice.call(arguments);
+  try { args[1] = fix(target); } catch (e) { /* 原样发 */ }
+  return rawOpen.apply(this, args);
+};
+var RawWebSocket = window.WebSocket;
+if (RawWebSocket) {
+  // ws:/wss: 的 URL.origin 与页面的 http(s) origin 不同，所以这里比较 host
+  var fixSocketUrl = function (address) {
+    try {
+      var target = new URL(String(address && address.url ? address.url : address), location.href);
+      if (target.host !== HOST) return address;
+      var pathname = fixPath(target.pathname);
+      if (pathname === target.pathname) return address;
+      target.pathname = pathname;
+      if (target.protocol === 'http:') target.protocol = 'ws:';
+      else if (target.protocol === 'https:') target.protocol = 'wss:';
+      return target.href;
+    } catch (e) { return address; }
+  };
+  var ProxyWebSocket = function (address, protocols) {
+    return protocols === undefined
+      ? new RawWebSocket(fixSocketUrl(address))
+      : new RawWebSocket(fixSocketUrl(address), protocols);
+  };
+  ProxyWebSocket.prototype = RawWebSocket.prototype;
+  ProxyWebSocket.CONNECTING = 0;
+  ProxyWebSocket.OPEN = 1;
+  ProxyWebSocket.CLOSING = 2;
+  ProxyWebSocket.CLOSED = 3;
+  window.WebSocket = ProxyWebSocket;
+}
+})();<\/script>`
 }
 
 function rewriteLocation(endpoint, loc) {
@@ -435,8 +643,12 @@ function rewriteSetCookie(endpoint, cookie) {
 function rewriteLocalJavaScript(js, endpoint) {
   const prefix = proxyPrefix(endpoint)
   let out = js.replace(/(\bbaseURL\s*[:=]\s*["'])\/(?!\/|local-web\/http\/)/g, `$1${prefix}/`)
-  // 只处理 /api/ 这种明确是后端接口的根路径；不碰 /dashboard、/selection 等前端路由
+  // 只处理明确的资源/接口根路径；不碰 /dashboard、/selection 等前端路由：
+  //   /api/     —— 后端接口
+  //   /plugins/、/assets/ —— 被代理服务的构建产物（动态 import / 运行时拼地址，
+  //                          例如 DSH 的 `import("/plugins/??...")`）
   out = out.replace(/(["'`])\/api\//g, `$1${prefix}/api/`)
+  out = out.replace(/(["'`])\/(plugins|assets)\//g, `$1${prefix}/$2/`)
   return out
 }
 
@@ -456,13 +668,15 @@ function handleProxy(req, res) {
 
   const target = new URL(`http://${endpoint.formatHost}:${endpoint.port}${targetPath}`)
   const headers = hopByHopHeaders(req.headers)
+  // 来源头（Origin / Referer）必须先按"站点 Host"判断再改写 —— 必须在下面
+  // `headers.host` 换成上游之前调用；改写后**不要**再从 req.headers 覆盖回来
+  // （这两个头正是"POST 恒定 403 forbidden"的成因，见 rewriteUpstreamSourceHeaders）。
+  rewriteUpstreamSourceHeaders(headers, endpoint, req.headers.host)
   headers.host = target.host
   if (req.headers['content-type']) headers['content-type'] = req.headers['content-type']
   if (req.headers['accept']) headers.accept = req.headers.accept
   if (req.headers['accept-language']) headers['accept-language'] = req.headers['accept-language']
   if (req.headers['user-agent']) headers['user-agent'] = req.headers['user-agent']
-  if (req.headers['referer']) headers.referer = req.headers.referer
-  if (req.headers.origin) headers.origin = req.headers.origin
   if (req.headers['x-requested-with']) headers['x-requested-with'] = req.headers['x-requested-with']
   /* ⚠⚠ 必须向上游声明 `Accept-Encoding: identity`。
      否则浏览器会把自己的 `accept-encoding: gzip, deflate` 透传给上游，上游就可能回
@@ -477,6 +691,19 @@ function handleProxy(req, res) {
   headers['accept-encoding'] = 'identity'
 
   const upstream = http.request(target, { method: req.method, headers }, (upRes) => {
+    /* 诊断：上游回 403 基本只有一个含义 —— 它把这条**转发过来的**请求判成了不可信
+       （同源 / CSRF / 权限栅栏）。这是最容易被误判成"代理坏了"的一类失败，所以直接
+       把代理实际发出的来源头打出来：对照 `origin` 与 `host` 一眼就能看出是不是没改写成功。
+       （401 太常见——上游自己的登录流程也会回 401——所以只记 403。） */
+    if (upRes.statusCode === 403) {
+      console.warn(
+        `[local-web] 上游 403：${req.method} ${targetPath} → ${endpoint.formatHost}:${endpoint.port}` +
+          ` | 浏览器 host=${String(req.headers.host || '-')} origin=${String(req.headers.origin || '-')}` +
+          ` referer=${String(req.headers.referer || '-')} sec-fetch-site=${String(req.headers['sec-fetch-site'] || '-')}` +
+          ` | 转发给上游 host=${String(headers.host || '-')} origin=${String(headers.origin || '-')}` +
+          ` referer=${String(headers.referer || '-')}`
+      )
+    }
     const responseHeaders = { ...upRes.headers }
     if (responseHeaders.location) {
       responseHeaders.location = rewriteLocation(endpoint, responseHeaders.location)
@@ -574,10 +801,13 @@ function handleProxy(req, res) {
     upRes.pipe(res)
   })
 
+  // 空闲超时（上游多久没吐字节才算挂死；见 UPSTREAM_TIMEOUT_MS 的注释）
   upstream.setTimeout(UPSTREAM_TIMEOUT_MS, () => {
-    upstream.destroy(new Error('upstream timeout'))
+    upstream.destroy(new Error(`upstream timeout（${Math.round(UPSTREAM_TIMEOUT_MS / 1000)}s 无响应）`))
   })
   upstream.on('error', (err) => {
+    // 浏览器已经走了（关标签页 / 前端 abort）：别再往上写响应，直接收摊
+    if (res.writableEnded || res.destroyed) return
     if (res.headersSent) {
       res.destroy(err)
       return
@@ -586,6 +816,11 @@ function handleProxy(req, res) {
       ? `无法连接 ${endpoint.formatHost}:${endpoint.port}（服务未启动或不是 HTTP 服务）`
       : `代理失败：${err?.message || '未知错误'}`
     res.status(502).json({ error: { code: 'PROXY_FAILED', message } })
+  })
+  // 客户端提前断开（用户切走 / 前端取消）→ 立刻掐掉上游请求。
+  // 超时放宽到分钟级之后，这一步是必须的：否则每条被放弃的慢请求都会占着上游连接。
+  res.on('close', () => {
+    if (!res.writableEnded) upstream.destroy(new Error('client aborted'))
   })
   req.pipe(upstream)
 }
@@ -628,16 +863,35 @@ self.addEventListener('fetch', (event) => {
     const endpoint = await findEndpoint(event);
     if (!endpoint) return fetch(event.request);
     const target = PROXY_PREFIX + endpoint + url.pathname + url.search;
+    const request = event.request;
     const init = {
-      method: event.request.method,
-      headers: event.request.headers,
-      credentials: event.request.credentials,
-      mode: event.request.mode,
-      redirect: event.request.redirect,
-      cache: event.request.cache,
+      method: request.method,
+      headers: request.headers,
+      credentials: request.credentials,
+      // mode 'navigate' 只有浏览器自己发得出来，透传会让 Request 构造直接抛错
+      mode: request.mode === 'navigate' ? 'same-origin' : request.mode,
+      redirect: request.redirect,
+      cache: request.cache,
     };
-    if (event.request.method !== 'GET' && event.request.method !== 'HEAD') init.body = event.request.body;
-    return fetch(new Request(target, init));
+    if (request.referrer) init.referrer = request.referrer;
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      /* ⚠⚠ 带 body 的转发必须声明 duplex:'half'。
+         带流式 body（POST 的 JSON / 表单）的 Request 在缺少 duplex 时
+         **构造函数本身就抛 TypeError**，于是 respondWith 的 Promise 被拒，
+         页面侧只看到一句 "Failed to fetch"（网络错误），而 GET 一律正常 ——
+         这正是"页面能打开、样式脚本都在，一到调 API 就 Failed to fetch"的原因。
+         浏览器不支持 duplex 时按"先带、失败再去掉"兜底重试。 */
+      init.body = request.body;
+      init.duplex = 'half';
+    }
+    try {
+      return await fetch(new Request(target, init));
+    } catch (error) {
+      if (init.duplex === undefined) throw error;
+      const retry = Object.assign({}, init);
+      delete retry.duplex;
+      return await fetch(new Request(target, retry));
+    }
   })());
 });
 `)
@@ -645,5 +899,185 @@ self.addEventListener('fetch', (event) => {
 
 proxyRouter.all('/http/:endpoint', localWebAuth, handleProxy)
 proxyRouter.all('/http/:endpoint/*splat', localWebAuth, handleProxy)
+
+/* -------------------- WebSocket / 协议升级代理 -------------------- */
+//
+// 只做 HTTP 反向代理是不够的：SPA 的实时通道（例如 DSH Web GUI 的
+// `/api/remote.mux`）是 WebSocket。而 **Service Worker 无法拦截 WebSocket 握手**，
+// 所以这条链路只能两头补：页面里把 WS 目标改写到代理前缀（见 apiShimScript），
+// 服务端在 HTTP `upgrade` 事件上把它转给上游。
+// 不补的后果很好认：页面能打开、按钮能点，但"自动重连中…"永远转圈，
+// 会话列表/流式输出/设置同步全部停在加载态。
+
+const UPGRADE_MARKER = '/local-web/http/'
+const UPGRADE_CONNECT_TIMEOUT_MS = 10000
+
+/** 给原始 socket 回一条完整的 HTTP 响应（升级失败/拒绝时用）。 */
+function endSocketWith(socket, status, message) {
+  const body = Buffer.from(message, 'utf8')
+  try {
+    socket.end(
+      `HTTP/1.1 ${status}\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\n` +
+        `Content-Length: ${body.length}\r\n\r\n${message}`
+    )
+  } catch {
+    socket.destroy()
+  }
+}
+
+/** 升级请求的鉴权：与 localWebAuth 同源（Cookie 优先，其次 `?token=`）。 */
+function upgradeAuthorized(req) {
+  let token = readCookie(req, COOKIE_NAME)
+  if (!token) {
+    try {
+      token = new URL(String(req.url || ''), 'http://localhost').searchParams.get('token') || ''
+    } catch {
+      token = ''
+    }
+  }
+  try {
+    const payload = jwt.verify(token, JWT_SECRET)
+    return payload?.role === 'admin' && payload?.purpose === 'local-web' && payload?.v === 2
+  } catch {
+    return false
+  }
+}
+
+/** 把上游 101 / 拒绝响应里除逐跳头以外的元素原样搬给浏览器。
+ *  `Connection` / `Upgrade` 是升级语义本身，必须保留。 */
+function rawUpgradeHead(statusLine, rawHeaders, drop) {
+  const lines = [statusLine]
+  for (let i = 0; i < rawHeaders.length; i += 2) {
+    const name = String(rawHeaders[i])
+    if (drop?.has(name.toLowerCase())) continue
+    lines.push(`${name}: ${rawHeaders[i + 1]}`)
+  }
+  return `${lines.join('\r\n')}\r\n\r\n`
+}
+
+/**
+ * 处理 `/local-web/http/<host:port>/...` 上的 HTTP 升级（WebSocket）请求。
+ *
+ * 由 `server.on('upgrade')` 调用，必须**早于**控制台 WS 的处理器注册：
+ * `attachConsoleSocket()` 对非 `/ws/console` 的路径一律 `socket.destroy()`。
+ *
+ * @param req - 升级请求。
+ * @param socket - 客户端原始 socket（本函数返回 true 时归本函数所有）。
+ * @param head - 已从客户端读出、但还没解析的部分（必须转给上游）。
+ * @returns 是否接管了这条连接（false = 不是本地 Web 代理的路径，交给其它处理器）。
+ */
+export function localWebUpgrade(req, socket, head) {
+  const rawUrl = String(req.url || '')
+  if (!rawUrl.startsWith(UPGRADE_MARKER)) return false
+
+  /* ⚠⚠ 接管 socket 后必须**立刻**挂上 error 监听。
+     原始 socket 在握手 / 转发期间被对端 reset 是常态（浏览器切标签页、握手被拒后
+     直接关连接），而 'error' 事件没有监听器时会以 uncaughtException 的形式
+     **把整个 Node 进程带走** —— 实测一次被拒的 WebSocket 就能让服务端整体退出。 */
+  socket.on('error', () => socket.destroy())
+
+  if (!upgradeAuthorized(req)) {
+    endSocketWith(socket, '401 Unauthorized', 'AniHub 本地 Web 代理：登录已失效。请回到“控制台 → 本地 Web”，刷新授权后重新打开。')
+    return true
+  }
+
+  let url
+  try {
+    url = new URL(rawUrl, 'http://localhost')
+  } catch {
+    endSocketWith(socket, '400 Bad Request', 'INVALID_URL')
+    return true
+  }
+  const rest = url.pathname.slice(UPGRADE_MARKER.length)
+  const slash = rest.indexOf('/')
+  const endpoint = parseEndpoint(slash < 0 ? rest : rest.slice(0, slash))
+  if (!endpoint) {
+    endSocketWith(socket, '400 Bad Request', '仅支持访问本机回环地址（localhost / 127.0.0.1 / [::1]）')
+    return true
+  }
+  const targetPath = `${slash < 0 ? '/' : rest.slice(slash)}${url.search}`
+
+  const headers = { ...req.headers }
+  delete headers.host
+  delete headers['proxy-connection']
+  delete headers['keep-alive']
+  delete headers.te
+  delete headers.trailer
+  delete headers['transfer-encoding']
+  delete headers['proxy-authenticate']
+  delete headers['proxy-authorization']
+  // `connection: Upgrade` 与 `upgrade: websocket` 留着 —— 它们就是升级语义本身
+  const cookie = upstreamCookieHeader(headers.cookie)
+  if (cookie) headers.cookie = cookie
+  else delete headers.cookie
+  rewriteUpstreamSourceHeaders(headers, endpoint, req.headers.host)
+  headers.host = `${endpoint.formatHost}:${endpoint.port}`
+
+  const upstream = http.request({
+    host: endpoint.host,
+    port: endpoint.port,
+    method: req.method || 'GET',
+    path: targetPath,
+    headers,
+    agent: false, // 升级连接不复用连接池
+  })
+
+  let settled = false
+  const connectTimer = setTimeout(() => upstream.destroy(new Error('upstream timeout')), UPGRADE_CONNECT_TIMEOUT_MS)
+  connectTimer.unref?.()
+  const finish = () => {
+    settled = true
+    clearTimeout(connectTimer)
+  }
+
+  upstream.on('upgrade', (upRes, upSocket, upHead) => {
+    finish()
+    socket.write(rawUpgradeHead(
+      `HTTP/1.1 ${upRes.statusCode} ${upRes.statusMessage || 'Switching Protocols'}`,
+      upRes.rawHeaders,
+    ))
+    if (upHead?.length) socket.write(upHead)
+    if (head?.length) upSocket.write(head)
+    const teardown = () => {
+      upSocket.destroy()
+      socket.destroy()
+    }
+    socket.on('error', teardown)
+    upSocket.on('error', teardown)
+    socket.on('close', () => upSocket.destroy())
+    upSocket.on('close', () => socket.destroy())
+    upSocket.pipe(socket)
+    socket.pipe(upSocket)
+  })
+
+  // 上游拒绝升级（例如 401/403/404）时会走普通响应：把状态与正文如实透传
+  upstream.on('response', (upRes) => {
+    finish()
+    /* ⚠ `content-length` / `transfer-encoding` 描述的就是下面要**原样 pipe** 的字节，
+       必须保留：这里写的是裸 socket，不是 ServerResponse，Node 不会替我们重新分块；
+       丢掉 `transfer-encoding: chunked` 会得到一条帧格式对不上的残响应。
+       只去掉 connection/keep-alive，并在末尾显式声明关闭本连接。 */
+    socket.write(rawUpgradeHead(
+      `HTTP/1.1 ${upRes.statusCode} ${upRes.statusMessage || ''}`,
+      [...upRes.rawHeaders, 'Connection', 'close'],
+      new Set(['connection', 'keep-alive']),
+    ))
+    upRes.on('error', () => socket.destroy())
+    upRes.on('end', () => socket.end())
+    upRes.pipe(socket)
+  })
+
+  upstream.on('error', (err) => {
+    if (settled) return
+    finish()
+    const message = err?.code === 'ECONNREFUSED'
+      ? `无法连接 ${endpoint.formatHost}:${endpoint.port}（服务未启动或不是 HTTP 服务）`
+      : `代理失败：${err?.message || '未知错误'}`
+    endSocketWith(socket, '502 Bad Gateway', message)
+  })
+
+  upstream.end()
+  return true
+}
 
 export { apiRouter as default, proxyRouter }
