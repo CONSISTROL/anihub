@@ -323,7 +323,11 @@ function hopByHopHeaders(headers) {
   const cookie = upstreamCookieHeader(headers.cookie)
   if (cookie) out.cookie = cookie
   else delete out.cookie
-  delete out.authorization
+  // ⚠⚠ `Authorization` 不能删：它**不是**逐跳头。上游用 Bearer 令牌做会话的
+  // 服务（实测 SnowLuma WebUI，本机 5099）登录请求本身不需要令牌、能过，
+  // 但登录成功后所有带 `Authorization: Bearer <token>` 的接口在代理后面恒定 401 ——
+  // 浏览器侧表现为"密码没错、点了进入控制台却死活不跳转"。
+  // 代理自己的授权走 Cookie（anihub_local_web）/ `?token=`，与这个头无关，原样透传即可。
   delete out.connection
   delete out['proxy-connection']
   delete out['keep-alive']
