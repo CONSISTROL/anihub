@@ -715,7 +715,7 @@ function rewriteSetCookie(endpoint, cookie) {
  *  2. 动态拼接的 /api/reports/xxx、/api/jobs/xxx 等字符串
  *  3. 把**服务自身地址**写死的字符串（`http://127.0.0.1:<port>/…`）
  *  不能把所有根路径字符串都改写，否则会破坏前端路由字符串。 */
-function rewriteLocalJavaScript(js, endpoint) {
+function rewriteLocalJavaScript(js, endpoint, browserPrefix) {
   const prefix = proxyPrefix(endpoint)
   let out = js.replace(/(\bbaseURL\s*[:=]\s*["'])\/(?!\/|local-web\/http\/)/g, `$1${prefix}/`)
   // 只处理明确的资源/接口根路径；不碰 /dashboard、/selection 等前端路由：
@@ -727,7 +727,52 @@ function rewriteLocalJavaScript(js, endpoint) {
   // 服务把自身地址写成绝对 URL（含 token 类的服务很常见）→ 前缀路径。
   // ws(s) 的绝对地址留给页面垫片在运行期处理（静态文本里改协议会把 URL 弄坏）。
   out = out.replace(upstreamAbsoluteUrlPattern(endpoint, 'https?'), prefix)
-  return out
+  // 最后再注入 SPA 路由 basepath：必须排在其它文本改写之后，
+  // 免得刚注入的前缀又被上面的根路径正则再改写一遍。
+  return injectSpaRouterBasepath(out, browserPrefix || prefix)
+}
+
+/**
+ * 给「自己按 `location.pathname` 匹配路由」的 SPA 注入路由 basepath。
+ *
+ * ⚠⚠ 为什么注入的 `<base href>` 救不了这类 SPA：`<base>` 只影响**相对 URL 解析**，
+ * 而 TanStack Router 直接读 `window.location.pathname`（SnowLuma 的 bundle 里没有任何
+ * 读取 `baseURI` / `<base>` 的代码，`createRouter({...})` 也没传 `basepath`）。
+ * 于是服务挂到 `/local-web/http/<endpoint>` 前缀下时，路由器把前缀当成路由路径，
+ * 匹配不到任何路由 → 渲染它自己的 `defaultNotFoundComponent`。
+ * 实测表现（SnowLuma 控制台，`127.0.0.1:5099`）：密码校验通过、登录请求 200，
+ * 一进控制台却是它前端的「页面不存在 404」，而服务器侧全程 200（nginx 访问日志里
+ * 一条 404 都没有）—— 极容易被误判成"代理把页面搞坏了"。
+ *
+ * 这里只做一件极窄的事：在 `defaultPreload:`intent``（TanStack Router 应用的典型
+ * 选项，SnowLuma 打包产物里唯一一处）前面补一个 `basepath:"<前缀>"`。
+ * 该选项会被库翻译成一条 rewrite（`Bn`）：读 location 时**剥掉**前缀（路径恰好等于
+ * 前缀则视为 `/`），生成 href 时再**拼回**前缀 —— 路由匹配、刷新、深链因此全部
+ * 落回代理前缀内，不依赖任何前端改造。
+ *
+ * ⚠ 这是按上游打包产物做的窄匹配：SnowLuma 升级后 minify 结果变了就可能失配，
+ * 失配时这里保持原样（页面会再次前端 404），所以下面会打日志，便于一眼定位。
+ *
+ * @param js - 已完成其它改写、即将发给浏览器的 JS 文本。
+ * @param prefix - 浏览器地址栏里实际使用的前缀（`/local-web/http/<endpoint>`）。
+ */
+const TANSTACK_ROUTER_OPTIONS_RE = /defaultPreload\s*:\s*`intent`/
+
+function injectSpaRouterBasepath(js, prefix) {
+  if (!TANSTACK_ROUTER_OPTIONS_RE.test(js)) {
+    // 自检：认得出是 TanStack Router 应用却没匹配到注入点 → 大概率是上游升级换了产物
+    if (/defaultNotFoundComponent/.test(js)) {
+      console.warn(
+        '[local-web] JS 里出现 TanStack Router 的 defaultNotFoundComponent，但没匹配到 defaultPreload 选项：' +
+          `basepath=${prefix} 未注入（上游可能已升级，请更新注入规则），页面可能再次出现前端 404`
+      )
+    }
+    return js
+  }
+  const inject = `basepath:${JSON.stringify(prefix)},defaultPreload:\`intent\``
+  if (js.includes(inject)) return js
+  console.info(`[local-web] 已为上游 JS 注入 SPA 路由 basepath=${prefix}（TanStack Router）`)
+  return js.replace(new RegExp(TANSTACK_ROUTER_OPTIONS_RE.source, 'g'), inject)
 }
 
 function handleProxy(req, res) {
@@ -866,7 +911,7 @@ function handleProxy(req, res) {
       upRes.on('end', () => {
         if (overflowed) return res.end()
         let body = Buffer.concat(chunks).toString('utf8')
-        body = rewriteLocalJavaScript(body, endpoint)
+        body = rewriteLocalJavaScript(body, endpoint, marker)
         delete responseHeaders['content-length']
         responseHeaders['content-length'] = Buffer.byteLength(body)
         res.writeHead(upRes.statusCode || 200, responseHeaders)
