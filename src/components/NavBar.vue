@@ -12,9 +12,52 @@ const { isLoggedIn, isInsider, user, clearSession, exitInsider } = useAuth()
 const settings = useSettings()
 settings.load() // 预加载可见页面（单例，守卫/主页共用）
 
-// 内部身份卡片：CSS 负责悬停/聚焦的视觉，这里只跟进展开状态，
-// 让 aria-expanded 与实际一致，并支持触屏（click 切换）。
-const insiderOpen = ref(false)
+// —— 内部身份卡片：展开状态**只由 JS 决定**，样式里不再有任何 :hover / :focus-within 展开规则 ——
+// 原因与品牌抽屉（见 .brand-wrap 的说明）是同一个坑：只要样式里还留着 `:hover` 展开，
+// 指针停在头像上时"点击收起"就会被 `:hover` 立刻盖回去 —— 表现为点了没反应。
+// 所以把"悬停 / 聚焦"也交给 JS，由下面三个状态算出唯一真值 insiderOpen：
+//   insiderHover     指针悬停 或 键盘聚焦（Tab 到头像）时的临时展开
+//   insiderPinned    点击头像后的固定展开（触屏没有真正的悬停，全靠它）
+//   insiderDismissed "这一轮悬停/聚焦里已被点击收起"，用来挡住悬停的自动展开，
+//                    否则收起后会立刻被弹回来；指针/焦点离开时清空，下次悬停照常展开。
+const insiderHover = ref(false)
+const insiderPinned = ref(false)
+const insiderDismissed = ref(false)
+const insiderOpen = computed(() => insiderPinned.value || (insiderHover.value && !insiderDismissed.value))
+
+// 悬停 / 聚焦进入：清掉上一轮的"点击收起"否决 —— 重新聚焦头像时应当还能看到卡片
+function onInsiderEnter() {
+  insiderHover.value = true
+  insiderDismissed.value = false
+}
+
+// 指针 / 焦点离开：临时展开归零；否决一并清空，下次悬停重新展开
+function onInsiderLeave() {
+  insiderHover.value = false
+  insiderDismissed.value = false
+}
+
+// 点击头像：展开 → 收起；收起 → 固定展开
+// ⚠ 判断"当前是不是展开"，**不能**只看 insiderOpen：触摸/笔在部分浏览器里
+//    点一下会先走一次 pointerenter（悬停态），若照"鼠标悬停中"处理，
+//    第一次点就会被解析成"收起"（卡片闪一下、看起来点不开）。
+//    所以触屏的首击一律按"展开并固定"处理，收起只由 insiderPinned 决定。
+function toggleInsider(ev) {
+  if (insiderPinned.value) return closeInsider() // 已固定展开（触屏点开的）→ 收起
+  const touch = ev?.pointerType === 'touch' || ev?.pointerType === 'pen'
+  // 鼠标悬停 / 键盘聚焦中，且这一轮还没被点收起过 → 收起
+  // （dismissed 已为 true 说明上一击刚收起过：再点就该重新展开，否则"收起后原地再点"会没反应）
+  if (insiderHover.value && !insiderDismissed.value && !touch) return closeInsider()
+  insiderPinned.value = true
+  insiderDismissed.value = false
+}
+
+// 卡片内条目点完（跳转 / 退出）收起卡片。
+// 这里也要置 dismissed：指针大概率还停在卡片上，不挡住悬停就会立刻弹回来。
+function closeInsider() {
+  insiderPinned.value = false
+  insiderDismissed.value = true
+}
 
 const router = useRouter()
 const route = useRoute()
@@ -212,8 +255,10 @@ onUnmounted(() => {
         </button>
         <!-- 身份入口：**匿名模式与管理员都用同一个头像 + 悬停浮出卡片**。
              顶栏只见一个圆形头像；鼠标移上去头像向左下放大、下方浮出卡片，
-             与 B 站头像的交互一致。键盘 Tab 聚焦也能展开（:focus-within），
-             触屏点击同样可展开（见 insiderOpen 的 click 切换）。
+             与 B 站头像的交互一致。键盘 Tab 聚焦也能展开（JS 的 focusin），
+             触屏点击同样可展开（见 toggleInsider）。
+             ⚠ 展开态**只认 .open**（由 insiderOpen 算出），样式里没有 :hover 展开规则 ——
+               否则"悬停时点一下头像收起"会被 :hover 盖回去（用户反馈的"点了没反应"）。
              卡片内容按身份分：
                · 管理员：控制台 / 设置 / 退出（原先这三个按钮直接摊在顶栏上）
                · 匿名模式：匿名模式标题 + 退出内部模式
@@ -223,8 +268,10 @@ onUnmounted(() => {
           v-if="isLoggedIn || (isInsider && !isLoggedIn)"
           class="insider-wrap"
           :class="{ open: insiderOpen, 'is-admin': isLoggedIn }"
-          @pointerenter="insiderOpen = true"
-          @pointerleave="insiderOpen = false"
+          @pointerenter="onInsiderEnter"
+          @pointerleave="onInsiderLeave"
+          @focusin="onInsiderEnter"
+          @focusout="onInsiderLeave"
         >
           <button
             type="button"
@@ -232,7 +279,7 @@ onUnmounted(() => {
             :aria-label="isLoggedIn ? '账户菜单' : '匿名模式'"
             aria-haspopup="true"
             :aria-expanded="insiderOpen ? 'true' : 'false'"
-            @click="insiderOpen = !insiderOpen"
+            @click="toggleInsider"
           >
             <img src="/insider.webp" class="insider-avatar" alt="" />
           </button>
@@ -243,13 +290,13 @@ onUnmounted(() => {
           >
             <!-- 管理员：控制台 / 设置 / 退出 -->
             <template v-if="isLoggedIn">
-              <router-link to="/console" class="ic-item" @click="insiderOpen = false">
+              <router-link to="/console" class="ic-item" @click="closeInsider">
                 <AppIcon name="terminal" :size="13" /> 控制台
               </router-link>
-              <router-link to="/settings" class="ic-item" @click="insiderOpen = false">
+              <router-link to="/settings" class="ic-item" @click="closeInsider">
                 <AppIcon name="gear" :size="13" /> 设置
               </router-link>
-              <button type="button" class="ic-item" @click="clearSession">
+              <button type="button" class="ic-item" @click="closeInsider(); clearSession()">
                 <AppIcon name="x" :size="13" /> 退出
               </button>
               <p v-if="WELCOME" class="ic-version">{{ WELCOME }}</p>
@@ -525,7 +572,10 @@ onUnmounted(() => {
      1) 悬停时头像**放大并浮到卡片之上**（z-index / scale），形成"从顶栏探出来"的层次
      2) 卡片与头像**在几何上相连**（卡片 top 略微高于头像底边），
         否则鼠标从头像移到卡片途中会经过一段空隙，卡片会闪一下消失
-   另外用 :focus-within 让键盘 Tab 也能展开（纯 :hover 对键盘不可达）。 */
+   ⚠ 展开态**只认 .open**（JS 算出的 insiderOpen），样式里没有 :hover / :focus-within 规则：
+     留着 `:hover` 的话，指针停在头像上时"点击头像收起"会被它立刻盖回去（用户反馈的"点了没反应"）。
+     键盘可达性没有因此丢失 —— 聚焦由 @focusin 换成 .open，见 script 里的说明。
+     这与品牌抽屉（.brand-wrap）是同一个坑，别再加回来。 */
 .insider-wrap {
   position: relative;
   display: inline-flex;
@@ -578,9 +628,7 @@ onUnmounted(() => {
     box-shadow var(--dur-ios-2) var(--ease-ios-expo);
 }
 
-/* 悬停 / 聚焦 / 点击展开（.open 供触屏使用）：头像向左下方向变大 */
-.insider-wrap:hover .insider-avatar,
-.insider-wrap:focus-within .insider-avatar,
+/* 展开态（.open = 悬停 / 聚焦 / 点击固定）：头像向左下方向变大 */
 .insider-wrap.open .insider-avatar {
   transform: scale(1.55);
   border-color: #c9821a;
@@ -640,8 +688,6 @@ onUnmounted(() => {
     visibility 0s linear var(--dur-ios-2);
 }
 
-.insider-wrap:hover .insider-card,
-.insider-wrap:focus-within .insider-card,
 .insider-wrap.open .insider-card {
   opacity: 1;
   visibility: visible;
@@ -746,8 +792,6 @@ onUnmounted(() => {
   border-color: color-mix(in srgb, var(--accent) 62%, transparent);
 }
 
-.insider-wrap.is-admin:hover .insider-avatar,
-.insider-wrap.is-admin:focus-within .insider-avatar,
 .insider-wrap.is-admin.open .insider-avatar {
   border-color: var(--accent);
 }
@@ -760,8 +804,6 @@ onUnmounted(() => {
     transform: translateY(-6px) scale(0.94);
     transform-origin: top right;
   }
-  .insider-wrap:hover .insider-card,
-  .insider-wrap:focus-within .insider-card,
   .insider-wrap.open .insider-card {
     transform: translateY(0) scale(1);
   }
