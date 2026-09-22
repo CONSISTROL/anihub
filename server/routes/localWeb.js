@@ -215,7 +215,223 @@ async function scanListeners() {
       current: Number(port) === Number(PORT),
     }
   })
-  return services
+  // 扫描只负责回答"有谁在监听"；"这是谁"交给识别层，识别失败也不影响端口列表本身
+  return identifyServices(services)
+}
+
+/* -------------------- 服务识别：把端口补成人类可读的名称 -------------------- */
+
+/**
+ * 端口扫描只能给出"有谁在监听"，给不出"这是谁"。识别层要在**不使用任何提权**的前提下
+ * 尽量补上名称——服务进程以 anihub 普通用户运行，读不到别人的 `/proc/<pid>/fd`，
+ * 也连不上 `docker.sock`，所以拿不到"端口 → 进程名"，只能靠服务自己对外暴露的信息：
+ *
+ *   1. 本站端口直接标注
+ *   2. HTTP 探测（`GET /`）：状态码 2xx 时取 `<title>` —— 这是最像"服务名"的东西
+ *      （实测 5099 → "SnowLuma 控制台"、6081 → "noVNC"、3001 → "AniHub"）
+ *   3. 其次取响应头 `Server`（80/443 → nginx、6081 → WebSockify）
+ *   4. 确认不是 HTTP 的端口查常见端口表（22 → SSH、53 → DNS…），且**不去探测**
+ *   5. 是 HTTP 但没自报家门（401/404 之类）按状态码给个中性描述
+ *   6. `docker-proxy` 的端口映射读 `/proc/<pid>/cmdline` 就能拿到（cmdline 对所有
+ *      用户可读，只有 `/proc/<pid>/fd` 才是受限的），用来提示"这端口其实是容器映射"
+ *
+ * 注意：这里刻意不用 `sudo ss -tlnp` 之类的做法。虽然部署脚本给了 anihub 免密 sudo，
+ * 但项目里只有 upgrade.js 在管理员**显式输入密码**后才用 sudo；给端口扫描这种普通
+ * 只读操作默默提权，与既有做法不一致，不值得。
+ */
+
+/** HTTP 探测参数：本机回环，1.5s 足够；只读前 16KB（<title> 在 <head> 里） */
+const PROBE_TIMEOUT_MS = 1500
+const PROBE_MAX_BYTES = 16384
+const PROBE_CONCURRENCY = 8
+
+/** 确定不是 HTTP 的常见端口：直接命名，且**不探测**（避免往 SSH / 数据库 / DNS 灌 HTTP 请求） */
+const NON_HTTP_PORTS = new Map([
+  [21, 'FTP'],
+  [22, 'SSH'],
+  [23, 'Telnet'],
+  [25, 'SMTP'],
+  [53, 'DNS'],
+  [110, 'POP3'],
+  [143, 'IMAP'],
+  [445, 'SMB'],
+  [3306, 'MySQL'],
+  [5432, 'PostgreSQL'],
+  [6379, 'Redis'],
+  [11211, 'Memcached'],
+  [27017, 'MongoDB'],
+])
+
+/** 对单个回环端口做一次极短的 HTTP 探测；任何错误都当成"不是 HTTP 服务" */
+function probeHttp(host, port) {
+  return new Promise((resolve) => {
+    let settled = false
+    const done = (v) => {
+      if (!settled) {
+        settled = true
+        resolve(v)
+      }
+    }
+    const okResult = (res, chunks) => ({
+      ok: true,
+      status: res.statusCode || 0,
+      headers: res.headers || {},
+      body: Buffer.concat(chunks).toString('utf8'),
+    })
+    try {
+      const req = http.request(
+        {
+          host: String(host).replace(/^\[|\]$/g, ''), // [::1] → ::1，交给 http 自己解析
+          port: Number(port),
+          path: '/',
+          method: 'GET',
+          headers: { connection: 'close', 'user-agent': 'anihub-localweb-scan' },
+        },
+        (res) => {
+          const chunks = []
+          let size = 0
+          res.on('data', (chunk) => {
+            if (size < PROBE_MAX_BYTES) {
+              chunks.push(chunk)
+              size += chunk.length
+            }
+            // 够读到 <title> 了，主动断开，别把大文件整个拖下来
+            if (size >= PROBE_MAX_BYTES) {
+              done(okResult(res, chunks))
+              req.destroy()
+            }
+          })
+          res.on('end', () => done(okResult(res, chunks)))
+          res.on('error', () => done(okResult(res, chunks)))
+        }
+      )
+      req.setTimeout(PROBE_TIMEOUT_MS, () => req.destroy())
+      req.on('error', () => done({ ok: false }))
+      req.end()
+    } catch {
+      done({ ok: false })
+    }
+  })
+}
+
+/** 从 HTML 取 <title>；明显是错误页文案的标题不算服务名 */
+function extractTitle(html) {
+  const m = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(String(html || ''))
+  if (!m) return null
+  const title = m[1]
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!title || title.length > 60) return null
+  if (/^\d{3}\b/.test(title)) return null // "301 Moved Permanently" / "404 Not Found"
+  if (/moved permanently|bad request|not found|unauthorized|forbidden|bad gateway|service unavailable|internal server error/i.test(title)) {
+    return null
+  }
+  return title
+}
+
+/** `nginx/1.24.0 (Ubuntu)` → `nginx`；`WebSockify Python/3.11.2` → `WebSockify` */
+function cleanServerName(server) {
+  const first = String(server || '').trim().split(/\s+/)[0]
+  if (!first) return null
+  return first.split('/')[0].trim() || null
+}
+
+/** HTTP 但没自报家门时的中性描述：至少让管理员知道"点开是不是能用" */
+function describeHttpStatus(status) {
+  if (status === 426) return 'WebSocket 服务'
+  if (status === 401 || status === 403) return 'HTTP 服务（需登录）'
+  if (status >= 300 && status < 400) return 'HTTP 跳转'
+  return 'HTTP 服务'
+}
+
+/** 从 docker-proxy 的 cmdline 反查"宿主端口 → 容器地址"（cmdline 对所有用户可读，无需提权） */
+function readDockerPortMap() {
+  const map = new Map()
+  let pids = []
+  try {
+    pids = fs.readdirSync('/proc').filter((n) => /^\d+$/.test(n))
+  } catch {
+    return map
+  }
+  for (const pid of pids) {
+    let cmd = ''
+    try {
+      cmd = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').replace(/\0/g, ' ')
+    } catch {
+      continue // 进程刚好退出或不可读，跳过
+    }
+    if (!cmd.includes('docker-proxy')) continue
+    const hostPort = /-host-port\s+(\d+)/.exec(cmd)
+    if (!hostPort) continue
+    map.set(Number(hostPort[1]), {
+      containerIp: (/-container-ip\s+(\S+)/.exec(cmd) || [])[1] || null,
+      containerPort: Number((/-container-port\s+(\d+)/.exec(cmd) || [])[1]) || null,
+    })
+  }
+  return map
+}
+
+/** 限制并发地跑一批异步任务（端口多时不至于一次开几百个 socket） */
+async function runWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length)
+  let next = 0
+  const runnerCount = Math.max(1, Math.min(limit, items.length))
+  await Promise.all(
+    Array.from({ length: runnerCount }, async () => {
+      for (;;) {
+        const i = next++
+        if (i >= items.length) return
+        results[i] = await worker(items[i], i)
+      }
+    })
+  )
+  return results
+}
+
+async function identifyServices(services) {
+  const dockerMap = readDockerPortMap()
+  const probes = await runWithConcurrency(services, PROBE_CONCURRENCY, (service) => {
+    // 本站端口和非 HTTP 端口不探测
+    if (service.current || NON_HTTP_PORTS.has(Number(service.port))) return Promise.resolve({ ok: false })
+    return probeHttp(service.host, service.port)
+  })
+
+  return services.map((service, i) => {
+    const probe = probes[i] || { ok: false }
+    const docker = dockerMap.get(Number(service.port)) || null
+    const known = NON_HTTP_PORTS.get(Number(service.port))
+    let name = null
+    const notes = []
+
+    if (service.current) {
+      name = 'AniHub · 本站'
+    } else if (known) {
+      name = known
+      notes.push('非 HTTP 端口')
+    } else if (probe.ok) {
+      // 只有 2xx 才把 <title> 当名字：错误页的标题（"需要令牌"之类）不是服务名
+      const title = probe.status >= 200 && probe.status < 300 ? extractTitle(probe.body) : null
+      const server = cleanServerName(probe.headers.server)
+      name = title || server
+      notes.push(`HTTP ${probe.status}`)
+      if (title && server && title !== server) notes.push(server)
+      if (!name) name = describeHttpStatus(probe.status)
+    } else {
+      notes.push('非 HTTP 端口')
+    }
+
+    if (docker) {
+      const target = `${docker.containerIp || '容器'}${docker.containerPort ? `:${docker.containerPort}` : ''}`
+      notes.push(`Docker 映射 → ${target}`)
+    }
+
+    return { ...service, name, note: notes.join(' · ') || null }
+  })
 }
 
 async function getServices(force = false) {

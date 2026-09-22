@@ -168,13 +168,20 @@ onMounted(() => {
       <h3 class="lw-title">本机监听的 TCP 端口</h3>
       <p class="lw-tip">
         列表来自本机监听端口扫描，包含数据库 / SSH 等非 Web 服务；点击后如显示“无法连接”说明该端口不是可访问的 HTTP 服务。
+        名称优先取服务自己的页面标题（<code>&lt;title&gt;</code>）或 <code>Server</code> 响应头，取不到时按端口与 HTTP 状态码推断。
       </p>
       <div class="lw-grid">
-        <button v-for="s in services" :key="s.id" class="lw-service" :title="`打开 http://${s.endpoint}/`" @click="openService(s)">
+        <button
+          v-for="s in services"
+          :key="s.id"
+          class="lw-service"
+          :title="s.note ? `打开 http://${s.endpoint}/ —— ${s.note}` : `打开 http://${s.endpoint}/`"
+          @click="openService(s)"
+        >
           <span class="lw-service-icon"><AppIcon name="globe" :size="15" /></span>
           <span class="lw-service-main">
             <span class="lw-service-name"><code>{{ s.endpoint }}</code></span>
-            <span class="lw-service-meta">{{ s.current ? 'AniHub · 本站' : '本地监听服务' }}</span>
+            <span class="lw-service-meta">{{ s.name || '本地监听服务' }}</span>
           </span>
           <span class="lw-service-open"><AppIcon name="external-link" :size="13" /></span>
         </button>
